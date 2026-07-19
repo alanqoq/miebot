@@ -1,0 +1,5 @@
+{
+  "type": "SQLITE",
+  "sqlitePath": "/data/qqbot.db",
+  "busyTimeoutMs": 5000
+}

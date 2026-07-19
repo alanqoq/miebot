@@ -1,0 +1,7 @@
+{
+  "code": 11241,
+  "message": "credentials rejected with remote-sensitive-detail",
+  "future_error_metadata": {
+    "request_id": "ignored"
+  }
+}

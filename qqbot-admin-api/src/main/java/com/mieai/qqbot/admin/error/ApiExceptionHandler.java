@@ -1,0 +1,149 @@
+package com.mieai.qqbot.admin.error;
+
+import com.mieai.qqbot.persistence.bot.OptimisticLockException;
+import com.mieai.qqbot.admin.database.DatabaseAdministrationException;
+import com.mieai.qqbot.admin.onboarding.OnboardingOperationException;
+import com.mieai.qqbot.admin.plugins.PluginAdministrationException;
+import com.mieai.qqbot.admin.security.AdminAlreadyConfiguredException;
+import com.mieai.qqbot.admin.security.InvalidAdminCredentialsException;
+import com.mieai.qqbot.admin.security.InvalidCurrentPasswordException;
+import com.mieai.qqbot.admin.security.LoginThrottledException;
+import com.mieai.qqbot.runtime.configuration.BotNotFoundException;
+import com.mieai.qqbot.runtime.security.KeyUnavailableException;
+import java.time.Instant;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.NoSuchElementException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.validation.FieldError;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+
+@RestControllerAdvice
+public class ApiExceptionHandler {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(ApiExceptionHandler.class);
+
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    ResponseEntity<ApiErrorResponse> validation(MethodArgumentNotValidException exception) {
+        Map<String, String> fields = new LinkedHashMap<>();
+        for (FieldError error : exception.getBindingResult().getFieldErrors()) {
+            fields.putIfAbsent(error.getField(), error.getDefaultMessage());
+        }
+        return response(HttpStatus.BAD_REQUEST, "VALIDATION_FAILED", "Request validation failed", fields);
+    }
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    ResponseEntity<ApiErrorResponse> badRequest(IllegalArgumentException exception) {
+        return response(HttpStatus.BAD_REQUEST, "INVALID_REQUEST", exception.getMessage(), Map.of());
+    }
+
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    ResponseEntity<ApiErrorResponse> unreadableBody() {
+        return response(HttpStatus.BAD_REQUEST, "INVALID_JSON", "Malformed JSON request", Map.of());
+    }
+
+    @ExceptionHandler({NoSuchElementException.class, BotNotFoundException.class})
+    ResponseEntity<ApiErrorResponse> notFound(RuntimeException exception) {
+        return response(HttpStatus.NOT_FOUND, "NOT_FOUND", exception.getMessage(), Map.of());
+    }
+
+    @ExceptionHandler(OptimisticLockException.class)
+    ResponseEntity<ApiErrorResponse> conflict(OptimisticLockException exception) {
+        return response(HttpStatus.CONFLICT, "REVISION_CONFLICT", exception.getMessage(), Map.of());
+    }
+
+    @ExceptionHandler(AdminAlreadyConfiguredException.class)
+    ResponseEntity<ApiErrorResponse> adminAlreadyConfigured(AdminAlreadyConfiguredException exception) {
+        return response(
+                HttpStatus.CONFLICT,
+                "ADMIN_ALREADY_CONFIGURED",
+                exception.getMessage(),
+                Map.of());
+    }
+
+    @ExceptionHandler({InvalidAdminCredentialsException.class, InvalidCurrentPasswordException.class})
+    ResponseEntity<ApiErrorResponse> invalidCredentials() {
+        return response(
+                HttpStatus.UNAUTHORIZED,
+                "INVALID_CREDENTIALS",
+                "The username or password is invalid",
+                Map.of());
+    }
+
+    @ExceptionHandler(LoginThrottledException.class)
+    ResponseEntity<ApiErrorResponse> loginThrottled(LoginThrottledException exception) {
+        ResponseEntity<ApiErrorResponse> base = response(
+                HttpStatus.TOO_MANY_REQUESTS,
+                "LOGIN_THROTTLED",
+                "Too many failed sign-in attempts",
+                Map.of());
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header(HttpHeaders.RETRY_AFTER, Long.toString(exception.retryAfterSeconds()))
+                .body(base.getBody());
+    }
+
+    @ExceptionHandler(KeyUnavailableException.class)
+    ResponseEntity<ApiErrorResponse> keyUnavailable() {
+        return response(
+                HttpStatus.SERVICE_UNAVAILABLE,
+                "APP_SECRET_KEY_UNAVAILABLE",
+                "AppSecret master key is not configured",
+                Map.of());
+    }
+
+    @ExceptionHandler(DatabaseAdministrationException.class)
+    ResponseEntity<ApiErrorResponse> databaseAdministration(DatabaseAdministrationException exception) {
+        return response(
+                exception.status(),
+                exception.code(),
+                exception.getMessage(),
+                exception.fieldErrors());
+    }
+
+    @ExceptionHandler(OnboardingOperationException.class)
+    ResponseEntity<ApiErrorResponse> onboardingOperation(OnboardingOperationException exception) {
+        return response(
+                exception.status(),
+                exception.code(),
+                exception.getMessage(),
+                Map.of());
+    }
+
+    @ExceptionHandler(PluginAdministrationException.class)
+    ResponseEntity<ApiErrorResponse> pluginAdministration(PluginAdministrationException exception) {
+        return response(exception.status(), exception.code(), exception.getMessage(), Map.of());
+    }
+
+    @ExceptionHandler(Exception.class)
+    ResponseEntity<ApiErrorResponse> internal(Exception exception) {
+        LOGGER.error("Unhandled administration API failure", exception);
+        return response(
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                "INTERNAL_ERROR",
+                "The request could not be completed",
+                Map.of());
+    }
+
+    private static ResponseEntity<ApiErrorResponse> response(
+            HttpStatus status,
+            String code,
+            String message,
+            Map<String, String> fields) {
+        String traceId = MDC.get("traceId");
+        ApiErrorResponse error = new ApiErrorResponse(
+                code,
+                message == null || message.isBlank() ? status.getReasonPhrase() : message,
+                Map.copyOf(fields),
+                traceId == null ? "unavailable" : traceId,
+                Instant.now());
+        return ResponseEntity.status(status).body(error);
+    }
+}

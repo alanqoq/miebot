@@ -1,0 +1,10 @@
+{
+  "type": "MYSQL",
+  "host": "mysql.example.internal",
+  "port": 3306,
+  "databaseName": "qqbot",
+  "username": "qqbot",
+  "sslMode": "PREFERRED",
+  "connectTimeoutMs": 5000,
+  "passwordFile": "database-password"
+}

@@ -1,0 +1,7 @@
+{
+  "access_token": "ACCESS_TOKEN_VALUE",
+  "expires_in": "7200",
+  "future_token_metadata": {
+    "issuer": "qq"
+  }
+}

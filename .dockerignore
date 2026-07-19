@@ -1,0 +1,17 @@
+.git
+.agents
+.gradle
+.run
+.tools
+.idea
+.vscode
+$inspect
+Alibaba_Dragonwell_Extended_21.0.11.0.11.10_x64_linux.tar.gz
+**/build
+**/dist
+**/node_modules
+**/*.log
+qqbot.db
+qqbot.db-*
+secrets/**
+config/**

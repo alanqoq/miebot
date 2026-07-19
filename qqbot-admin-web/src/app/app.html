@@ -1,0 +1,105 @@
+@if (authStatus()?.authenticated && !setupRoute()) {
+  <div class="app-shell" [class.navigation-open]="navigationOpen()">
+    <aside class="sidebar" aria-label="主导航">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"><svg lucideBot [size]="21"></svg></span>
+        <span>
+          <strong>QQ Bot Control</strong>
+          <small>运行管理平台</small>
+        </span>
+        <button
+          class="icon-button close-navigation"
+          type="button"
+          aria-label="关闭导航"
+          (click)="closeNavigation()"
+        >
+          <svg lucideX [size]="19"></svg>
+        </button>
+      </div>
+
+      <nav class="primary-navigation">
+        <a routerLink="/dashboard" routerLinkActive="active" (click)="closeNavigation()">
+          <svg lucideLayoutDashboard [size]="18"></svg>
+          <span>运行概览</span>
+        </a>
+        <a routerLink="/bots" routerLinkActive="active" (click)="closeNavigation()">
+          <svg lucideBot [size]="18"></svg>
+          <span>机器人</span>
+        </a>
+        <a routerLink="/plugins" routerLinkActive="active" (click)="closeNavigation()">
+          <svg lucidePuzzle [size]="18"></svg>
+          <span>插件</span>
+        </a>
+        <a routerLink="/events" routerLinkActive="active" (click)="closeNavigation()">
+          <svg lucideInbox [size]="18"></svg>
+          <span>事件与任务</span>
+        </a>
+        <a routerLink="/system" routerLinkActive="active" (click)="closeNavigation()">
+          <svg lucideSettings [size]="18"></svg>
+          <span>系统</span>
+        </a>
+      </nav>
+
+      <div class="sidebar-footer">
+        <span class="environment-dot" [class.connection-down]="serviceReady() === false"></span>
+        <span>{{ databaseLabel() }}</span>
+      </div>
+    </aside>
+
+    <div class="content-column">
+      <header class="topbar">
+        <button
+          class="icon-button menu-button"
+          type="button"
+          aria-label="打开导航"
+          (click)="toggleNavigation()"
+        >
+          <svg lucideMenu [size]="20"></svg>
+        </button>
+        <div class="topbar-context">
+          <span class="connection-indicator" [class.connection-down]="serviceReady() === false"></span>
+          <span>{{ serviceReady() === false ? '管理服务异常' : serviceReady() ? '管理服务正常' : '管理服务检查中' }}</span>
+        </div>
+        <div class="topbar-actions">
+          <div class="admin-identity" [title]="authStatus()?.username ?? '管理员'">
+            <span class="admin-avatar" aria-hidden="true">{{ adminInitial() }}</span>
+            <span class="admin-copy">
+              <small>管理员</small>
+              <strong>{{ authStatus()?.username }}</strong>
+            </span>
+          </div>
+          <button
+            class="logout-button"
+            type="button"
+            [disabled]="loggingOut()"
+            (click)="logout()"
+          >
+            <svg lucideLogOut [size]="17"></svg>
+            <span>{{ loggingOut() ? '正在注销' : '注销' }}</span>
+          </button>
+        </div>
+      </header>
+
+      @if (logoutError()) {
+        <div class="session-error" role="alert">{{ logoutError() }}</div>
+      }
+
+      <main class="main-content">
+        <router-outlet />
+      </main>
+    </div>
+
+    @if (navigationOpen()) {
+      <button
+        class="navigation-scrim"
+        type="button"
+        aria-label="关闭导航"
+        (click)="closeNavigation()"
+      ></button>
+    }
+  </div>
+} @else {
+  <main class="auth-route">
+    <router-outlet />
+  </main>
+}

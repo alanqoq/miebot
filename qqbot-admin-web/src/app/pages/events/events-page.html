@@ -1,0 +1,702 @@
+<section class="page-header">
+  <div>
+    <p class="eyebrow">DELIVERY</p>
+    <h1>事件与任务</h1>
+    <p>查看 Gateway 已接收的事件及其处理状态。</p>
+  </div>
+  <button
+    class="button button-secondary"
+    type="button"
+    [disabled]="viewLoading() || viewRefreshing() || viewLoadingMore()"
+    (click)="refresh()"
+  >
+    <svg lucideRefreshCw [size]="17" [class.spinning]="viewLoading() || viewRefreshing()"></svg>
+    <span>刷新</span>
+  </button>
+</section>
+
+@if (activeView() === 'inbox' && pageError() && items().length === 0) {
+  <div class="notice notice-error" role="alert">
+    <svg lucideCircleAlert [size]="18"></svg>
+    <span>{{ pageError() }}</span>
+    <button class="button button-secondary notice-action" type="button" (click)="loadInbox()">
+      重试
+    </button>
+  </div>
+}
+
+@if (activeView() === 'inbox' && refreshWarning()) {
+  <div class="notice notice-warning" role="status">
+    <svg lucideAlertTriangle [size]="18"></svg>
+    <span>{{ refreshWarning() }} 当前显示上次成功加载的结果。</span>
+    <button class="button button-secondary notice-action" type="button" (click)="refresh()">
+      重试
+    </button>
+  </div>
+}
+
+<div class="segmented-control" role="tablist" aria-label="事件视图">
+  <button
+    type="button"
+    role="tab"
+    id="inbox-tab"
+    aria-controls="inbox-panel"
+    [attr.aria-selected]="activeView() === 'inbox'"
+    [class.active]="activeView() === 'inbox'"
+    (click)="selectView('inbox')"
+  >
+    Inbox
+  </button>
+  <button
+    type="button"
+    role="tab"
+    id="outbox-tab"
+    aria-controls="outbox-panel"
+    [attr.aria-selected]="activeView() === 'outbox'"
+    [class.active]="activeView() === 'outbox'"
+    (click)="selectView('outbox')"
+  >
+    <span>Outbox</span>
+    @if (outboxPendingCount() !== null) {
+      <small class="tab-count">{{ outboxPendingCount() }}</small>
+    }
+  </button>
+  <button
+    type="button"
+    role="tab"
+    id="dlq-tab"
+    aria-controls="dlq-panel"
+    [attr.aria-selected]="activeView() === 'dlq'"
+    [class.active]="activeView() === 'dlq'"
+    (click)="selectView('dlq')"
+  >
+    <span>DLQ</span>
+    @if (dlqCount() !== null) {
+      <small class="tab-count">{{ dlqCount() }}</small>
+    }
+  </button>
+</div>
+
+@if (activeView() === 'inbox') {
+  <section class="panel table-panel" id="inbox-panel" role="tabpanel" aria-labelledby="inbox-tab">
+    <div class="table-toolbar events-toolbar">
+      <label class="search-field events-search">
+        <svg lucideSearch [size]="17"></svg>
+        <input
+          type="search"
+          placeholder="搜索事件类型或平台事件 ID"
+          aria-label="搜索 Inbox 事件"
+          [value]="search()"
+          (input)="updateSearch($event)"
+        />
+      </label>
+      <label class="filter-field">
+        <span>机器人 ID</span>
+        <input
+          type="search"
+          placeholder="可选"
+          aria-label="按机器人 ID 筛选"
+          [value]="botFilter()"
+          (input)="updateBotFilter($event)"
+          (keyup.enter)="applyBotFilter()"
+        />
+      </label>
+      <label class="filter-field">
+        <span>环境</span>
+        <select aria-label="按环境筛选" [value]="environmentFilter()" (change)="updateEnvironment($event)">
+          <option value="ALL">全部</option>
+          <option value="PRODUCTION">正式</option>
+          <option value="SANDBOX">沙箱</option>
+        </select>
+      </label>
+      <label class="filter-field">
+        <span>状态</span>
+        <select aria-label="按状态筛选" [value]="statusFilter()" (change)="updateStatus($event)">
+          <option value="ALL">全部</option>
+          <option value="RECEIVED">已接收</option>
+          <option value="PROCESSING">处理中</option>
+          <option value="DISPATCHED">已分发</option>
+          <option value="DEAD_LETTER">死信</option>
+        </select>
+      </label>
+      <button
+        class="icon-button bordered filter-apply"
+        type="button"
+        aria-label="应用机器人筛选"
+        title="应用机器人筛选"
+        [disabled]="loading() || refreshing() || loadingMore()"
+        (click)="applyBotFilter()"
+      >
+        <svg lucideFilter [size]="17"></svg>
+      </button>
+      @if (hasActiveFilters()) {
+        <button class="button button-tertiary clear-filters" type="button" (click)="clearFilters()">
+          <svg lucideX [size]="15"></svg>
+          <span>清除筛选</span>
+        </button>
+      }
+      <span class="table-count">已加载 {{ items().length }} 条</span>
+    </div>
+
+    <div class="table-context">
+      <span>{{ filterQueryValue() }}</span>
+      @if (observedAt()) {
+        <span>更新于 {{ observedAt() | date: 'HH:mm:ss' }}</span>
+      }
+    </div>
+
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>接收时间</th>
+            <th>机器人</th>
+            <th>事件类型</th>
+            <th>平台事件 ID</th>
+            <th>状态</th>
+            <th>重试</th>
+            <th><span class="visually-hidden">操作</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          @if (loading()) {
+            <tr class="empty-table-row">
+              <td colspan="7">
+                <div class="empty-state compact-table-state" role="status">
+                  <svg lucideRefreshCw class="spinning" [size]="25"></svg>
+                  <strong>正在加载 Inbox</strong>
+                </div>
+              </td>
+            </tr>
+          } @else if (items().length === 0) {
+            <tr class="empty-table-row">
+              <td colspan="7">
+                <div class="empty-state compact-table-state">
+                  <svg lucideInbox [size]="28"></svg>
+                  @if (hasActiveFilters()) {
+                    <strong>没有匹配的事件</strong>
+                    <span>请调整筛选条件。</span>
+                    <button class="button button-secondary empty-action" type="button" (click)="clearFilters()">
+                      清除筛选
+                    </button>
+                  } @else {
+                    <strong>尚未收到 Gateway 事件</strong>
+                    <span>收到事件后会显示在这里。</span>
+                  }
+                </div>
+              </td>
+            </tr>
+          } @else {
+            @for (event of items(); track event.id) {
+              <tr>
+                <td>
+                  <time class="event-time" [dateTime]="event.receivedAt">
+                    {{ event.receivedAt | date: 'MM-dd HH:mm:ss' }}
+                  </time>
+                  <small class="subtle-value">更新 {{ event.updatedAt | date: 'HH:mm:ss' }}</small>
+                </td>
+                <td>
+                  <div class="event-bot">
+                    <strong>{{ event.botDisplayName || '未命名机器人' }}</strong>
+                    <code>{{ event.appId || event.botId }}</code>
+                  </div>
+                </td>
+                <td><code class="event-type">{{ event.eventType }}</code></td>
+                <td><code class="platform-id">{{ event.platformEventId }}</code></td>
+                <td>
+                  <span class="status-badge" [class]="'status-badge ' + statusClass(event.status)">
+                    {{ statusLabel(event.status) }}
+                  </span>
+                </td>
+                <td class="attempt-value">{{ event.attempt }}</td>
+                <td class="actions-cell">
+                  <button
+                    class="icon-button bordered"
+                    type="button"
+                    aria-label="查看事件详情"
+                    title="查看事件详情"
+                    (click)="openDetail(event)"
+                  >
+                    <svg lucideEye [size]="17"></svg>
+                  </button>
+                </td>
+              </tr>
+            }
+          }
+        </tbody>
+      </table>
+    </div>
+
+    @if (loadMoreError()) {
+      <div class="load-more-error" role="alert">
+        <span>{{ loadMoreError() }}</span>
+        <button class="button button-secondary" type="button" (click)="loadMore()">重试</button>
+      </div>
+    }
+    @if (canLoadMore() && items().length > 0) {
+      <div class="pagination-footer">
+        <button
+          class="button button-secondary"
+          type="button"
+          [disabled]="loadingMore()"
+          (click)="loadMore()"
+        >
+          <svg lucideRefreshCw [size]="16" [class.spinning]="loadingMore()"></svg>
+          <span>{{ loadingMore() ? '正在加载' : '加载更多' }}</span>
+        </button>
+      </div>
+    }
+  </section>
+} @else {
+  @let view = activeView();
+  <section
+    class="panel table-panel"
+    [id]="view === 'outbox' ? 'outbox-panel' : 'dlq-panel'"
+    role="tabpanel"
+    [attr.aria-labelledby]="view === 'outbox' ? 'outbox-tab' : 'dlq-tab'"
+  >
+    @if (deliveryError(view) && deliveryItems(view).length === 0) {
+      <div class="notice notice-error delivery-notice" role="alert">
+        <svg lucideCircleAlert [size]="18"></svg>
+        <span>{{ deliveryError(view) }}</span>
+        <button class="button button-secondary notice-action" type="button" (click)="refresh()">
+          重试
+        </button>
+      </div>
+    }
+    @if (deliveryWarning(view)) {
+      <div class="notice notice-warning delivery-notice" role="status">
+        <svg lucideAlertTriangle [size]="18"></svg>
+        <span>{{ deliveryWarning(view) }} 当前显示上次成功加载的结果。</span>
+        <button class="button button-secondary notice-action" type="button" (click)="refresh()">
+          重试
+        </button>
+      </div>
+    }
+    <div class="table-toolbar events-toolbar">
+      <label class="search-field events-search">
+        <svg lucideSearch [size]="17"></svg>
+        <input
+          type="search"
+          placeholder="搜索任务类型、去重键、来源事件或错误"
+          [attr.aria-label]="'搜索 ' + deliveryViewLabel(view) + ' 任务'"
+          [value]="search()"
+          (input)="updateSearch($event)"
+        />
+      </label>
+      <label class="filter-field">
+        <span>机器人 ID</span>
+        <input
+          type="search"
+          placeholder="可选"
+          aria-label="按机器人 ID 筛选任务"
+          [value]="botFilter()"
+          (input)="updateBotFilter($event)"
+          (keyup.enter)="applyBotFilter()"
+        />
+      </label>
+      <label class="filter-field">
+        <span>环境</span>
+        <select aria-label="按环境筛选任务" [value]="environmentFilter()" (change)="updateEnvironment($event)">
+          <option value="ALL">全部</option>
+          <option value="PRODUCTION">正式</option>
+          <option value="SANDBOX">沙箱</option>
+        </select>
+      </label>
+      @if (view === 'outbox') {
+        <label class="filter-field">
+          <span>状态</span>
+          <select aria-label="按任务状态筛选" [value]="jobStatusFilter()" (change)="updateJobStatus($event)">
+            <option value="ALL">全部</option>
+            <option value="PENDING">待处理</option>
+            <option value="IN_PROGRESS">处理中</option>
+            <option value="RETRY_WAIT">等待重试</option>
+            <option value="SUCCEEDED">已完成</option>
+            <option value="RESULT_UNKNOWN">结果未知</option>
+            <option value="DEAD_LETTER">死信</option>
+          </select>
+        </label>
+      } @else {
+        <span class="fixed-filter">状态：死信</span>
+      }
+      <button
+        class="icon-button bordered filter-apply"
+        type="button"
+        aria-label="应用任务筛选"
+        title="应用任务筛选"
+        [disabled]="viewLoading() || viewRefreshing() || viewLoadingMore()"
+        (click)="applyBotFilter()"
+      >
+        <svg lucideFilter [size]="17"></svg>
+      </button>
+      @if (hasActiveFilters() || jobStatusFilter() !== 'ALL') {
+        <button class="button button-tertiary clear-filters" type="button" (click)="clearFilters()">
+          <svg lucideX [size]="15"></svg>
+          <span>清除筛选</span>
+        </button>
+      }
+      <span class="table-count">已加载 {{ deliveryItems(view).length }} 条</span>
+    </div>
+    <div class="table-context">
+      <span>{{ deliveryViewLabel(view) }} 任务</span>
+      @if (deliveryStats(view); as stats) {
+        <span class="queue-counts">活跃 {{ deliveryActiveCount(stats) }} · 死信 {{ stats.deadLetterCount }} · 总计 {{ stats.totalCount }}</span>
+      }
+      @if (deliveryObservedAt(view)) {
+        <span>更新于 {{ deliveryObservedAt(view) | date: 'HH:mm:ss' }}</span>
+      }
+    </div>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>创建时间</th>
+            <th>机器人</th>
+            <th>任务类型</th>
+            <th>任务 ID</th>
+            <th>状态</th>
+            <th>重试</th>
+            <th><span class="visually-hidden">操作</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          @if (deliveryLoadingState(view)) {
+            <tr class="empty-table-row">
+              <td colspan="7">
+                <div class="empty-state compact-table-state" role="status">
+                  <svg lucideRefreshCw class="spinning" [size]="25"></svg>
+                  <strong>正在加载 {{ deliveryViewLabel(view) }}</strong>
+                </div>
+              </td>
+            </tr>
+          } @else if (deliveryItems(view).length === 0) {
+            <tr class="empty-table-row">
+              <td colspan="7">
+                <div class="empty-state compact-table-state">
+                  <svg lucideArchiveX [size]="28"></svg>
+                  @if (hasActiveFilters() || jobStatusFilter() !== 'ALL') {
+                    <strong>没有匹配的任务</strong>
+                    <span>请调整筛选条件。</span>
+                  } @else {
+                    <strong>{{ view === 'outbox' ? 'Outbox 暂无任务' : 'DLQ 暂无死信任务' }}</strong>
+                    <span>新的投递任务会显示在这里。</span>
+                  }
+                </div>
+              </td>
+            </tr>
+          } @else {
+            @for (job of deliveryItems(view); track job.id) {
+              <tr>
+                <td>
+                  <time class="event-time" [dateTime]="job.createdAt">
+                    {{ job.createdAt | date: 'MM-dd HH:mm:ss' }}
+                  </time>
+                  <small class="subtle-value">更新 {{ job.updatedAt | date: 'HH:mm:ss' }}</small>
+                </td>
+                <td>
+                  <div class="event-bot">
+                    <strong>{{ job.botDisplayName || '未命名机器人' }}</strong>
+                    <code>{{ job.appId || job.botId }}</code>
+                  </div>
+                </td>
+                <td><code class="event-type">{{ job.jobType }}</code></td>
+                <td><code class="platform-id">{{ job.id }}</code></td>
+                <td>
+                  <span class="status-badge" [class]="'status-badge ' + jobStatusClass(job.status)">
+                    {{ jobStatusLabel(job.status) }}
+                  </span>
+                </td>
+                <td class="attempt-value">{{ job.attempt }}</td>
+                <td class="actions-cell">
+                  <button
+                    class="icon-button bordered"
+                    type="button"
+                    aria-label="查看任务详情"
+                    title="查看任务详情"
+                    (click)="openJobDetail(job, view)"
+                  >
+                    <svg lucideEye [size]="17"></svg>
+                  </button>
+                </td>
+              </tr>
+            }
+          }
+        </tbody>
+      </table>
+    </div>
+    @if (deliveryLoadMoreError(view)) {
+      <div class="load-more-error" role="alert">
+        <span>{{ deliveryLoadMoreError(view) }}</span>
+        <button class="button button-secondary" type="button" (click)="loadMore()">重试</button>
+      </div>
+    }
+    @if (deliveryCanLoadMore(view) && deliveryItems(view).length > 0) {
+      <div class="pagination-footer">
+        <button
+          class="button button-secondary"
+          type="button"
+          [disabled]="deliveryLoadingMoreState(view)"
+          (click)="loadMore()"
+        >
+          <svg lucideRefreshCw [size]="16" [class.spinning]="deliveryLoadingMoreState(view)"></svg>
+          <span>{{ deliveryLoadingMoreState(view) ? '正在加载' : '加载更多' }}</span>
+        </button>
+      </div>
+    }
+  </section>
+}
+
+@if (selectedId()) {
+  <div class="dialog-backdrop" role="presentation" (click)="onBackdropClick($event)">
+    <section
+      #detailDialog
+      class="event-dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="event-dialog-title"
+      tabindex="-1"
+      (click)="$event.stopPropagation()"
+    >
+      <header class="dialog-header">
+        <div>
+          <p class="eyebrow">INBOX EVENT</p>
+          <h2 id="event-dialog-title">事件详情</h2>
+        </div>
+        <button
+          #dialogClose
+          class="icon-button"
+          type="button"
+          aria-label="关闭事件详情"
+          title="关闭"
+          (click)="closeDetail()"
+        >
+          <svg lucideX [size]="19"></svg>
+        </button>
+      </header>
+
+      @if (detailLoading()) {
+        <div class="dialog-loading" role="status">
+          <svg lucideRefreshCw class="spinning" [size]="25"></svg>
+          <strong>正在加载事件详情</strong>
+        </div>
+      } @else if (detailError()) {
+        <div class="dialog-error" role="alert">
+          <svg lucideCircleAlert [size]="22"></svg>
+          <strong>{{ detailError() }}</strong>
+          <button class="button button-secondary" type="button" (click)="retryDetail()">重试</button>
+        </div>
+      } @else if (detail(); as event) {
+        <div class="dialog-body">
+          <dl class="event-meta-grid">
+            <div>
+              <dt>事件 ID</dt>
+              <dd><code>{{ event.id }}</code></dd>
+            </div>
+            <div>
+              <dt>平台事件 ID</dt>
+              <dd><code>{{ event.platformEventId }}</code></dd>
+            </div>
+            <div>
+              <dt>机器人</dt>
+              <dd>
+                {{ event.botDisplayName || '未命名机器人' }}
+                <small>AppID {{ event.appId || '--' }} · {{ event.botId }}</small>
+              </dd>
+            </div>
+            <div>
+              <dt>环境 / 状态</dt>
+              <dd>
+                {{ environmentLabel(event.environment) }}
+                <span class="status-badge" [class]="'status-badge ' + statusClass(event.status)">
+                  {{ statusLabel(event.status) }}
+                </span>
+              </dd>
+            </div>
+            <div>
+              <dt>接收时间</dt>
+              <dd>{{ event.receivedAt | date: 'yyyy-MM-dd HH:mm:ss' }}</dd>
+            </div>
+            <div>
+              <dt>重试次数</dt>
+              <dd>{{ event.attempt }}</dd>
+            </div>
+          </dl>
+
+          @if (event.lastError) {
+            <div class="event-error" role="status">
+              <svg lucideAlertTriangle [size]="17"></svg>
+              <span>{{ event.lastError }}</span>
+            </div>
+          }
+
+          <section class="payload-section" aria-labelledby="payload-title">
+            @if (event.payloadTruncated) {
+              <div class="payload-warning" role="status">
+                <svg lucideAlertTriangle [size]="16"></svg>
+                <span>Payload 超过详情接口上限，当前内容已截断。</span>
+              </div>
+            }
+            <div class="payload-heading">
+              <div>
+                <h3 id="payload-title"><svg lucideFileJson [size]="17"></svg>原始 Payload</h3>
+                <p>内容按原始文本展示，JSON 会自动格式化。</p>
+              </div>
+              <button
+                class="icon-button bordered"
+                type="button"
+                aria-label="复制 Payload"
+                title="复制 Payload"
+                (click)="copyPayload()"
+              >
+                @if (copyStatus() === '已复制') {
+                  <svg lucideCheck [size]="17"></svg>
+                } @else {
+                  <svg lucideCopy [size]="17"></svg>
+                }
+              </button>
+            </div>
+            @if (copyStatus()) {
+              <span class="copy-status" role="status">{{ copyStatus() }}</span>
+            }
+            <pre class="payload-view">{{ formattedPayload() }}</pre>
+          </section>
+        </div>
+      }
+    </section>
+  </div>
+}
+
+@if (selectedJobId()) {
+  <div class="dialog-backdrop" role="presentation" (click)="closeJobDetail()">
+    <section
+      #jobDialog
+      class="event-dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="job-dialog-title"
+      tabindex="-1"
+      (click)="$event.stopPropagation()"
+    >
+      <header class="dialog-header">
+        <div>
+          <p class="eyebrow">{{ selectedJobView() === 'outbox' ? 'OUTBOX JOB' : 'DEAD LETTER' }}</p>
+          <h2 id="job-dialog-title">{{ selectedJobView() === 'outbox' ? 'Outbox 任务详情' : 'DLQ 任务详情' }}</h2>
+        </div>
+        <button
+          #jobDialogClose
+          class="icon-button"
+          type="button"
+          aria-label="关闭任务详情"
+          title="关闭"
+          (click)="closeJobDetail()"
+        >
+          <svg lucideX [size]="19"></svg>
+        </button>
+      </header>
+      @if (jobDetailLoading()) {
+        <div class="dialog-loading" role="status">
+          <svg lucideRefreshCw class="spinning" [size]="25"></svg>
+          <strong>正在加载任务详情</strong>
+        </div>
+      } @else if (jobDetailError()) {
+        <div class="dialog-error" role="alert">
+          <svg lucideCircleAlert [size]="22"></svg>
+          <strong>{{ jobDetailError() }}</strong>
+          <button class="button button-secondary" type="button" (click)="retryJobDetail()">重试</button>
+        </div>
+      } @else if (jobDetail(); as job) {
+        <div class="dialog-body">
+          <dl class="event-meta-grid">
+            <div>
+              <dt>任务 ID</dt>
+              <dd><code>{{ job.id }}</code></dd>
+            </div>
+            <div>
+              <dt>任务类型</dt>
+              <dd><code>{{ job.jobType }}</code></dd>
+            </div>
+            <div>
+              <dt>机器人</dt>
+              <dd>
+                {{ job.botDisplayName || '未命名机器人' }}
+                <small>AppID {{ job.appId || '--' }} · {{ job.botId }}</small>
+              </dd>
+            </div>
+            <div>
+              <dt>环境 / 状态</dt>
+              <dd>
+                {{ environmentLabel(job.environment) }}
+                <span class="status-badge" [class]="'status-badge ' + jobStatusClass(job.status)">
+                  {{ jobStatusLabel(job.status) }}
+                </span>
+              </dd>
+            </div>
+            <div>
+              <dt>创建时间</dt>
+              <dd>{{ job.createdAt | date: 'yyyy-MM-dd HH:mm:ss' }}</dd>
+            </div>
+            <div>
+              <dt>重试次数</dt>
+              <dd>{{ job.attempt }}</dd>
+            </div>
+            @if (job.sourceEventId) {
+              <div>
+                <dt>来源事件</dt>
+                <dd><code>{{ job.sourceEventId }}</code></dd>
+              </div>
+            }
+            @if (job.dedupKey) {
+              <div>
+                <dt>去重键</dt>
+                <dd><code>{{ job.dedupKey }}</code></dd>
+              </div>
+            }
+            @if (job.leaseUntil) {
+              <div>
+                <dt>租约截止</dt>
+                <dd>{{ job.leaseUntil | date: 'yyyy-MM-dd HH:mm:ss' }}</dd>
+              </div>
+            }
+          </dl>
+          @if (job.lastError) {
+            <div class="event-error" role="status">
+              <svg lucideAlertTriangle [size]="17"></svg>
+              <span>{{ job.lastError }}</span>
+            </div>
+          }
+          <section class="payload-section" aria-labelledby="job-payload-title">
+            @if (job.payloadTruncated) {
+              <div class="payload-warning" role="status">
+                <svg lucideAlertTriangle [size]="16"></svg>
+                <span>Payload 超过详情接口上限，当前内容已截断。</span>
+              </div>
+            }
+            <div class="payload-heading">
+              <div>
+                <h3 id="job-payload-title"><svg lucideFileJson [size]="17"></svg>任务 Payload</h3>
+                <p>内容按原始文本展示，JSON 会自动格式化。</p>
+              </div>
+              <button
+                class="icon-button bordered"
+                type="button"
+                aria-label="复制任务 Payload"
+                title="复制任务 Payload"
+                (click)="copyJobPayload()"
+              >
+                @if (jobCopyStatus() === '已复制') {
+                  <svg lucideCheck [size]="17"></svg>
+                } @else {
+                  <svg lucideCopy [size]="17"></svg>
+                }
+              </button>
+            </div>
+            @if (jobCopyStatus()) {
+              <span class="copy-status" role="status">{{ jobCopyStatus() }}</span>
+            }
+            <pre class="payload-view">{{ formattedJobPayload() }}</pre>
+          </section>
+        </div>
+      }
+    </section>
+  </div>
+}

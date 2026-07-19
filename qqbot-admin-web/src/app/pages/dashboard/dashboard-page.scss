@@ -1,0 +1,59 @@
+:host {
+  display: block;
+}
+
+.activity-list {
+  display: grid;
+  gap: 0;
+  padding: 4px 16px 8px;
+}
+
+.activity-row {
+  display: flex;
+  min-height: 52px;
+  align-items: center;
+  gap: 10px;
+  border-bottom: 1px solid #edf0f2;
+}
+
+.activity-row:last-child {
+  border-bottom: 0;
+}
+
+.activity-marker {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  background: #2f9f83;
+  border-radius: 50%;
+}
+
+.activity-copy {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+  gap: 2px;
+}
+
+.activity-copy strong,
+.activity-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.activity-copy strong {
+  color: var(--text);
+  font-family: 'Cascadia Mono', Consolas, monospace;
+  font-size: 12px;
+}
+
+.activity-copy small {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.activity-status {
+  flex: 0 0 auto;
+  font-size: 10px;
+}

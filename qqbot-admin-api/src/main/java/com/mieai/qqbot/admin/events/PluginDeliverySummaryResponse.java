@@ -1,0 +1,21 @@
+package com.mieai.qqbot.admin.events;
+
+import java.time.Instant;
+import java.util.UUID;
+
+public record PluginDeliverySummaryResponse(
+        UUID id,
+        UUID eventId,
+        UUID bindingId,
+        String pluginId,
+        UUID botId,
+        String botDisplayName,
+        String handlerId,
+        String status,
+        int attempt,
+        Instant availableAt,
+        Instant createdAt,
+        Instant updatedAt,
+        Instant completedAt,
+        String lastError) {
+}

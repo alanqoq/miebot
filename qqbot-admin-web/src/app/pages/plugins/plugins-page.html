@@ -1,0 +1,165 @@
+<section class="page-header">
+  <div>
+    <p class="eyebrow">EXTENSIONS</p>
+    <h1>插件</h1>
+    <p>查看挂载制品，加载可信插件，并为机器人配置独立绑定。</p>
+  </div>
+  <div class="header-actions">
+    <button class="button button-secondary" type="button" (click)="reloadHost()" [disabled]="loading() || refreshing() || reloading()">
+      <svg lucideRefreshCw [size]="17" [class.spinning]="reloading()"></svg>
+      <span>{{ reloading() ? '加载中' : '重新加载宿主' }}</span>
+    </button>
+    <button class="button button-secondary" type="button" (click)="scan()" [disabled]="loading() || refreshing() || reloading()">
+      <svg lucideRefreshCw [size]="17" [class.spinning]="refreshing()"></svg>
+      <span>{{ refreshing() ? '扫描中' : '扫描目录' }}</span>
+    </button>
+  </div>
+</section>
+
+@if (pageError()) {
+  <div class="notice notice-error" role="alert">
+    <svg lucideCircleAlert [size]="18"></svg>
+    <span>{{ pageError() }}</span>
+    <button class="button button-secondary notice-action" type="button" (click)="loadAll()">重试</button>
+  </div>
+}
+
+@if (warning()) {
+  <div class="notice notice-warning" role="status">
+    <svg lucideCircleAlert [size]="18"></svg>
+    <span>{{ warning() }}</span>
+  </div>
+}
+
+<section class="plugin-summary" aria-label="插件统计">
+  <div><span>发现制品</span><strong>{{ discoveredCount() }}</strong></div>
+  <div><span>已加载</span><strong>{{ loadedCount() }}</strong></div>
+  <div><span>启用绑定</span><strong>{{ enabledBindingCount() }}</strong></div>
+  <div class="plugin-summary-context">{{ inventoryMessage() }}</div>
+</section>
+
+<section class="panel table-panel">
+  <div class="table-toolbar plugins-toolbar">
+    <label class="search-field plugins-search">
+      <svg lucideSearch [size]="17"></svg>
+      <input type="search" placeholder="搜索插件名称、ID 或文件" aria-label="搜索插件"
+        [value]="search()" (input)="updateSearch($event)" (keydown)="handleSearchKey($event)" />
+    </label>
+    <button class="icon-button bordered" type="button" aria-label="应用插件搜索" title="应用搜索" (click)="scan()" [disabled]="loading() || refreshing()">
+      <svg lucideSearch [size]="17"></svg>
+    </button>
+    @if (inventory()?.scannedAt) { <span class="table-count">更新于 {{ inventory()!.scannedAt | date: 'HH:mm:ss' }}</span> }
+  </div>
+  <div class="table-scroll">
+    <table>
+      <thead><tr><th>插件</th><th>版本</th><th>API 兼容</th><th>制品状态</th><th>机器人绑定</th><th>文件</th><th><span class="visually-hidden">操作</span></th></tr></thead>
+      <tbody>
+        @if (loading()) {
+          <tr class="empty-table-row"><td colspan="7"><div class="empty-state compact-table-state" role="status"><svg lucideRefreshCw class="spinning" [size]="25"></svg><strong>正在读取插件状态</strong></div></td></tr>
+        } @else if (items().length === 0) {
+          <tr class="empty-table-row"><td colspan="7"><div class="empty-state compact-table-state"><svg lucidePuzzle [size]="28"></svg><strong>{{ emptyMessage() }}</strong><span>将可信 JAR 放入挂载目录后重新加载宿主。</span></div></td></tr>
+        } @else {
+          @for (plugin of items(); track plugin.fileName) {
+            <tr>
+              <td><div class="plugin-name"><strong>{{ plugin.name || plugin.id }}</strong><code>{{ plugin.id }}</code></div></td>
+              <td>{{ plugin.version || '--' }}</td>
+              <td>{{ plugin.apiCompatibility || '--' }}</td>
+              <td><span class="status-badge" [class]="'status-badge ' + statusClass(plugin.status)">{{ statusLabel(plugin.status) }}</span>@if (plugin.error) { <small class="subtle-value">{{ plugin.error }}</small> }</td>
+              <td>{{ plugin.loaded ? (plugin.enabledBindingCount + ' / ' + plugin.bindingCount) : '宿主未加载' }}</td>
+              <td><div class="plugin-file"><code>{{ plugin.fileName }}</code><small>{{ formatBytes(plugin.sizeBytes) }} · {{ shortHash(plugin.sha256) }}</small></div></td>
+              <td class="table-actions">
+                @if (plugin.loaded) {
+                  <button class="icon-button bordered" type="button" aria-label="绑定机器人" title="绑定机器人" (click)="openCreate(plugin)"><svg lucidePlus [size]="16"></svg></button>
+                }
+              </td>
+            </tr>
+          }
+        }
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="panel table-panel binding-panel">
+  <div class="section-heading"><div><p class="eyebrow">BOT BINDINGS</p><h2>机器人绑定</h2></div><span class="table-count">{{ bindings().length }} 个绑定</span></div>
+  <div class="table-scroll">
+    <table>
+      <thead><tr><th>插件</th><th>机器人</th><th>配置</th><th>状态</th><th>更新</th><th><span class="visually-hidden">操作</span></th></tr></thead>
+      <tbody>
+        @if (bindings().length === 0) {
+          <tr class="empty-table-row"><td colspan="6"><div class="empty-state compact-table-state"><svg lucidePuzzle [size]="26"></svg><strong>尚未创建机器人绑定</strong><span>从已加载插件右侧的加号开始配置。</span></div></td></tr>
+        } @else {
+          @for (binding of bindings(); track binding.id) {
+            <tr>
+              <td><div class="plugin-name"><strong>{{ pluginName(binding.pluginId) }}</strong><code>{{ binding.pluginId }}</code></div></td>
+              <td>{{ botName(binding.botId) }}</td>
+              <td><code class="config-preview">{{ binding.configJson }}</code></td>
+              <td><div class="enabled-control"><button class="switch-control" type="button" role="switch" [class.active]="binding.enabled" [attr.aria-checked]="binding.enabled" [attr.aria-label]="(binding.enabled ? '停用' : '启用') + '插件绑定'" [disabled]="isMutating(binding.id)" (click)="toggleBinding(binding)"><span></span></button><span>{{ binding.enabled ? '已启用' : '已停用' }}</span></div></td>
+              <td>{{ binding.updatedAt | date: 'MM-dd HH:mm' }}</td>
+              <td class="table-actions"><button class="icon-button bordered" type="button" aria-label="编辑绑定" title="编辑绑定" (click)="openEdit(binding)"><svg lucideSettings [size]="16"></svg></button><button class="icon-button bordered danger-icon" type="button" aria-label="删除绑定" title="删除绑定" [disabled]="isMutating(binding.id)" (click)="deleteBinding(binding)"><svg lucideTrash2 [size]="16"></svg></button></td>
+            </tr>
+          }
+        }
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="panel table-panel delivery-panel">
+  <div class="section-heading">
+    <div><p class="eyebrow">PLUGIN DELIVERIES</p><h2>插件投递</h2></div>
+    <div class="delivery-heading-actions">
+      @if (deliveryPage(); as page) {
+        <span class="table-count">{{ page.stats.totalCount }} 次 · {{ page.stats.deadLetterCount }} 个死信</span>
+      }
+      <button class="icon-button bordered" type="button" aria-label="刷新插件投递" title="刷新插件投递" (click)="refreshDeliveries()">
+        <svg lucideRefreshCw [size]="16"></svg>
+      </button>
+    </div>
+  </div>
+  @if (deliveryWarning()) {
+    <div class="delivery-warning" role="status"><svg lucideCircleAlert [size]="16"></svg><span>{{ deliveryWarning() }}</span></div>
+  }
+  <div class="table-scroll">
+    <table>
+      <thead><tr><th>插件 / 机器人</th><th>事件</th><th>处理器</th><th>状态</th><th>尝试</th><th>最近更新</th><th>错误</th></tr></thead>
+      <tbody>
+        @if (deliveries().length === 0) {
+          <tr class="empty-table-row"><td colspan="7"><div class="empty-state compact-table-state"><svg lucidePuzzle [size]="26"></svg><strong>暂无插件投递记录</strong></div></td></tr>
+        } @else {
+          @for (delivery of deliveries(); track delivery.id) {
+            <tr>
+              <td><div class="plugin-name"><strong>{{ pluginName(delivery.pluginId ?? delivery.bindingId) }}</strong><small>{{ delivery.botDisplayName ?? delivery.botId ?? '机器人已删除' }}</small></div></td>
+              <td><code class="delivery-id" [attr.title]="delivery.eventId">{{ delivery.eventId }}</code></td>
+              <td>{{ delivery.handlerId }}</td>
+              <td><span class="status-badge" [class]="'status-badge ' + deliveryStatusClass(delivery.status)">{{ deliveryStatusLabel(delivery.status) }}</span></td>
+              <td>{{ delivery.attempt }}</td>
+              <td>{{ delivery.updatedAt | date: 'MM-dd HH:mm:ss' }}</td>
+              <td><span class="delivery-error" [attr.title]="delivery.lastError">{{ delivery.lastError ?? '--' }}</span></td>
+            </tr>
+          }
+        }
+      </tbody>
+    </table>
+  </div>
+</section>
+
+@if (dialogMode(); as mode) {
+  <div class="dialog-backdrop" (click)="closeDialog()">
+    <section class="plugin-dialog" role="dialog" aria-modal="true" (click)="$event.stopPropagation()">
+      <header class="dialog-header"><div><p class="eyebrow">PLUGIN BINDING</p><h2>{{ mode === 'create' ? '绑定机器人' : '编辑绑定' }}</h2><p>绑定配置只对当前机器人实例生效。</p></div><button class="icon-button" type="button" aria-label="关闭" title="关闭" (click)="closeDialog()"><svg lucideX [size]="18"></svg></button></header>
+      <form [formGroup]="bindingForm" (ngSubmit)="saveBinding()">
+        <div class="dialog-body">
+          @if (dialogError()) { <div class="notice notice-error dialog-notice" role="alert"><svg lucideCircleAlert [size]="17"></svg><span>{{ dialogError() }}</span></div> }
+          <label class="field"><span>插件</span><select formControlName="pluginId"><option value="">选择插件</option>@for (plugin of items(); track plugin.id) { @if (plugin.loaded) { <option [value]="plugin.id">{{ plugin.name }} ({{ plugin.id }})</option> } }</select></label>
+          <label class="field"><span>机器人</span><select formControlName="botId"><option value="">选择机器人</option>@for (bot of (bindingForm.controls.pluginId.value ? availableBots(bindingForm.controls.pluginId.value) : bots()); track bot.id) { <option [value]="bot.id">{{ bot.displayName }} · {{ bot.environment === 'PRODUCTION' ? '正式' : '沙箱' }}</option> }</select></label>
+          <label class="field"><span>插件配置 JSON</span><textarea formControlName="configJson" rows="8" spellcheck="false"></textarea>@if (configError()) { <small class="field-error">{{ configError() }}</small> }</label>
+          <label class="checkbox-field"><input type="checkbox" formControlName="enabled"><span>创建后立即启用</span></label>
+        </div>
+        <footer class="dialog-footer"><button class="button button-secondary" type="button" (click)="closeDialog()">取消</button><button class="button button-primary" type="submit" [disabled]="saving()"><svg lucideSave [size]="16"></svg><span>{{ saving() ? '保存中' : '保存绑定' }}</span></button></footer>
+      </form>
+    </section>
+  </div>
+}
+
+@if (inventory() && !inventory()!.runtimeAvailable) { <p class="plugin-runtime-note">插件宿主当前未启动；制品不会被误报为已运行。</p> }

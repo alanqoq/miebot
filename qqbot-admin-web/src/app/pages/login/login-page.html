@@ -1,0 +1,140 @@
+<div class="auth-page">
+  <header class="auth-brand" aria-label="QQ Bot Control">
+    <span class="brand-mark" aria-hidden="true"><svg lucideBot [size]="22"></svg></span>
+    <span>
+      <strong>QQ Bot Control</strong>
+      <small>运行管理平台</small>
+    </span>
+  </header>
+
+  <main class="auth-panel">
+    @if (loading()) {
+      <div class="loading-state" role="status">
+        <svg lucideLoaderCircle [size]="25" class="spinning"></svg>
+        <span>正在连接管理服务</span>
+      </div>
+    } @else {
+      <div class="auth-heading">
+        <span class="mode-icon" aria-hidden="true">
+          @if (setupRequired()) {
+            <svg lucideShieldCheck [size]="21"></svg>
+          } @else {
+            <svg lucideLogIn [size]="21"></svg>
+          }
+        </span>
+        <div>
+          <h1>{{ setupRequired() ? '初始化管理员' : '管理员登录' }}</h1>
+          <p>
+            {{
+              setupRequired()
+                ? '首次启动，请创建唯一的管理员账号。'
+                : '使用管理员账号进入运行控制台。'
+            }}
+          </p>
+        </div>
+      </div>
+
+      @if (setupRequired()) {
+        <ol class="setup-progress" aria-label="首次设置进度">
+          <li class="active"><span>1</span><strong>管理员</strong></li>
+          <li><span>2</span><strong>数据库</strong></li>
+          <li><span>3</span><strong>机器人</strong></li>
+        </ol>
+      }
+
+      @if (errorMessage()) {
+        <div class="auth-error" role="alert">
+          <svg lucideAlertTriangle [size]="18"></svg>
+          <span>{{ errorMessage() }}</span>
+          @if (!form.dirty && !submitting()) {
+            <button type="button" (click)="loadStatus()">
+              <svg lucideRefreshCw [size]="16"></svg>
+              <span>重试</span>
+            </button>
+          }
+        </div>
+      }
+
+      <form [formGroup]="form" (ngSubmit)="submit()" novalidate>
+        <label class="form-field">
+          <span>管理员账号</span>
+          <input
+            type="text"
+            formControlName="username"
+            autocomplete="username"
+            spellcheck="false"
+            placeholder="admin"
+          />
+          @if (form.controls.username.touched && form.controls.username.invalid) {
+            <small>
+              {{
+                setupRequired()
+                  ? '请输入 3-64 位字母、数字、点、下划线或连字符。'
+                  : '请输入管理员账号。'
+              }}
+            </small>
+          }
+        </label>
+
+        <label class="form-field">
+          <span>密码</span>
+          <span class="password-input">
+            <input
+              [type]="passwordVisible() ? 'text' : 'password'"
+              formControlName="password"
+              [autocomplete]="setupRequired() ? 'new-password' : 'current-password'"
+              placeholder="输入密码"
+            />
+            <button
+              type="button"
+              class="visibility-button"
+              [attr.aria-label]="passwordVisible() ? '隐藏密码' : '显示密码'"
+              [title]="passwordVisible() ? '隐藏密码' : '显示密码'"
+              (click)="togglePasswordVisibility()"
+            >
+              @if (passwordVisible()) {
+                <svg lucideEyeOff [size]="18"></svg>
+              } @else {
+                <svg lucideEye [size]="18"></svg>
+              }
+            </button>
+          </span>
+          @if (form.controls.password.touched && form.controls.password.invalid) {
+            <small>{{ setupRequired() ? '密码长度需为 12-72 位。' : '请输入密码。' }}</small>
+          }
+        </label>
+
+        @if (setupRequired()) {
+          <label class="form-field">
+            <span>确认密码</span>
+            <input
+              [type]="passwordVisible() ? 'text' : 'password'"
+              formControlName="confirmPassword"
+              autocomplete="new-password"
+              placeholder="再次输入密码"
+            />
+            @if (
+              form.controls.confirmPassword.touched &&
+              (form.controls.confirmPassword.invalid || form.hasError('passwordMismatch'))
+            ) {
+              <small>两次输入的密码必须一致。</small>
+            }
+          </label>
+        }
+
+        <button class="submit-button" type="submit" [disabled]="submitting()">
+          @if (submitting()) {
+            <svg lucideLoaderCircle [size]="18" class="spinning"></svg>
+            <span>正在提交</span>
+          } @else if (setupRequired()) {
+            <svg lucideUserRoundPlus [size]="18"></svg>
+            <span>创建管理员</span>
+          } @else {
+            <svg lucideLogIn [size]="18"></svg>
+            <span>登录</span>
+          }
+        </button>
+      </form>
+    }
+  </main>
+</div>

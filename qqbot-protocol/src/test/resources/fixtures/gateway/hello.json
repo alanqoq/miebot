@@ -1,0 +1,10 @@
+{
+  "op": 10,
+  "d": {
+    "heartbeat_interval": 45000,
+    "future_setting": true
+  },
+  "s": null,
+  "t": null,
+  "future_envelope_field": "ignored"
+}

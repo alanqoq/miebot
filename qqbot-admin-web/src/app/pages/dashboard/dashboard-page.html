@@ -1,0 +1,153 @@
+<section class="page-header">
+  <div>
+    <p class="eyebrow">OPERATIONS</p>
+    <h1>运行概览</h1>
+    <p>机器人连接、事件投递和平台服务的当前状态。</p>
+  </div>
+  <button
+    class="button button-secondary"
+    type="button"
+    (click)="refresh()"
+    [disabled]="refreshing()"
+  >
+    <svg lucideRefreshCw [size]="17" [class.spinning]="refreshing()"></svg>
+    <span>刷新</span>
+  </button>
+</section>
+
+@if (connectionFailed()) {
+  <div class="notice notice-warning" role="status">
+    <svg lucideActivity [size]="18"></svg>
+    <span>管理 API 暂不可达，页面将在服务恢复后显示实时状态。</span>
+  </div>
+}
+
+@if (runtimeFailed()) {
+  <div class="notice notice-warning" role="status">
+    <svg lucideBot [size]="18"></svg>
+    <span>机器人运行状态暂不可用，平台健康信息仍可正常查看。</span>
+  </div>
+}
+
+@if (operationsFailed()) {
+  <div class="notice notice-warning" role="status">
+    <svg lucideActivity [size]="18"></svg>
+    <span>{{ operationsPartialMessage() }}，页面保留最近一次成功结果。</span>
+  </div>
+}
+
+<section class="metric-grid" aria-label="关键指标">
+  <article class="metric-card">
+    <span class="metric-icon metric-icon-green"><svg lucideServer [size]="20"></svg></span>
+    <div>
+      <span class="metric-label">平台服务</span>
+      <strong>{{ readiness()?.status === 'UP' ? '正常' : '未连接' }}</strong>
+      <small>{{ systemInfo()?.version ?? '等待服务响应' }}</small>
+    </div>
+  </article>
+  <article class="metric-card">
+    <span class="metric-icon metric-icon-blue"><svg lucideBot [size]="20"></svg></span>
+    <div>
+      <span class="metric-label">运行机器人</span>
+      <strong>{{ runtimeSummary()?.connectedCount ?? '--' }}</strong>
+      @if (runtimeSummary(); as runtime) {
+        <small>{{ runtime.connectedCount }} 个已连接 / {{ runtime.enabledCount }} 个已启用</small>
+      } @else {
+        <small>运行状态不可用</small>
+      }
+    </div>
+  </article>
+  <article class="metric-card">
+    <span class="metric-icon metric-icon-amber"><svg lucidePuzzle [size]="20"></svg></span>
+    <div>
+      <span class="metric-label">插件绑定</span>
+      <strong>{{ pluginBindingCount() ?? '--' }}</strong>
+      @if (pluginInventory(); as plugins) {
+        <small>发现 {{ pluginArtifactCount() }} 个制品 · {{ plugins.runtimeAvailable ? '宿主已加载' : '宿主未加载' }}</small>
+      } @else {
+        <small>插件状态不可用</small>
+      }
+    </div>
+  </article>
+  <article class="metric-card">
+    <span class="metric-icon metric-icon-red"><svg lucideInbox [size]="20"></svg></span>
+    <div>
+      <span class="metric-label">待处理任务</span>
+      <strong>{{ pendingTaskCount() ?? '--' }}</strong>
+      @if (outboxStats(); as stats) {
+        <small>{{ stats.deadLetterCount }} 个死信 / {{ stats.totalCount }} 个任务</small>
+      } @else {
+        <small>队列状态不可用</small>
+      }
+    </div>
+  </article>
+</section>
+
+<section class="dashboard-grid">
+  <div class="panel">
+    <div class="panel-header">
+      <div>
+        <h2>服务健康</h2>
+        <p>应用与持久化依赖</p>
+      </div>
+      <span class="status-badge" [class.status-online]="readiness()?.status === 'UP'">
+        {{ readiness()?.status === 'UP' ? 'Ready' : 'Unavailable' }}
+      </span>
+    </div>
+    <div class="health-list">
+      <div class="health-row">
+        <span class="health-name"><svg lucideCheckCircle [size]="18"></svg>应用进程</span>
+        <span
+          class="health-value"
+          [class.health-up]="liveness()?.components?.['process'] === 'UP'"
+        >
+          {{ liveness()?.components?.['process'] ?? 'UNKNOWN' }}
+        </span>
+      </div>
+      <div class="health-row">
+        <span class="health-name"><svg lucideServer [size]="18"></svg>数据库</span>
+        <span
+          class="health-value"
+          [class.health-up]="readiness()?.components?.['database'] === 'UP'"
+        >
+          {{ readiness()?.components?.['database'] ?? 'UNKNOWN' }}
+        </span>
+      </div>
+      <div class="health-row">
+        <span class="health-name"><svg lucideClock [size]="18"></svg>检查时间</span>
+        <span class="health-value">{{
+          readiness()?.checkedAt ? (readiness()?.checkedAt | date: 'HH:mm:ss') : '--:--:--'
+        }}</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header">
+      <div>
+        <h2>最近 Inbox 事件</h2>
+        <p>Gateway 接收的最新事件</p>
+      </div>
+    </div>
+    @if (recentEvents().length === 0) {
+      <div class="empty-state compact-empty">
+        <svg lucideActivity [size]="25"></svg>
+        <strong>暂无 Inbox 事件</strong>
+        <span>Gateway 收到事件后会显示在这里。</span>
+      </div>
+    } @else {
+      <div class="activity-list">
+        @for (event of recentEvents(); track event.id) {
+          <div class="activity-row">
+            <span class="activity-marker"></span>
+            <div class="activity-copy">
+              <strong>{{ event.eventType }}</strong>
+              <small>{{ event.botDisplayName || event.botId }} · {{ event.receivedAt | date: 'MM-dd HH:mm:ss' }}</small>
+            </div>
+            <span class="status-badge activity-status">{{ event.status }}</span>
+          </div>
+        }
+      </div>
+    }
+  </div>
+</section>

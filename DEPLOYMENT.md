@@ -1,0 +1,314 @@
+# Debian Docker Compose 部署
+
+## 部署结论
+
+项目可以部署到 Debian 的 Docker Compose 中。Compose 只运行 QQ Bot 应用，默认使用容器数据卷中的 SQLite；MySQL/PostgreSQL 由外部系统提供，通过 Web 后台或候选配置文件填写连接信息。Spring Boot 直接在 `8080` 端口提供管理 API 和 Angular 页面，不强制依赖 Caddy/Nginx。真实 QQ Gateway 运行时默认启用，应用启动后会自动调和当前数据库内所有已启用机器人。
+
+当前实现已通过本地单元、集成、模拟 HTTP 端点以及 WebSocket transport/协议测试，但本开发环境没有使用真实 QQ AppID/AppSecret 完成线上连接验收。能成功构建和启动容器只表示部署结构可用，不表示真实账号的凭据、Intents、Gateway 配额或外网策略已经通过 QQ 侧验证。
+
+镜像构建会从 Dragonwell 官方 GitHub Release 下载固定版本的
+`Alibaba_Dragonwell_Extended_21.0.11.0.11.10_x64_linux.tar.gz`。该文件已确认为 Linux x86_64、GNU libc 版本，SHA-256 为：
+
+```text
+12c642f8d6c6e0930b9b4e673d47822227ea46e7559c7b7b6b4c0331ace0580f
+```
+
+Docker 构建阶段会校验该摘要并在 Linux 文件系统中解压到 `/opt/dragonwell`，运行阶段直接执行 `/opt/dragonwell/bin/java`。构建主机必须能访问 `github.com` 和 `release-assets.githubusercontent.com`；不要先在 Windows 上解压该包，否则可能丢失符号链接和可执行权限。
+
+## 前置条件
+
+- Debian 12 amd64，或能够构建/运行 `linux/amd64` 镜像的 Docker 主机。
+- Docker Engine 和 Docker Compose v2 插件。
+- 首次构建时可访问 GitHub Releases、Debian、Node、Gradle Plugin Portal 和 Maven Central，用于拉取 JDK、基础镜像及构建依赖。
+- 外部 MySQL 使用 8.0+；PostgreSQL 建议 15+。数据库账号需要在目标数据库内创建表、索引、约束和 Flyway 历史表，并具有正常的 CRUD 权限。
+- 容器必须能解析公网 DNS，并通过 TCP 443 访问 QQ Token、OpenAPI 以及 QQ 动态返回的 WSS Gateway 地址；出站代理或 TLS 检查设备必须支持长连接和 WebSocket Upgrade。
+
+确认环境：
+
+```bash
+docker version
+docker compose version
+uname -m
+```
+
+`uname -m` 应为 `x86_64`。在 arm64 主机上运行会依赖模拟，性能和兼容性不作为当前部署基线。
+
+## 首次准备
+
+在项目根目录执行：
+
+```bash
+mkdir -p config
+sudo chown -R 10001:10001 config
+sudo chmod 0700 config
+```
+
+首次启动时，应用会自动生成 32 字节安全随机主密钥并以 Base64 写入 `config/app-secret.key`；Linux 文件系统上会尽力将权限设为 `0600`。该主密钥同时保护机器人 AppSecret 和写入活动数据库配置的 MySQL/PostgreSQL 密码。必须与数据库备份一起离线保存；丢失或替换密钥后，已有密文无法恢复。
+
+如需由外部密钥管理系统提供主密钥，可在 `.env` 中设置 `QQBOT_MASTER_KEY=<32字节密钥的Base64>`。显式值非空时优先使用，应用不会读取或创建 `config/app-secret.key`。
+
+构建并启动：
+
+```bash
+docker compose build
+docker compose up -d
+docker compose ps
+docker compose logs -f qqbot
+```
+
+默认访问地址：
+
+```text
+http://<Debian服务器IP>:8080/
+```
+
+第一次访问会自动进入首次设置向导：
+
+1. 创建 Web 管理员。表单示例默认填入 `admin`，可修改；密码长度必须为 12-72 位。管理员用户名不是系统固定值，已有部署以数据库 `admin_users.username` 为准；当前实例实际用户名是 `alanqaq`，后续切换数据库时也应使用该账号。创建成功后当前浏览器会直接建立管理员会话。
+2. 选择 SQLite、MySQL 或 PostgreSQL。SQLite 默认使用 `/data/qqbot.db`；外部数据库需要填写地址、端口、数据库名、用户名、密码及 SSL 模式。点击“验证并保存”后，应用会完成连接、schema、读取和回滚式写入检查；任一检查失败都会保留当前输入和原数据库，必须修正后才能继续。
+3. 填写 QQ 开放平台机器人的 AppID 和 AppSecret。SQLite 在保存首个机器人后直接完成向导；MySQL/PostgreSQL 保存后可点击“继续添加”配置更多机器人，也可直接完成。
+
+向导进度保存在 `config/onboarding.json`，浏览器刷新或容器重启后会恢复到未完成步骤。不要通过删除该文件来重置已有部署；对于已有管理员的旧版本部署，升级后首次生成状态文件时会自动视为已完成，避免重新触发向导。
+
+端口和监听地址可通过根目录 `.env` 调整：
+
+```dotenv
+QQBOT_PUBLISHED_ADDRESS=0.0.0.0
+QQBOT_PUBLISHED_PORT=8080
+QQBOT_COOKIE_SECURE=false
+QQBOT_GATEWAY_ENABLED=true
+QQBOT_GATEWAY_SHUTDOWN_TIMEOUT=10s
+```
+
+直接使用 HTTP 时保持 `QQBOT_COOKIE_SECURE=false`。只有浏览器实际通过 HTTPS 访问时才设置为 `true`。Caddy/Nginx 可用于 TLS 和域名接入，但不是应用启动条件。
+
+## QQ Gateway 运行流程与网络
+
+`QQBOT_GATEWAY_ENABLED` 默认为 `true`。Spring 应用完成基础设施启动后，Supervisor 会立即读取活动数据库中的机器人配置，为每个 `enabled=true` 的机器人创建独立运行时；之后按调和周期重新读取配置。禁用、删除、修改 revision 或切换数据库都会停止旧运行时并按最新配置收敛。
+
+生产机器人连接顺序如下：
+
+1. 解密该机器人的 AppSecret，向 `https://bots.qq.com/app/getAppAccessToken` 请求 Access Token。
+2. 携带 Token 请求生产 OpenAPI `https://api.sgroup.qq.com/gateway/bot`；沙箱机器人使用 `https://sandbox.api.sgroup.qq.com/gateway/bot`。
+3. 校验 QQ 返回的分片建议和 session start limit，然后连接响应中的动态 `wss://` 地址。
+4. 收到 Gateway `HELLO` 后发送 Identify；存在有效 session snapshot 时可发送 Resume。
+5. 只有收到 `READY` 后运行状态才进入 `ONLINE`，Dashboard 才把该机器人计入“已连接”。
+
+Web 首次设置向导及“机器人”页新建表单默认 Intents 为 `33554432`（`2^25`，`GROUP_AND_C2C_EVENT`，群聊与单聊消息事件）。数据库迁移也会把旧的 `intents=0` 配置更新为该值。Intents 只是客户端请求掩码，不能绕过 QQ 开放平台的事件订阅、私域权限或账号审批；通过 API 创建机器人时仍应显式提交正确的 `intents`。
+
+默认需要放行以下出站访问：
+
+| 用途 | 默认目标 | 协议 |
+| --- | --- | --- |
+| Access Token | `bots.qq.com` | HTTPS/443 |
+| 生产 OpenAPI 与 Gateway discovery | `api.sgroup.qq.com` | HTTPS/443 |
+| 沙箱 OpenAPI 与 Gateway discovery | `sandbox.api.sgroup.qq.com` | HTTPS/443 |
+| Gateway 长连接 | `/gateway/bot` 响应中的动态主机 | WSS，通常为 443 |
+
+Gateway 是容器主动建立的出站连接，QQ 不需要直接入站访问容器；对外开放的 `8080` 仅用于 Web 管理。防火墙不能只按固定 Gateway IP 放行，因为 WSS 主机由 QQ discovery 动态返回。还应保证 Debian 时间同步正常、系统 CA 可用，并避免代理截断空闲 WebSocket。
+
+### Gateway 事件进入 Inbox
+
+收到普通 Gateway Dispatch 后，应用按以下顺序处理：
+
+```text
+WebSocket Dispatch
+  -> 解析事件类型、平台事件 ID 和原始 JSON
+  -> event_inbox 去重写入
+  -> 写入成功后推进 Gateway Resume 序号
+  -> GET /api/events/inbox -> 管理后台“事件与任务”
+```
+
+管理员接口示例（先完成登录并保留会话 Cookie）：
+
+```bash
+curl -b cookies.txt 'http://127.0.0.1:8080/api/events/inbox?limit=50'
+curl -b cookies.txt 'http://127.0.0.1:8080/api/events/inbox/<event-id>'
+```
+
+Inbox 列表接口支持 `cursor`、`query`、`botId`、`environment`、`status` 和 `eventType` 筛选；列表不返回原始 Payload，详情接口以纯文本返回并限制为 1 MiB。事件写入失败时会保留旧 Resume 序号并触发可恢复重连，避免 Gateway 已确认但 Inbox 丢失。
+
+Outbox/DLQ 管理接口为：
+
+- `GET /api/events/outbox` 和 `GET /api/events/outbox/{id}`：任务列表、筛选、游标分页和详情。
+- `GET /api/events/outbox/stats`：各状态数量统计。
+- `GET /api/events/dlq` 和 `GET /api/events/dlq/{id}`：固定只读 `DEAD_LETTER` 的死信列表和详情。
+- `GET /api/events/dlq/stats`：死信视图使用同一份安全统计结构。
+
+列表不会读取或返回完整 Payload，详情以纯文本返回并限制为 1 MiB；队列 lease owner 和 fencing token 永不暴露。Outbox worker 已连接生产 QQ OpenAPI：文本和媒体任务按机器人隔离凭据发送，429/5xx 有界重试，永久错误进入 Outbox DLQ，超时或响应无法解析进入 `RESULT_UNKNOWN`。插件宿主产生的任务同样先持久化再发送。
+
+插件投递管理接口：
+
+- `GET /api/events/plugin-deliveries`、`/stats`、`/{id}`：插件投递列表、统计和详情。
+- `GET /api/events/plugin-dlq`、`/{id}`：仅返回 `DEAD_LETTER` 插件投递。
+- `GET/POST/PUT/DELETE /api/plugin-bindings`：按机器人绑定、配置和启停插件。
+
+插件后台通过 `GET /api/plugins` 扫描 `/plugins` 目录中的 JAR manifest 和 SHA-256；PF4J 宿主会加载声明 `Plugin-Config-Schema`、API 版本和能力的可信 JAR。声明 `storage` 能力的插件可使用 `PluginContext.storage()` 访问按绑定 UUID 隔离的键值存储，数据随绑定删除级联清理；未声明能力时存储调用会被拒绝。插件绑定与投递状态在插件页和上述投递 API 中显示。插件 JAR 的完整开发、打包和排障说明见 [PLUGIN_DEVELOPMENT.md](./PLUGIN_DEVELOPMENT.md)。
+
+镜像携带 `echo` 示例插件。首次创建 `qqbot-plugins` 卷时 Docker 会把 `/plugins/qqbot-plugin-echo.jar` 初始化到卷中；在 Web 插件页把它绑定到机器人后，发送 `/ping` 可验证回复 `pong` 的完整闭环，发送 `/remember` 可验证绑定级存储隔离。已有插件卷不会因升级自动覆盖同名 JAR，需由运维人员显式更新可信制品。
+
+后台审计过滤器会记录所有管理变更请求的 HTTP 方法、路径、结果状态、操作者、来源地址和 trace ID，不保存请求体；通过 `GET /api/audit-logs` 分页查询。账户安全区支持旧密码校验后改密；机器人删除会二次确认并清理该机器人 Inbox、Outbox、插件绑定和投递记录。运行状态可通过 `GET /api/bots/runtime/stream` 订阅 SSE，客户端断线会回到轮询。
+
+多实例部署时每个机器人 Shard 使用 `bot_leases` SQL 租约。实例通过 `QQBOT_INSTANCE_ID` 标识自己，只有持有未过期租约的实例才建立 Gateway；租约续期失败会停止会话并等待重新获取。SQLite 默认也会阻止第二个实例接管同一机器人，MySQL/PostgreSQL 使用行级租约和 fencing token。
+
+当前配置项如下。Compose 已直接映射 `QQBOT_GATEWAY_ENABLED`、`QQBOT_GATEWAY_SHUTDOWN_TIMEOUT`，并固定把 session 目录设为 `/data/config/gateway-sessions`、插件目录设为 `/plugins`；要覆盖表中其他项，需要在 `compose.yaml` 的 `environment` 下显式传入。
+
+| 环境变量 | 应用默认值 | 作用 |
+| --- | --- | --- |
+| `QQBOT_GATEWAY_ENABLED` | `true` | 是否启动 Supervisor 和真实 Gateway 连接 |
+| `QQBOT_GATEWAY_SESSION_DIRECTORY` | `gateway-sessions`；Compose 为 `/data/config/gateway-sessions` | Resume snapshot 目录 |
+| `QQBOT_GATEWAY_RECONCILE_INTERVAL` | `15s` | 从活动数据库重新调和机器人期望状态的周期 |
+| `QQBOT_GATEWAY_LEASE_DURATION` | `45s` | 单实例 bot/shard SQL 租约有效期，应明显大于调和周期 |
+| `QQBOT_INSTANCE_ID` | 自动随机 UUID | 多实例租约 owner 标识；同一实例重启可使用新值 |
+| `QQBOT_GATEWAY_SHUTDOWN_TIMEOUT` | `10s` | 停止全部机器人运行时的最长等待时间 |
+| `QQBOT_GATEWAY_CONNECT_TIMEOUT` | `10s` | 建立 WSS 连接的超时 |
+| `QQBOT_GATEWAY_MAX_TEXT_CHARACTERS` | `2097152` | 单个 Gateway 文本帧允许的最大字符数 |
+| `QQBOT_PLUGINS_DIR` | `/plugins` | 后台只读扫描的可信插件制品目录 |
+
+QQ HTTP 客户端还支持 `QQBOT_QQ_REQUEST_TIMEOUT`（默认 `10s`）、`QQBOT_QQ_TOKEN_REFRESH_SKEW`（默认 `60s`）、`QQBOT_QQ_TOKEN_ENDPOINT`、`QQBOT_QQ_OPEN_API_BASE_URI` 和 `QQBOT_QQ_SANDBOX_OPEN_API_BASE_URI`。后三项默认就是上表官方地址，除受控测试或明确的企业代理场景外不建议覆盖。
+
+## 持久化目录
+
+Compose 使用以下持久化位置：
+
+| 内容 | 容器路径 | 宿主形式 |
+| --- | --- | --- |
+| SQLite 与运行数据 | `/data` | `qqbot-data` 命名卷 |
+| 活动/候选数据库配置 | `/data/config` | `./config` 绑定目录 |
+| 首次设置进度 | `/data/config/onboarding.json` | `./config/onboarding.json`，应用自动维护 |
+| Gateway Resume 状态 | `/data/config/gateway-sessions` | `./config/gateway-sessions`，应用自动维护 |
+| 插件 | `/plugins` | `qqbot-plugins` 命名卷 |
+| 主密钥 | `/data/config/app-secret.key` | `./config/app-secret.key`，首次启动自动生成 |
+| 临时文件 | `/tmp/qqbot` | 内存 tmpfs |
+
+容器以 UID/GID `10001` 非 root 身份运行，根文件系统只读。`config` 权限不正确时，服务会无法生成主密钥或提交数据库配置。
+
+每个机器人分片的 Resume snapshot 文件名为 `<botId>-shard-<index>.json`，内容包含 session id、最后事件序号和配置指纹，不包含 AppSecret 或 Access Token。文件通过临时文件原子替换，在 POSIX 文件系统上临时文件使用 `0600`。机器人 revision、AppID、环境、Intents 或分片配置变化导致指纹不匹配时，旧 snapshot 会被删除并重新 Identify；有效 snapshot 可用于重连或重启后的 Resume。该目录应随 `config` 一起备份和恢复，但不能替代数据库与主密钥备份。
+
+## 后续从 Web 后台切换数据库
+
+1. 登录管理后台并进入“系统”。
+2. 选择 SQLite、MySQL 或 PostgreSQL，填写路径或连接参数。
+3. 先执行连接测试。应用会检查连接、schema、读取，以及在事务回滚范围内的写入。
+4. 确认后执行切换。切换期间新数据库会再次完整验证，失败时保持原 DataSource 和活动配置不变。
+5. 若目标库完全为空，应用会执行 Flyway 初始化并复制当前唯一管理员，因此切换后当前会话和后续登录可继续使用。
+
+数据库之间不会复制机器人、Inbox 或 Outbox 业务数据。非空目标库如果没有当前管理员用户名，切换会被拒绝，以免切换后失去后台访问能力。
+
+数据库切换提交后，Supervisor 会先同步隔离旧数据库对应的全部运行时和会话代际，使旧连接的迟到回调不能再修改当前状态，并对旧 WSS 会话发起停止；随后只从新活动数据库重新读取机器人并创建运行时。新库没有的机器人不会继续运行，新库内 `enabled=true` 的机器人会重新建立运行时。配置指纹完全相同的持久化 snapshot 仍可能用于协议 Resume，但这不会让旧数据库的运行时对象继续存活。
+
+## 候选配置文件切换
+
+应用使用两个文件：
+
+- `config/database.json`：已生效配置，由应用原子写入；服务端数据库密码为 AES-256-GCM 密文。
+- `config/database-candidate.json`：人工编辑的候选配置，只在主动“从配置文件重新加载”时读取。
+
+这种分离保证候选配置连接失败、无写权限或 schema 不兼容时，不会破坏下次启动所需的活动配置。
+
+SQLite 示例：
+
+```bash
+sudo cp config/database.sqlite.example.json config/database-candidate.json
+sudo chown 10001:10001 config/database-candidate.json
+sudo chmod 0600 config/database-candidate.json
+```
+
+MySQL/PostgreSQL 示例使用相对密码文件：
+
+```bash
+sudo cp config/database.mysql.example.json config/database-candidate.json
+printf '%s' 'replace-with-database-password' | sudo tee config/database-password >/dev/null
+sudo chown 10001:10001 config/database-candidate.json config/database-password
+sudo chmod 0600 config/database-candidate.json
+sudo chmod 0400 config/database-password
+```
+
+编辑候选文件后，在 Web 系统页点击“从配置文件重新加载”。也可以在已认证且带 CSRF Token 的客户端调用 `POST /api/system/database/reload`。成功后应用将候选内容规范化、加密密码并提交到 `database.json`；候选文件可保留用于后续修改。
+
+枚举值必须使用大写：数据库类型为 `SQLITE`、`MYSQL`、`POSTGRESQL`；SSL 模式为 `DISABLED`、`PREFERRED`、`REQUIRED`、`VERIFY_CA`、`VERIFY_IDENTITY`。
+
+## 外部数据库网络
+
+数据库不在 Compose 内。连接地址可以是局域网 DNS/IP；如果数据库运行在同一台 Debian 宿主机，可使用 Compose 已映射的 `host.docker.internal`，并确保数据库监听宿主接口且防火墙允许 Docker 网段访问。容器中的 `localhost` 始终指应用容器本身，不能代表宿主机。
+
+生产环境建议：
+
+- 为应用创建独立数据库和独立账号，不使用 root/superuser。
+- 限制数据库防火墙来源，只允许 Docker 主机或指定容器网段。
+- 跨主机连接使用 `REQUIRED` 或更严格的证书校验模式。
+- 在切换前先完成目标库备份和连接测试。
+
+## 健康检查与排障
+
+```bash
+curl -fsS http://127.0.0.1:8080/health/live
+curl -fsS http://127.0.0.1:8080/health/ready
+docker compose ps
+docker compose logs --tail=200 qqbot
+```
+
+`live` 只表示进程可响应；`ready` 会检查当前活动数据库，不检查每个 QQ Gateway 是否在线。因此 `/health/ready` 为 `UP` 与 Dashboard 显示 0 个已连接机器人并不矛盾。
+
+管理员认证后可调用：
+
+```bash
+curl -b cookies.txt http://127.0.0.1:8080/api/bots/runtime
+```
+
+事件排查可同时调用：
+
+```bash
+curl -b cookies.txt 'http://127.0.0.1:8080/api/events/inbox?limit=50'
+```
+
+`admin_users.username` 是部署实例的真实管理员账号，不应假设为 `admin`；例如当前数据库中的账号是 `alanqaq`。Gateway `ONLINE`、心跳正常只说明 WebSocket 会话存活，还应确认 Inbox 列表的 `items` 是否出现新的 `receivedAt` 记录。
+
+响应中的 `totalCount` 是 Supervisor 当前已调和的机器人数量，`enabledCount` 是期望启用数量，`connectedCount` 只统计状态为 `ONLINE` 的数量，`observedAt` 是本次快照时间。每个 `bots[]` 元素包含配置 revision、状态变更时间、最近一次 READY 时间 `connectedAt`、最后心跳、最后事件、重连次数、session id/sequence 和脱敏后的 `lastError`。机器人页显示“正在应用 rev.”表示运行时 revision 尚未追上数据库配置。
+
+状态含义：`DISABLED` 未要求运行；`STARTING` 正在创建运行时；`DISCOVERING` 正在获取 Token/查询 `/gateway/bot`；`CONNECTING` 正在连接 WSS 或等待 HELLO；`AUTHENTICATING` 正在 Identify/Resume；`ONLINE` 已收到 READY；`RECONNECTING` 正在退避重连；`STOPPING`/`STOPPED` 正在或已经释放会话；`FAILED` 是需要修正配置、权限或其他终止性问题。Dashboard 的“平台服务”来自健康接口，“运行机器人”来自该 runtime API，两者应分别判断。
+
+常见问题：
+
+- `permission denied`：修正 `config` 及其中配置文件的 UID/GID 和模式。
+- 首次设置无法恢复：检查 `config/onboarding.json` 是否可读且为有效 JSON，并从同一批备份恢复；不要手工跳过阶段。
+- 外部数据库连接失败：确认没有填写 `localhost`、端口可达、账号授权和 TLS 模式匹配。
+- `QQ_AUTHENTICATION_REJECTED` 或 `GATEWAY_AUTHENTICATION_FAILURE`：检查 AppID/AppSecret 是否匹配、生产/沙箱环境是否选对、机器人是否已在 QQ 开放平台启用；修改凭据后保存新 revision，禁止在日志或工单中粘贴 AppSecret。
+- `GATEWAY_INTENTS_REJECTED`（QQ close code 4013/4014）：Intents 掩码无效，或请求了账号未获批的事件权限。先恢复默认 `33554432` 验证基础连接，再按 QQ 平台授权逐项增加权限。
+- `GATEWAY_SESSION_LIMITED`：`/gateway/bot` 返回的 session start limit 已用尽，运行时会等到 QQ 返回的 reset 时间再发现；不要反复重启容器，也不要用同一机器人凭据启动重复实例。
+- `QQ_RATE_LIMITED` 或 `GATEWAY_RATE_LIMITED`：QQ discovery 或 WSS 触发限流，运行时会退避重试；检查重复部署、过快重启和配额使用情况。
+- `GATEWAY_SHARD_CONFIGURATION_INVALID` 或 `GATEWAY_SHARD_REJECTED`：配置的分片数量超过 discovery 建议，或分片参数被 QQ 拒绝；单实例通常保持单分片，扩容前先以 `/gateway/bot` 返回值为准。
+- `QQ_BOT_OFFLINE` / `QQ_BOT_BANNED`：QQ 认为该环境中的机器人不可用或禁止连接，需要在开放平台确认上线、封禁及环境状态，应用不会绕过该限制。
+- `QQ_REQUEST_TIMEOUT`、`QQ_TRANSPORT_UNAVAILABLE` 或持续 `RECONNECTING`：从容器内检查 DNS、HTTPS/WSS 443、系统时间、CA、代理 WebSocket 支持和动态 Gateway 域名放行；不要仅检查 Web 后台的入站端口。
+- 镜像构建摘要失败：根目录 Dragonwell 压缩包不是已验证版本或文件已损坏。
+- 切换提示目标管理员缺失：目标库已有业务写入但没有当前管理员；应用不会自动覆盖非空库。
+- 重启后无法解密：恢复最初的 `config/app-secret.key`，不要生成新密钥覆盖。
+
+## 备份与升级
+
+SQLite 部署在备份前先停止写入：
+
+```bash
+mkdir -p backup
+docker compose stop qqbot
+docker compose cp qqbot:/data/qqbot.db ./backup/qqbot.db
+sudo cp -a config ./backup/config
+docker compose start qqbot
+```
+
+MySQL/PostgreSQL 使用对应数据库的原生备份工具；同时备份 `config/database.json`、`config/onboarding.json` 和主密钥。插件卷如包含生产插件，也应单独归档。
+
+升级流程：
+
+```bash
+docker compose stop qqbot
+# 完成数据、配置和主密钥备份后更新项目文件
+docker compose build --pull --no-cache
+docker compose up -d
+docker compose ps
+docker compose logs --tail=200 qqbot
+```
+
+本次 Gateway/Inbox、Outbox/DLQ、Dashboard 与插件制品扫描更新同时包含后端 JAR 和 Angular 静态资源；已有容器只执行 `restart` 不会加载新代码，必须重新构建镜像并执行 `up -d`。`qqbot-data` 卷、`./config` 绑定目录和外部 MySQL/PostgreSQL 不会因上述重建步骤被删除。
+
+Flyway 只执行向前迁移。升级前的数据库备份是回退依据，不要手工修改 `flyway_schema_history`。

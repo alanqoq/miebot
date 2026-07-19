@@ -1,0 +1,4 @@
+{
+  "url": "wss://api.sgroup.qq.com/websocket/",
+  "shards": 1
+}

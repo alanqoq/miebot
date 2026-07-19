@@ -1,0 +1,106 @@
+spring:
+  application:
+    name: qqbot-platform
+  flyway:
+    enabled: false
+  jackson:
+    default-property-inclusion: non_null
+  web:
+    resources:
+      cache:
+        cachecontrol:
+          max-age: 1h
+
+qqbot:
+  onboarding:
+    state-file: ${QQBOT_ONBOARDING_STATE_FILE:onboarding.json}
+  gateway:
+    enabled: ${QQBOT_GATEWAY_ENABLED:true}
+    session-directory: ${QQBOT_GATEWAY_SESSION_DIRECTORY:gateway-sessions}
+    reconcile-interval: ${QQBOT_GATEWAY_RECONCILE_INTERVAL:15s}
+    lease-duration: ${QQBOT_GATEWAY_LEASE_DURATION:45s}
+    instance-id: ${QQBOT_INSTANCE_ID:}
+    shutdown-timeout: ${QQBOT_GATEWAY_SHUTDOWN_TIMEOUT:10s}
+    connect-timeout: ${QQBOT_GATEWAY_CONNECT_TIMEOUT:10s}
+    request-timeout: ${QQBOT_QQ_REQUEST_TIMEOUT:10s}
+    token-refresh-skew: ${QQBOT_QQ_TOKEN_REFRESH_SKEW:60s}
+    token-endpoint: ${QQBOT_QQ_TOKEN_ENDPOINT:https://bots.qq.com/app/getAppAccessToken}
+    production-open-api-base-uri: ${QQBOT_QQ_OPEN_API_BASE_URI:https://api.sgroup.qq.com/}
+    sandbox-open-api-base-uri: ${QQBOT_QQ_SANDBOX_OPEN_API_BASE_URI:https://sandbox.api.sgroup.qq.com/}
+    max-text-characters: ${QQBOT_GATEWAY_MAX_TEXT_CHARACTERS:2097152}
+  plugins:
+    enabled: ${QQBOT_PLUGINS_ENABLED:true}
+    directory: ${QQBOT_PLUGINS_DIR:/plugins}
+    poll-interval: ${QQBOT_PLUGINS_POLL_INTERVAL:1s}
+    lease-duration: ${QQBOT_PLUGINS_LEASE_DURATION:30s}
+    execution-timeout: ${QQBOT_PLUGINS_EXECUTION_TIMEOUT:20s}
+    max-attempts: ${QQBOT_PLUGINS_MAX_ATTEMPTS:5}
+    batch-size: ${QQBOT_PLUGINS_BATCH_SIZE:16}
+  outbox:
+    enabled: ${QQBOT_OUTBOX_ENABLED:true}
+    poll-interval: ${QQBOT_OUTBOX_POLL_INTERVAL:1s}
+    lease-duration: ${QQBOT_OUTBOX_LEASE_DURATION:45s}
+    request-timeout: ${QQBOT_OUTBOX_REQUEST_TIMEOUT:20s}
+    max-attempts: ${QQBOT_OUTBOX_MAX_ATTEMPTS:8}
+    batch-size: ${QQBOT_OUTBOX_BATCH_SIZE:16}
+  database:
+    type: ${QQBOT_DATABASE_TYPE:sqlite}
+    config-file: ${QQBOT_DATABASE_CONFIG_FILE:database-config.json}
+    candidate-config-file: ${QQBOT_DATABASE_CANDIDATE_CONFIG_FILE:${QQBOT_DATABASE_CONFIG_FILE:database-config.json}.candidate}
+    sqlite:
+      path: ${QQBOT_SQLITE_PATH:qqbot.db}
+      busy-timeout: ${QQBOT_SQLITE_BUSY_TIMEOUT:5s}
+    mysql:
+      host: ${QQBOT_MYSQL_HOST:localhost}
+      port: ${QQBOT_MYSQL_PORT:3306}
+      database-name: ${QQBOT_MYSQL_DATABASE:qqbot}
+      username: ${QQBOT_MYSQL_USERNAME:qqbot}
+      password: ${QQBOT_MYSQL_PASSWORD:}
+      password-file: ${QQBOT_MYSQL_PASSWORD_FILE:}
+      ssl-mode: ${QQBOT_MYSQL_SSL_MODE:PREFERRED}
+      connect-timeout: ${QQBOT_MYSQL_CONNECT_TIMEOUT:5s}
+    postgresql:
+      host: ${QQBOT_POSTGRESQL_HOST:localhost}
+      port: ${QQBOT_POSTGRESQL_PORT:5432}
+      database-name: ${QQBOT_POSTGRESQL_DATABASE:qqbot}
+      username: ${QQBOT_POSTGRESQL_USERNAME:qqbot}
+      password: ${QQBOT_POSTGRESQL_PASSWORD:}
+      password-file: ${QQBOT_POSTGRESQL_PASSWORD_FILE:}
+      ssl-mode: ${QQBOT_POSTGRESQL_SSL_MODE:PREFERRED}
+      connect-timeout: ${QQBOT_POSTGRESQL_CONNECT_TIMEOUT:5s}
+  security:
+    cookie-secure: ${QQBOT_COOKIE_SECURE:false}
+    app-secret:
+      key-id: ${QQBOT_APP_SECRET_KEY_ID:primary}
+      master-key: ${QQBOT_MASTER_KEY:}
+      master-key-file: ${QQBOT_MASTER_KEY_FILE:}
+
+server:
+  address: ${QQBOT_HTTP_ADDRESS:0.0.0.0}
+  port: ${QQBOT_HTTP_PORT:8080}
+  error:
+    include-message: never
+    include-stacktrace: never
+  shutdown: graceful
+  servlet:
+    session:
+      cookie:
+        name: QQBOT_SESSION
+        http-only: true
+        same-site: lax
+        secure: ${QQBOT_COOKIE_SECURE:false}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+
+logging:
+  pattern:
+    level: "%5p [traceId:%X{traceId:-}]"

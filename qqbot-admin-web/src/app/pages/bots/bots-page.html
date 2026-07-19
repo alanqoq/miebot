@@ -1,0 +1,416 @@
+<section class="page-header">
+  <div>
+    <p class="eyebrow">RUNTIMES</p>
+    <h1>机器人</h1>
+    <p>管理 QQ Bot 凭据、事件权限和启用状态。</p>
+  </div>
+  <button class="button button-primary" type="button" (click)="openCreate()">
+    <svg lucidePlus [size]="17"></svg>
+    <span>新增机器人</span>
+  </button>
+</section>
+
+@if (pageError()) {
+  <div class="notice notice-error" role="alert">
+    <svg lucideActivity [size]="18"></svg>
+    <span>{{ pageError() }}</span>
+    <button class="button button-secondary notice-action" type="button" (click)="loadBots()">
+      重试
+    </button>
+  </div>
+}
+
+@if (actionError()) {
+  <div class="notice notice-warning" role="status">
+    <svg lucideActivity [size]="18"></svg>
+    <span>{{ actionError() }}</span>
+  </div>
+}
+
+@if (runtimeUnavailable()) {
+  <div class="notice notice-warning" role="status">
+    <svg lucideActivity [size]="18"></svg>
+    <span>Gateway 运行状态暂不可用，机器人配置仍可正常管理。</span>
+  </div>
+}
+
+<section class="panel table-panel">
+  <div class="table-toolbar">
+    <label class="search-field">
+      <svg lucideSearch [size]="17"></svg>
+      <input
+        type="search"
+        placeholder="搜索名称、AppID 或环境"
+        aria-label="搜索机器人"
+        [value]="search()"
+        (input)="updateSearch($event)"
+      />
+    </label>
+    <span class="table-count">{{ filteredBots().length }} / {{ bots().length }}</span>
+    <button
+      class="icon-button bordered toolbar-refresh"
+      type="button"
+      aria-label="刷新机器人列表"
+      title="刷新机器人列表"
+      [disabled]="loading()"
+      (click)="loadBots()"
+    >
+      <svg lucideRefreshCw [size]="17" [class.spinning]="loading()"></svg>
+    </button>
+  </div>
+
+  <div class="table-scroll">
+    <table>
+      <thead>
+        <tr>
+          <th>机器人</th>
+          <th>AppID</th>
+          <th>环境</th>
+          <th>启用状态</th>
+          <th>Gateway</th>
+          <th>最近更新</th>
+          <th><span class="visually-hidden">操作</span></th>
+        </tr>
+      </thead>
+      <tbody>
+        @if (loading()) {
+          <tr class="empty-table-row">
+            <td colspan="7">
+              <div class="empty-state compact-table-state" role="status">
+                <svg lucideRefreshCw class="spinning" [size]="25"></svg>
+                <strong>正在加载机器人</strong>
+              </div>
+            </td>
+          </tr>
+        } @else if (filteredBots().length === 0) {
+          <tr class="empty-table-row">
+            <td colspan="7">
+              <div class="empty-state compact-table-state">
+                <svg lucideBot [size]="28"></svg>
+                @if (bots().length === 0) {
+                  <strong>尚未配置机器人</strong>
+                  <span>创建后的机器人会显示在此列表中。</span>
+                } @else {
+                  <strong>没有匹配的机器人</strong>
+                  <span>请调整搜索条件。</span>
+                }
+              </div>
+            </td>
+          </tr>
+        } @else {
+          @for (bot of filteredBots(); track bot.id) {
+            <tr>
+              <td>
+                <div class="bot-identity">
+                  <span class="bot-mark"><svg lucideBot [size]="17"></svg></span>
+                  <div>
+                    <strong>{{ bot.displayName }}</strong>
+                    <small>rev. {{ bot.revision }}</small>
+                  </div>
+                </div>
+              </td>
+              <td>
+                <code>{{ bot.appId }}</code>
+              </td>
+              <td>
+                <span
+                  class="environment-label"
+                  [class.production]="bot.environment === 'PRODUCTION'"
+                >
+                  {{ bot.environment === 'PRODUCTION' ? '正式' : '沙箱' }}
+                </span>
+              </td>
+              <td>
+                <div class="enabled-control">
+                  <button
+                    class="switch-control"
+                    type="button"
+                    role="switch"
+                    [class.active]="bot.enabled"
+                    [attr.aria-checked]="bot.enabled"
+                    [attr.aria-label]="(bot.enabled ? '停用' : '启用') + bot.displayName"
+                    [disabled]="isMutating(bot.id)"
+                    (click)="toggleEnabled(bot)"
+                  >
+                    <span></span>
+                  </button>
+                  <span>{{ bot.enabled ? '已启用' : '已停用' }}</span>
+                  @if (isMutating(bot.id)) {
+                    <svg lucideRefreshCw class="spinning row-spinner" [size]="14"></svg>
+                  }
+                </div>
+              </td>
+              <td>
+                @if (runtimeFor(bot); as runtime) {
+                  <div class="runtime-cell">
+                    <span class="runtime-badge {{ runtimeStateClass(runtime.state) }}">
+                      {{ runtimeStateLabel(runtime.state) }}
+                    </span>
+                    @if (runtime.configurationRevision !== bot.revision) {
+                      <small class="runtime-detail">正在应用 rev. {{ bot.revision }}</small>
+                    }
+                    @if (runtime.session; as session) {
+                      <small class="runtime-detail" [attr.title]="session.id">
+                        会话 {{ shortSessionId(session.id) }} · Seq {{ session.sequence }}
+                      </small>
+                    }
+                    @if (
+                      runtime.lastHeartbeatAt ||
+                      runtime.lastDispatchAt ||
+                      runtime.reconnectCount > 0
+                    ) {
+                      <small class="runtime-detail">
+                        @if (runtime.lastHeartbeatAt) {
+                          心跳 {{ runtime.lastHeartbeatAt | date: 'HH:mm:ss' }}
+                        }
+                        @if (runtime.lastDispatchAt) {
+                          · 事件 {{ runtime.lastDispatchAt | date: 'HH:mm:ss' }}
+                        }
+                        @if (runtime.reconnectCount > 0) {
+                          · 重连 {{ runtime.reconnectCount }} 次
+                        }
+                      </small>
+                    }
+                    @if (runtime.lastError; as runtimeError) {
+                      <small class="runtime-error" [attr.title]="runtimeError.message">
+                        {{ runtimeError.code }}：{{ runtimeError.message }}
+                      </small>
+                    }
+                  </div>
+                } @else {
+                  <div class="runtime-cell">
+                    <span class="runtime-badge runtime-unknown">未知</span>
+                    <small class="runtime-detail">
+                      {{ runtimeUnavailable() ? '状态不可用' : '等待运行时调度' }}
+                    </small>
+                  </div>
+                }
+              </td>
+              <td>
+                <span class="updated-value">{{ bot.updatedAt | date: 'yyyy-MM-dd HH:mm' }}</span>
+              </td>
+              <td class="actions-cell">
+                <button
+                  class="icon-button"
+                  type="button"
+                  aria-label="编辑机器人"
+                  title="编辑机器人"
+                  (click)="openEdit(bot)"
+                >
+                  <svg lucideSettings [size]="17"></svg>
+                </button>
+                <button
+                  class="icon-button danger-icon"
+                  type="button"
+                  aria-label="删除机器人"
+                  title="删除机器人"
+                  [disabled]="isMutating(bot.id)"
+                  (click)="deleteBot(bot)"
+                >
+                  <svg lucideTrash2 [size]="17"></svg>
+                </button>
+              </td>
+            </tr>
+          }
+        }
+      </tbody>
+    </table>
+  </div>
+</section>
+
+@if (dialogMode(); as mode) {
+  <div class="dialog-backdrop" (click)="closeDialog()">
+    <section
+      class="bot-dialog"
+      role="dialog"
+      aria-modal="true"
+      [attr.aria-labelledby]="mode + '-bot-title'"
+      (click)="$event.stopPropagation()"
+    >
+      <header class="dialog-header">
+        <div>
+          <p class="eyebrow">{{ mode === 'create' ? 'NEW RUNTIME' : 'BOT SETTINGS' }}</p>
+          <h2 [id]="mode + '-bot-title'">{{ mode === 'create' ? '新增机器人' : '编辑机器人' }}</h2>
+        </div>
+        <button
+          class="icon-button"
+          type="button"
+          aria-label="关闭"
+          title="关闭"
+          [disabled]="saving()"
+          (click)="closeDialog()"
+        >
+          <svg lucideX [size]="19"></svg>
+        </button>
+      </header>
+
+      @if (dialogLoading()) {
+        <div class="dialog-loading" role="status">
+          <svg lucideRefreshCw class="spinning" [size]="24"></svg>
+          <strong>正在读取最新配置</strong>
+        </div>
+      } @else if (mode === 'edit' && !editingBot()) {
+        <div class="dialog-loading">
+          <svg lucideActivity [size]="24"></svg>
+          <strong>{{ dialogError() ?? '无法读取机器人配置' }}</strong>
+          <button class="button button-secondary" type="button" (click)="loadEditingBot()">
+            重试
+          </button>
+        </div>
+      } @else {
+        <form [formGroup]="form" (ngSubmit)="save()" novalidate>
+          <div class="dialog-body">
+            @if (dialogError()) {
+              <div class="notice notice-error dialog-notice" role="alert">
+                <svg lucideActivity [size]="18"></svg>
+                <span>{{ dialogError() }}</span>
+                @if (revisionConflict()) {
+                  <button
+                    class="button button-secondary notice-action"
+                    type="button"
+                    (click)="loadEditingBot()"
+                  >
+                    重新载入
+                  </button>
+                }
+              </div>
+            }
+
+            <div class="form-grid">
+              <label class="form-field field-wide">
+                <span>机器人名称</span>
+                <input
+                  type="text"
+                  formControlName="displayName"
+                  maxlength="128"
+                  autocomplete="off"
+                  [class.invalid]="fieldError(form.controls.displayName, '机器人名称')"
+                />
+                @if (fieldError(form.controls.displayName, '机器人名称'); as error) {
+                  <small class="field-error">{{ error }}</small>
+                }
+              </label>
+
+              <label class="form-field">
+                <span>AppID</span>
+                <input
+                  type="text"
+                  formControlName="appId"
+                  maxlength="128"
+                  autocomplete="off"
+                  [class.invalid]="fieldError(form.controls.appId, 'AppID')"
+                />
+                @if (fieldError(form.controls.appId, 'AppID'); as error) {
+                  <small class="field-error">{{ error }}</small>
+                }
+              </label>
+
+              <label class="form-field">
+                <span>环境</span>
+                <select formControlName="environment">
+                  <option value="SANDBOX">沙箱</option>
+                  <option value="PRODUCTION">正式</option>
+                </select>
+              </label>
+
+              <fieldset class="intents-fieldset field-wide">
+                <legend>Gateway 事件订阅</legend>
+                <div class="intent-options">
+                  @for (option of intentOptions; track option.key) {
+                    <label class="intent-option" [class.selected]="hasIntent(option.bit)">
+                      <input
+                        type="checkbox"
+                        [checked]="hasIntent(option.bit)"
+                        [disabled]="form.disabled"
+                        (change)="toggleIntent(option.bit, $event)"
+                      />
+                      <span class="checkbox-indicator"></span>
+                      <span>{{ option.label }}</span>
+                      @if (option.privateOnly) {
+                        <small>仅私域</small>
+                      }
+                    </label>
+                  }
+                </div>
+                @if (unknownIntentBits() > 0) {
+                  <small class="intent-compatibility"
+                    >已保留现有兼容事件位 {{ unknownIntentBits() }}</small
+                  >
+                }
+                @if (fieldError(form.controls.intents, 'Gateway Intents'); as error) {
+                  <small class="field-error">{{ error }}</small>
+                }
+              </fieldset>
+
+              <div class="shard-fields">
+                <label class="form-field">
+                  <span>Shard 索引</span>
+                  <input type="number" formControlName="shardIndex" min="0" max="4095" step="1" />
+                </label>
+                <label class="form-field">
+                  <span>Shard 总数</span>
+                  <input type="number" formControlName="shardCount" min="1" max="4096" step="1" />
+                </label>
+                @if (
+                  form.hasError('shardRange') &&
+                  (form.controls.shardIndex.touched || form.controls.shardCount.touched)
+                ) {
+                  <small class="field-error shard-error">Shard 索引必须小于总数</small>
+                } @else if (fieldError(form.controls.shardIndex, 'Shard 索引'); as error) {
+                  <small class="field-error shard-error">{{ error }}</small>
+                } @else if (fieldError(form.controls.shardCount, 'Shard 总数'); as error) {
+                  <small class="field-error shard-error">{{ error }}</small>
+                }
+              </div>
+
+              <label class="form-field field-wide">
+                <span class="secret-label">
+                  AppSecret
+                  @if (mode === 'edit' && editingBot()?.secretConfigured) {
+                    <small>已配置</small>
+                  }
+                </span>
+                <input
+                  type="password"
+                  formControlName="appSecret"
+                  maxlength="4096"
+                  autocomplete="new-password"
+                  [placeholder]="mode === 'edit' ? '保持现有密钥' : ''"
+                  [class.invalid]="fieldError(form.controls.appSecret, 'AppSecret')"
+                />
+                @if (fieldError(form.controls.appSecret, 'AppSecret'); as error) {
+                  <small class="field-error">{{ error }}</small>
+                }
+              </label>
+
+              @if (mode === 'create') {
+                <label class="create-enabled field-wide">
+                  <input type="checkbox" formControlName="enabled" />
+                  <span class="checkbox-indicator"></span>
+                  <span>创建后启用</span>
+                </label>
+              }
+            </div>
+          </div>
+
+          <footer class="dialog-footer">
+            <button
+              class="button button-secondary"
+              type="button"
+              [disabled]="saving()"
+              (click)="closeDialog()"
+            >
+              取消
+            </button>
+            <button class="button button-primary" type="submit" [disabled]="saving()">
+              @if (saving()) {
+                <svg lucideRefreshCw class="spinning" [size]="16"></svg>
+              }
+              {{ mode === 'create' ? '创建机器人' : '保存更改' }}
+            </button>
+          </footer>
+        </form>
+      }
+    </section>
+  </div>
+}

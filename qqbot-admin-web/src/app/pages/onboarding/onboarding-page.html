@@ -1,0 +1,461 @@
+<div class="setup-page">
+  <header class="setup-brand" aria-label="QQ Bot Control">
+    <span class="brand-mark" aria-hidden="true"><svg lucideBot [size]="22"></svg></span>
+    <span>
+      <strong>QQ Bot Control</strong>
+      <small>首次设置</small>
+    </span>
+  </header>
+
+  <main class="setup-panel">
+    @if (loading()) {
+      <div class="loading-state" role="status">
+        <svg lucideLoaderCircle [size]="26" class="spinning"></svg>
+        <strong>正在恢复设置进度</strong>
+        <span>请稍候</span>
+      </div>
+    } @else if (pageError()) {
+      <div class="load-error" role="alert">
+        <span class="heading-icon error-icon" aria-hidden="true">
+          <svg lucideAlertTriangle [size]="22"></svg>
+        </span>
+        <h1>无法加载首次设置</h1>
+        <p>{{ pageError() }}</p>
+        <button class="button button-secondary" type="button" (click)="retryLoad()">
+          <svg lucideLoaderCircle [size]="17"></svg>
+          重新加载
+        </button>
+      </div>
+    } @else {
+      <header class="setup-heading">
+        <span class="heading-icon" aria-hidden="true">
+          @if (step() === 'DATABASE') {
+            <svg lucideDatabase [size]="22"></svg>
+          } @else {
+            <svg lucideBot [size]="22"></svg>
+          }
+        </span>
+        <div>
+          <p class="eyebrow">INITIAL SETUP</p>
+          <h1>{{ step() === 'DATABASE' ? '选择数据存储' : '添加 QQ 机器人' }}</h1>
+          <p>
+            {{
+              step() === 'DATABASE'
+                ? '数据库验证成功并保存后，继续配置机器人。'
+                : '填写开放平台提供的 AppID 和 AppSecret。'
+            }}
+          </p>
+        </div>
+      </header>
+
+      <ol class="setup-progress" aria-label="首次设置进度">
+        <li class="complete">
+          <span aria-hidden="true"><svg lucideCheck [size]="15"></svg></span>
+          <strong>管理员</strong>
+        </li>
+        <li [class.active]="step() === 'DATABASE'" [class.complete]="step() === 'BOT'">
+          <span aria-hidden="true">
+            @if (step() === 'BOT') {
+              <svg lucideCheck [size]="15"></svg>
+            } @else {
+              2
+            }
+          </span>
+          <strong>数据库</strong>
+        </li>
+        <li [class.active]="step() === 'BOT'">
+          <span aria-hidden="true">3</span>
+          <strong>机器人</strong>
+        </li>
+      </ol>
+
+      @if (step() === 'DATABASE') {
+        <section class="step-content" aria-labelledby="database-step-title">
+          <h2 id="database-step-title">数据库类型</h2>
+          <form [formGroup]="databaseForm" (ngSubmit)="saveDatabase()" novalidate>
+            <div class="database-types" role="radiogroup" aria-label="数据库类型">
+              <button
+                type="button"
+                role="radio"
+                [class.active]="selectedType() === 'SQLITE'"
+                [attr.aria-checked]="selectedType() === 'SQLITE'"
+                [disabled]="databaseSaving()"
+                (click)="selectDatabaseType('SQLITE')"
+              >
+                <svg lucideHardDrive [size]="19"></svg>
+                <strong>SQLite</strong>
+              </button>
+              <button
+                type="button"
+                role="radio"
+                [class.active]="selectedType() === 'MYSQL'"
+                [attr.aria-checked]="selectedType() === 'MYSQL'"
+                [disabled]="databaseSaving()"
+                (click)="selectDatabaseType('MYSQL')"
+              >
+                <svg lucideServer [size]="19"></svg>
+                <strong>MySQL</strong>
+              </button>
+              <button
+                type="button"
+                role="radio"
+                [class.active]="selectedType() === 'POSTGRESQL'"
+                [attr.aria-checked]="selectedType() === 'POSTGRESQL'"
+                [disabled]="databaseSaving()"
+                (click)="selectDatabaseType('POSTGRESQL')"
+              >
+                <svg lucideServer [size]="19"></svg>
+                <strong>PostgreSQL</strong>
+              </button>
+            </div>
+
+            @if (selectedType() === 'SQLITE') {
+              <div class="form-grid sqlite-fields">
+                <label class="form-field field-wide">
+                  <span>SQLite 文件路径</span>
+                  <input
+                    type="text"
+                    formControlName="sqlitePath"
+                    maxlength="4096"
+                    autocomplete="off"
+                    spellcheck="false"
+                    [class.invalid]="fieldError(databaseForm.controls.sqlitePath, 'SQLite 文件路径')"
+                  />
+                  @if (fieldError(databaseForm.controls.sqlitePath, 'SQLite 文件路径'); as error) {
+                    <small class="field-error">{{ error }}</small>
+                  }
+                </label>
+
+                <label class="form-field">
+                  <span>Busy timeout</span>
+                  <span class="input-with-suffix">
+                    <input
+                      type="number"
+                      formControlName="busyTimeoutMs"
+                      min="100"
+                      max="60000"
+                      step="100"
+                      inputmode="numeric"
+                      [class.invalid]="fieldError(databaseForm.controls.busyTimeoutMs, 'Busy timeout')"
+                    />
+                    <b>ms</b>
+                  </span>
+                  @if (fieldError(databaseForm.controls.busyTimeoutMs, 'Busy timeout'); as error) {
+                    <small class="field-error">{{ error }}</small>
+                  }
+                </label>
+              </div>
+            } @else {
+              <div class="form-grid external-fields">
+                <label class="form-field field-host">
+                  <span>连接地址</span>
+                  <input
+                    type="text"
+                    formControlName="host"
+                    maxlength="253"
+                    autocomplete="off"
+                    autocapitalize="off"
+                    spellcheck="false"
+                    placeholder="localhost"
+                    [class.invalid]="fieldError(databaseForm.controls.host, '连接地址')"
+                  />
+                  @if (fieldError(databaseForm.controls.host, '连接地址'); as error) {
+                    <small class="field-error">{{ error }}</small>
+                  }
+                </label>
+
+                <label class="form-field field-port">
+                  <span>端口</span>
+                  <input
+                    type="number"
+                    formControlName="port"
+                    min="1"
+                    max="65535"
+                    step="1"
+                    inputmode="numeric"
+                    [class.invalid]="fieldError(databaseForm.controls.port, '端口')"
+                  />
+                  @if (fieldError(databaseForm.controls.port, '端口'); as error) {
+                    <small class="field-error">{{ error }}</small>
+                  }
+                </label>
+
+                <label class="form-field">
+                  <span>数据库名</span>
+                  <input
+                    type="text"
+                    formControlName="databaseName"
+                    maxlength="128"
+                    autocomplete="off"
+                    spellcheck="false"
+                    placeholder="qqbot"
+                    [class.invalid]="fieldError(databaseForm.controls.databaseName, '数据库名')"
+                  />
+                  @if (fieldError(databaseForm.controls.databaseName, '数据库名'); as error) {
+                    <small class="field-error">{{ error }}</small>
+                  }
+                </label>
+
+                <label class="form-field">
+                  <span>用户名</span>
+                  <input
+                    type="text"
+                    formControlName="username"
+                    maxlength="128"
+                    autocomplete="username"
+                    spellcheck="false"
+                    [class.invalid]="fieldError(databaseForm.controls.username, '用户名')"
+                  />
+                  @if (fieldError(databaseForm.controls.username, '用户名'); as error) {
+                    <small class="field-error">{{ error }}</small>
+                  }
+                </label>
+
+                <label class="form-field field-wide">
+                  <span>数据库密码</span>
+                  <span class="secret-input">
+                    <input
+                      [type]="databasePasswordVisible() ? 'text' : 'password'"
+                      formControlName="password"
+                      maxlength="4096"
+                      autocomplete="new-password"
+                      placeholder="输入数据库密码"
+                      [class.invalid]="fieldError(databaseForm.controls.password, '数据库密码')"
+                    />
+                    <button
+                      type="button"
+                      class="visibility-button"
+                      [attr.aria-label]="databasePasswordVisible() ? '隐藏数据库密码' : '显示数据库密码'"
+                      [title]="databasePasswordVisible() ? '隐藏数据库密码' : '显示数据库密码'"
+                      (click)="toggleDatabasePassword()"
+                    >
+                      @if (databasePasswordVisible()) {
+                        <svg lucideEyeOff [size]="18"></svg>
+                      } @else {
+                        <svg lucideEye [size]="18"></svg>
+                      }
+                    </button>
+                  </span>
+                  @if (fieldError(databaseForm.controls.password, '数据库密码'); as error) {
+                    <small class="field-error">{{ error }}</small>
+                  }
+                </label>
+
+                <label class="form-field">
+                  <span>SSL 模式</span>
+                  <select formControlName="sslMode">
+                    <option value="DISABLED">DISABLED</option>
+                    <option value="PREFERRED">PREFERRED</option>
+                    <option value="REQUIRED">REQUIRED</option>
+                    <option value="VERIFY_CA">VERIFY_CA</option>
+                    <option value="VERIFY_IDENTITY">VERIFY_IDENTITY</option>
+                  </select>
+                </label>
+
+                <label class="form-field">
+                  <span>连接超时</span>
+                  <span class="input-with-suffix">
+                    <input
+                      type="number"
+                      formControlName="connectTimeoutMs"
+                      min="500"
+                      max="60000"
+                      step="100"
+                      inputmode="numeric"
+                      [class.invalid]="fieldError(databaseForm.controls.connectTimeoutMs, '连接超时')"
+                    />
+                    <b>ms</b>
+                  </span>
+                  @if (fieldError(databaseForm.controls.connectTimeoutMs, '连接超时'); as error) {
+                    <small class="field-error">{{ error }}</small>
+                  }
+                </label>
+              </div>
+            }
+
+            @if (databaseError()) {
+              <div class="form-error" role="alert">
+                <svg lucideAlertTriangle [size]="18"></svg>
+                <span>{{ databaseError() }}</span>
+              </div>
+            }
+
+            <footer class="step-actions">
+              <span class="verification-copy">
+                <svg lucideShieldCheck [size]="17"></svg>
+                连接、读取和写入检查通过后才会保存
+              </span>
+              <button class="button button-primary" type="submit" [disabled]="databaseSaving()">
+                @if (databaseSaving()) {
+                  <svg lucideLoaderCircle [size]="18" class="spinning"></svg>
+                  正在验证并保存
+                } @else if (databaseAppliedRevision() !== null) {
+                  <svg lucideArrowRight [size]="18"></svg>
+                  重试进入下一步
+                } @else {
+                  <svg lucideArrowRight [size]="18"></svg>
+                  验证并保存
+                }
+              </button>
+            </footer>
+          </form>
+        </section>
+      } @else {
+        <section class="step-content" aria-labelledby="bot-step-title">
+          <div class="section-heading">
+            <div>
+              <h2 id="bot-step-title">机器人凭据</h2>
+              <p>当前数据库：{{ databaseTypeLabel(activeDatabaseType()) }}</p>
+            </div>
+            @if (createdBots().length > 0) {
+              <span class="count-badge">已添加 {{ createdBots().length }} 个</span>
+            }
+          </div>
+
+          @if (createdBots().length > 0) {
+            <div class="bot-list" aria-label="已添加的机器人">
+              @for (bot of createdBots(); track bot.id) {
+                <div class="bot-row">
+                  <span class="bot-row-icon" aria-hidden="true"><svg lucideBot [size]="18"></svg></span>
+                  <span><strong>{{ bot.displayName }}</strong><small>AppID {{ bot.appId }}</small></span>
+                  <b><svg lucideCheck [size]="14"></svg> 已保存</b>
+                </div>
+              }
+            </div>
+          }
+
+          @if (addingAnother()) {
+            <form class="bot-form" [formGroup]="botForm" (ngSubmit)="saveBot()" novalidate>
+              <div class="form-grid">
+                <label class="form-field field-wide">
+                  <span>AppID</span>
+                  <input
+                    type="text"
+                    formControlName="appId"
+                    maxlength="128"
+                    autocomplete="off"
+                    autocapitalize="off"
+                    spellcheck="false"
+                    placeholder="输入机器人 AppID"
+                    [class.invalid]="fieldError(botForm.controls.appId, 'AppID')"
+                  />
+                  @if (fieldError(botForm.controls.appId, 'AppID'); as error) {
+                    <small class="field-error">{{ error }}</small>
+                  }
+                </label>
+
+                <label class="form-field field-wide">
+                  <span>运行环境</span>
+                  <select formControlName="environment">
+                    <option value="PRODUCTION">正式环境</option>
+                    <option value="SANDBOX">沙箱环境</option>
+                  </select>
+                </label>
+
+                <label class="form-field field-wide">
+                  <span>AppSecret</span>
+                  <span class="secret-input">
+                    <input
+                      [type]="botSecretVisible() ? 'text' : 'password'"
+                      formControlName="appSecret"
+                      maxlength="4096"
+                      autocomplete="new-password"
+                      placeholder="输入机器人 AppSecret"
+                      [class.invalid]="fieldError(botForm.controls.appSecret, 'AppSecret')"
+                    />
+                    <button
+                      type="button"
+                      class="visibility-button"
+                      [attr.aria-label]="botSecretVisible() ? '隐藏 AppSecret' : '显示 AppSecret'"
+                      [title]="botSecretVisible() ? '隐藏 AppSecret' : '显示 AppSecret'"
+                      (click)="toggleBotSecret()"
+                    >
+                      @if (botSecretVisible()) {
+                        <svg lucideEyeOff [size]="18"></svg>
+                      } @else {
+                        <svg lucideEye [size]="18"></svg>
+                      }
+                    </button>
+                  </span>
+                  @if (fieldError(botForm.controls.appSecret, 'AppSecret'); as error) {
+                    <small class="field-error">{{ error }}</small>
+                  }
+                </label>
+              </div>
+
+              @if (botError()) {
+                <div class="form-error" role="alert">
+                  <svg lucideAlertTriangle [size]="18"></svg>
+                  <span>{{ botError() }}</span>
+                </div>
+              }
+
+              <footer class="step-actions bot-actions">
+                <span class="verification-copy">
+                  <svg lucideShieldCheck [size]="17"></svg>
+                  AppSecret 将加密保存
+                </span>
+                <button
+                  class="button button-primary"
+                  type="submit"
+                  [disabled]="botSaving() || completing()"
+                >
+                  @if (botSaving() || completing()) {
+                    <svg lucideLoaderCircle [size]="18" class="spinning"></svg>
+                    {{ completing() ? '正在完成设置' : '正在保存' }}
+                  } @else {
+                    <svg lucideArrowRight [size]="18"></svg>
+                    {{ activeDatabaseType() === 'SQLITE' ? '保存并完成' : '保存机器人' }}
+                  }
+                </button>
+              </footer>
+            </form>
+          } @else {
+            <div class="bot-ready" role="status">
+              <span aria-hidden="true"><svg lucideCheck [size]="22"></svg></span>
+              <div>
+                <strong>机器人凭据已保存</strong>
+                <p>可以继续添加机器人，或完成首次设置。</p>
+              </div>
+            </div>
+
+            @if (botError()) {
+              <div class="form-error decision-error" role="alert">
+                <svg lucideAlertTriangle [size]="18"></svg>
+                <span>{{ botError() }}</span>
+              </div>
+            }
+
+            <footer class="step-actions decision-actions">
+              @if (activeDatabaseType() !== 'SQLITE') {
+                <button
+                  class="button button-secondary"
+                  type="button"
+                  [disabled]="completing()"
+                  (click)="addAnotherBot()"
+                >
+                  <svg lucidePlus [size]="18"></svg>
+                  继续添加
+                </button>
+              }
+              <button
+                class="button button-primary"
+                type="button"
+                [disabled]="completing()"
+                (click)="completeSetup()"
+              >
+                @if (completing()) {
+                  <svg lucideLoaderCircle [size]="18" class="spinning"></svg>
+                  正在完成设置
+                } @else {
+                  <svg lucideCheck [size]="18"></svg>
+                  完成设置
+                }
+              </button>
+            </footer>
+          }
+        </section>
+      }
+    }
+  </main>
+</div>

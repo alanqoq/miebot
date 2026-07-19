@@ -1,0 +1,7 @@
+{
+  "op": 99,
+  "d": {
+    "future": true
+  },
+  "new_gateway_field": "ignored"
+}

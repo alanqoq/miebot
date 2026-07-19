@@ -1,0 +1,10 @@
+{
+  "type": "POSTGRESQL",
+  "host": "postgresql.example.internal",
+  "port": 5432,
+  "databaseName": "qqbot",
+  "username": "qqbot",
+  "sslMode": "PREFERRED",
+  "connectTimeoutMs": 5000,
+  "passwordFile": "database-password"
+}

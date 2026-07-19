@@ -1,0 +1,53 @@
+services:
+  qqbot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: mirai-qqbot:0.1.0
+    platform: linux/amd64
+    restart: unless-stopped
+    stop_grace_period: 30s
+    ports:
+      - "${QQBOT_PUBLISHED_ADDRESS:-0.0.0.0}:${QQBOT_PUBLISHED_PORT:-8080}:8080"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      QQBOT_HTTP_ADDRESS: 0.0.0.0
+      QQBOT_HTTP_PORT: 8080
+      QQBOT_ONBOARDING_STATE_FILE: /data/config/onboarding.json
+      QQBOT_GATEWAY_ENABLED: "${QQBOT_GATEWAY_ENABLED:-true}"
+      QQBOT_GATEWAY_SESSION_DIRECTORY: /data/config/gateway-sessions
+      QQBOT_GATEWAY_LEASE_DURATION: "${QQBOT_GATEWAY_LEASE_DURATION:-45s}"
+      QQBOT_INSTANCE_ID: "${QQBOT_INSTANCE_ID:-}"
+      QQBOT_GATEWAY_SHUTDOWN_TIMEOUT: "${QQBOT_GATEWAY_SHUTDOWN_TIMEOUT:-10s}"
+      QQBOT_PLUGINS_DIR: /plugins
+      QQBOT_DATABASE_CONFIG_FILE: /data/config/database.json
+      QQBOT_DATABASE_CANDIDATE_CONFIG_FILE: /data/config/database-candidate.json
+      QQBOT_SQLITE_PATH: /data/qqbot.db
+      QQBOT_SQLITE_BUSY_TIMEOUT: 5s
+      QQBOT_MASTER_KEY: "${QQBOT_MASTER_KEY:-}"
+      QQBOT_MASTER_KEY_FILE: /data/config/app-secret.key
+      QQBOT_APP_SECRET_KEY_ID: primary
+      QQBOT_COOKIE_SECURE: "${QQBOT_COOKIE_SECURE:-false}"
+    volumes:
+      - qqbot-data:/data
+      - ./config:/data/config
+      - qqbot-plugins:/plugins
+    tmpfs:
+      - /tmp/qqbot:rw,nosuid,nodev,size=128m,uid=10001,gid=10001,mode=0700
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 256
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "--show-error", "http://127.0.0.1:8080/health/ready"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+volumes:
+  qqbot-data:
+  qqbot-plugins:
