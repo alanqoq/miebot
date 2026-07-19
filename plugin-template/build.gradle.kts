@@ -23,9 +23,9 @@ repositories {
 
 dependencies {
     // These are compile-only on purpose. The host supplies the SDK classes.
-    compileOnly("com.mieai.qqbot:qqbot-plugin-api:0.1.0-SNAPSHOT")
-    compileOnly("com.mieai.qqbot:qqbot-plugin-spi:0.1.0-SNAPSHOT")
-    testImplementation("com.mieai.qqbot:qqbot-plugin-testkit:0.1.0-SNAPSHOT")
+    compileOnly("com.mieai.qqbot:qqbot-plugin-api:0.1.0")
+    compileOnly("com.mieai.qqbot:qqbot-plugin-spi:0.1.0")
+    testImplementation("com.mieai.qqbot:qqbot-plugin-testkit:0.1.0")
     testImplementation("org.junit.jupiter:junit-jupiter:5.12.2")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher:1.12.2")
 }
