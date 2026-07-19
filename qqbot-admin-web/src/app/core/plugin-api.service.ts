@@ -1,4 +1,4 @@
-import { HttpClient, HttpParams } from '@angular/common/http';
+import { HttpClient, HttpEvent, HttpHeaders, HttpParams } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
 
@@ -53,6 +53,15 @@ export interface UpdatePluginBindingRequest {
   enabled: boolean;
 }
 
+export interface PluginUploadResponse {
+  operation: string;
+  artifact: PluginArtifact;
+  previousVersion: string | null;
+  previousSha256: string | null;
+}
+
+export const MAX_PLUGIN_UPLOAD_BYTES = 64 * 1024 * 1024;
+
 @Injectable({ providedIn: 'root' })
 export class PluginApiService {
   private readonly http = inject(HttpClient);
@@ -69,6 +78,16 @@ export class PluginApiService {
     let params = new HttpParams();
     if (query?.trim()) params = params.set('query', query.trim());
     return this.http.post<PluginInventory>('/api/plugins/reload', null, { params });
+  }
+
+  upload(file: File): Observable<HttpEvent<PluginUploadResponse>> {
+    const form = new FormData();
+    form.append('file', file, file.name);
+    return this.http.post<PluginUploadResponse>('/api/plugins/upload', form, {
+      headers: new HttpHeaders({ 'X-Plugin-Upload-Confirm': 'trusted-jar' }),
+      observe: 'events',
+      reportProgress: true,
+    });
   }
 
   listBindings(pluginId?: string, botId?: string): Observable<PluginBinding[]> {

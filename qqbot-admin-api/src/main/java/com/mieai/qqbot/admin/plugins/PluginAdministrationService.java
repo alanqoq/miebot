@@ -26,6 +26,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.multipart.MultipartFile;
 
 /**
  * Scans the trusted, operator-mounted plugin directory without loading or executing plugin code.
@@ -36,6 +38,7 @@ import org.springframework.stereotype.Service;
 public class PluginAdministrationService {
     private static final int MAX_ARTIFACTS = 500;
     private static final long MAX_HASH_BYTES = 512L * 1024L * 1024L;
+    private static final long MAX_UPLOAD_BYTES = 64L * 1024L * 1024L;
     private static final String STATUS_DISCOVERED = "DISCOVERED";
     private static final String STATUS_INVALID = "INVALID";
     private static final String STATUS_UNSUPPORTED = "UNSUPPORTED";
@@ -133,9 +136,65 @@ public class PluginAdministrationService {
         runtime.reloadPlugins();
     }
 
+    public PluginUploadResponse upload(MultipartFile file) {
+        if (runtime == null || host == null || !host.isStarted()) {
+            throw failure(HttpStatus.SERVICE_UNAVAILABLE, "PLUGIN_RUNTIME_UNAVAILABLE",
+                    "Plugin runtime is not available");
+        }
+        if (file == null || file.isEmpty()) {
+            throw failure(HttpStatus.BAD_REQUEST, "PLUGIN_FILE_REQUIRED", "请选择要上传的插件 JAR");
+        }
+        String originalName = safeUploadName(file.getOriginalFilename());
+        if (!originalName.toLowerCase(java.util.Locale.ROOT).endsWith(".jar")) {
+            throw failure(HttpStatus.BAD_REQUEST, "PLUGIN_FILE_TYPE_INVALID", "只允许上传 .jar 插件制品");
+        }
+        if (file.getSize() < 1L || file.getSize() > MAX_UPLOAD_BYTES) {
+            throw failure(HttpStatus.PAYLOAD_TOO_LARGE, "PLUGIN_FILE_TOO_LARGE", "插件 JAR 不能超过 64 MiB");
+        }
+
+        Path stagingDirectory = pluginDirectory.resolve(".staging").normalize();
+        Path staged = stagingDirectory.resolve(java.util.UUID.randomUUID() + ".jar").normalize();
+        if (!staged.getParent().equals(stagingDirectory)) {
+            throw failure(HttpStatus.BAD_REQUEST, "PLUGIN_FILE_NAME_INVALID", "插件文件名无效");
+        }
+        try {
+            Files.createDirectories(stagingDirectory);
+            try (InputStream input = new BufferedInputStream(file.getInputStream());
+                    var output = Files.newOutputStream(staged, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)) {
+                byte[] buffer = new byte[8192];
+                long written = 0L;
+                int count;
+                while ((count = input.read(buffer)) != -1) {
+                    written += count;
+                    if (written > MAX_UPLOAD_BYTES) {
+                        throw failure(HttpStatus.PAYLOAD_TOO_LARGE, "PLUGIN_FILE_TOO_LARGE",
+                                "插件 JAR 不能超过 64 MiB");
+                    }
+                    output.write(buffer, 0, count);
+                }
+            }
+            var result = runtime.installArtifact(staged);
+            PluginArtifactResponse artifact = scan(null).items().stream()
+                    .filter(value -> value.id().equals(result.artifact().id())
+                            && value.sha256().equals(result.artifact().sha256()))
+                    .findFirst()
+                    .orElseThrow(() -> new IllegalStateException("Installed plugin is missing from inventory"));
+            return PluginUploadResponse.from(result, artifact);
+        } catch (PluginAdministrationException exception) {
+            throw exception;
+        } catch (IOException exception) {
+            throw failure(HttpStatus.INTERNAL_SERVER_ERROR, "PLUGIN_UPLOAD_IO_FAILED", "无法保存上传的插件 JAR");
+        } catch (RuntimeException exception) {
+            throw failure(HttpStatus.BAD_REQUEST, "PLUGIN_ARTIFACT_INVALID",
+                    "插件校验或热加载失败：" + safeMessage(exception));
+        } finally {
+            try { Files.deleteIfExists(staged); } catch (IOException ignored) {}
+        }
+    }
+
     private PluginArtifactResponse decorate(PluginArtifactResponse artifact,
             Map<String, Integer> bindingCounts, Map<String, Integer> enabledBindingCounts) {
-        boolean loaded = host != null && host.isLoaded(artifact.id());
+        boolean loaded = host != null && host.isLoaded(artifact.id(), artifact.sha256());
         return new PluginArtifactResponse(artifact.id(), artifact.name(), artifact.version(),
                 artifact.apiCompatibility(), artifact.fileName(), artifact.sizeBytes(), artifact.modifiedAt(),
                 artifact.sha256(), loaded ? "LOADED" : artifact.status(), loaded ? null : artifact.error(), loaded,
@@ -315,5 +374,21 @@ public class PluginAdministrationService {
             return exception.getClass().getSimpleName();
         }
         return message.length() > 256 ? message.substring(0, 256) : message;
+    }
+
+    private static String safeUploadName(String value) {
+        if (value == null || value.isBlank()) return "plugin.jar";
+        String name;
+        try { name = Path.of(value).getFileName().toString(); }
+        catch (RuntimeException exception) { throw failure(HttpStatus.BAD_REQUEST,
+                "PLUGIN_FILE_NAME_INVALID", "插件文件名无效"); }
+        if (name.length() > 255 || name.codePoints().anyMatch(Character::isISOControl)) {
+            throw failure(HttpStatus.BAD_REQUEST, "PLUGIN_FILE_NAME_INVALID", "插件文件名无效");
+        }
+        return name;
+    }
+
+    private static PluginAdministrationException failure(HttpStatus status, String code, String message) {
+        return new PluginAdministrationException(status, code, message);
     }
 }

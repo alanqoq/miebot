@@ -143,7 +143,7 @@ Outbox/DLQ 管理接口为：
 - `GET /api/events/plugin-dlq`、`/{id}`：仅返回 `DEAD_LETTER` 插件投递。
 - `GET/POST/PUT/DELETE /api/plugin-bindings`：按机器人绑定、配置和启停插件。
 
-插件后台通过 `GET /api/plugins` 扫描 `/plugins` 目录中的 JAR manifest 和 SHA-256；PF4J 宿主会加载声明 `Plugin-Config-Schema`、API 版本和能力的可信 JAR。声明 `storage` 能力的插件可使用 `PluginContext.storage()` 访问按绑定 UUID 隔离的键值存储，数据随绑定删除级联清理；未声明能力时存储调用会被拒绝。插件绑定与投递状态在插件页和上述投递 API 中显示。插件 JAR 的完整开发、打包和排障说明见 [PLUGIN_DEVELOPMENT.md](./PLUGIN_DEVELOPMENT.md)。
+插件后台通过 `GET /api/plugins` 扫描 `/plugins` 目录中的 JAR manifest 和 SHA-256；PF4J 宿主会加载声明 `Plugin-Config-Schema`、API 版本和能力的可信 JAR。插件页可以选择并上传 `.jar`，通过 `POST /api/plugins/upload` 完成校验和同进程无重启热升级，失败会尝试恢复旧插件；请求必须是已认证管理员并带 CSRF 和 `X-Plugin-Upload-Confirm: trusted-jar`。声明 capability 的插件可使用按绑定 UUID 隔离的存储、调度器、受限 HTTP、媒体和多 handler 事件订阅；未声明能力时调用会被拒绝。插件绑定与投递状态在插件页和上述投递 API 中显示。插件 JAR 的完整开发、打包、网页上传和排障说明见 [PLUGIN_DEVELOPMENT.md](./PLUGIN_DEVELOPMENT.md)。
 
 镜像携带 `echo` 示例插件。首次创建 `qqbot-plugins` 卷时 Docker 会把 `/plugins/qqbot-plugin-echo.jar` 初始化到卷中；在 Web 插件页把它绑定到机器人后，发送 `/ping` 可验证回复 `pong` 的完整闭环，发送 `/remember` 可验证绑定级存储隔离。已有插件卷不会因升级自动覆盖同名 JAR，需由运维人员显式更新可信制品。
 
@@ -163,7 +163,9 @@ Outbox/DLQ 管理接口为：
 | `QQBOT_GATEWAY_SHUTDOWN_TIMEOUT` | `10s` | 停止全部机器人运行时的最长等待时间 |
 | `QQBOT_GATEWAY_CONNECT_TIMEOUT` | `10s` | 建立 WSS 连接的超时 |
 | `QQBOT_GATEWAY_MAX_TEXT_CHARACTERS` | `2097152` | 单个 Gateway 文本帧允许的最大字符数 |
-| `QQBOT_PLUGINS_DIR` | `/plugins` | 后台只读扫描的可信插件制品目录 |
+| `QQBOT_PLUGINS_DIR` | `/plugins` | 可信插件扫描、上传和版本制品目录；启用网页上传时必须可写 |
+| `QQBOT_PLUGINS_BINDING_QUEUE_CAPACITY` | `256` | 每个插件绑定的独立执行队列容量 |
+| `QQBOT_PLUGINS_SHUTDOWN_TIMEOUT` | `20s` | 热升级或停用时等待绑定在途任务的最长时间 |
 
 QQ HTTP 客户端还支持 `QQBOT_QQ_REQUEST_TIMEOUT`（默认 `10s`）、`QQBOT_QQ_TOKEN_REFRESH_SKEW`（默认 `60s`）、`QQBOT_QQ_TOKEN_ENDPOINT`、`QQBOT_QQ_OPEN_API_BASE_URI` 和 `QQBOT_QQ_SANDBOX_OPEN_API_BASE_URI`。后三项默认就是上表官方地址，除受控测试或明确的企业代理场景外不建议覆盖。
 

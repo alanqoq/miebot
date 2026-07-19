@@ -8,10 +8,20 @@
   gap: 8px;
 }
 
+.plugin-file-input {
+  display: none;
+}
+
 .notice-error {
   color: #7c2f2f;
   background: #fff0f0;
   border-color: #e7b9b9;
+}
+
+.notice-success {
+  color: #155f4f;
+  background: #e7f5f0;
+  border-color: #b7dfd3;
 }
 
 .plugins-toolbar {
@@ -336,6 +346,117 @@ td {
 
 .dialog-notice {
   margin: 0;
+}
+
+.upload-dialog {
+  width: min(560px, 100%);
+}
+
+.upload-dialog-body {
+  gap: 14px;
+}
+
+.upload-file-summary,
+.upload-result {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  padding: 13px 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.upload-file-summary > svg {
+  color: var(--muted);
+}
+
+.upload-file-summary strong,
+.upload-file-summary span,
+.upload-result strong,
+.upload-result span,
+.upload-result code,
+.upload-result small {
+  display: block;
+  min-width: 0;
+}
+
+.upload-file-summary strong,
+.upload-result code {
+  overflow-wrap: anywhere;
+}
+
+.upload-file-summary span,
+.upload-result span,
+.upload-result small {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.upload-trust-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 11px 12px;
+  color: #704612;
+  background: #fff8e9;
+  border: 1px solid #e7c98f;
+  border-radius: 5px;
+  font-size: 12px;
+}
+
+.upload-trust-warning svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
+.upload-confirmation {
+  min-height: 34px;
+  font-weight: 600;
+}
+
+.upload-progress {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 42px;
+  align-items: center;
+  gap: 10px;
+}
+
+.upload-progress-track {
+  height: 7px;
+  overflow: hidden;
+  background: #e5e9ec;
+  border-radius: 4px;
+}
+
+.upload-progress-track span {
+  display: block;
+  height: 100%;
+  background: var(--brand);
+  transition: width 120ms ease;
+}
+
+.upload-progress small {
+  color: var(--muted);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.upload-result {
+  color: #155f4f;
+}
+
+.upload-result > svg {
+  align-self: start;
+  margin-top: 2px;
+}
+
+.upload-result code {
+  margin-top: 7px;
+  color: #39564e;
+  font-family: 'Cascadia Mono', Consolas, monospace;
+  font-size: 10px;
 }
 
 .field {

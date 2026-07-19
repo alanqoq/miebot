@@ -1,19 +1,24 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { HttpResponse } from '@angular/common/http';
 import { of, throwError } from 'rxjs';
 import { BotApiService } from '../../core/bot-api.service';
 import { EventApiService } from '../../core/event-api.service';
-import { PluginApiService, PluginInventory } from '../../core/plugin-api.service';
+import { PluginApiService, PluginInventory, PluginUploadResponse } from '../../core/plugin-api.service';
 import { PluginsPage } from './plugins-page';
 
 describe('PluginsPage', () => {
   const list = vi.fn();
   const listBindings = vi.fn();
   const reload = vi.fn();
+  const upload = vi.fn();
 
   beforeEach(async () => {
     list.mockReset().mockReturnValue(of(inventoryFixture()));
     listBindings.mockReset().mockReturnValue(of([]));
     reload.mockReset().mockReturnValue(of(inventoryFixture()));
+    upload.mockReset().mockReturnValue(of(new HttpResponse<PluginUploadResponse>({
+      body: uploadResponseFixture(),
+    })));
     await TestBed.configureTestingModule({
       imports: [PluginsPage],
       providers: [
@@ -23,6 +28,7 @@ describe('PluginsPage', () => {
             list,
             listBindings,
             reload,
+            upload,
             createBinding: vi.fn(),
             updateBinding: vi.fn(),
             deleteBinding: vi.fn(),
@@ -68,10 +74,36 @@ describe('PluginsPage', () => {
   it('keeps a loaded result visible when a refresh fails', () => {
     const fixture = createFixture();
     list.mockReturnValueOnce(throwError(() => new Error('offline')));
-    fixture.nativeElement.querySelectorAll('.page-header button')[1].click();
+    fixture.nativeElement.querySelectorAll('.page-header button')[2].click();
     fixture.detectChanges();
     expect(fixture.nativeElement.textContent).toContain('Support Plugin');
     expect(fixture.nativeElement.textContent).toContain('无法读取插件目录');
+  });
+
+  it('selects, confirms and uploads a jar from the plugin page', () => {
+    const fixture = createFixture();
+    const input = fixture.nativeElement.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File([new Uint8Array([1, 2, 3])], 'support.jar', {
+      type: 'application/java-archive',
+    });
+    Object.defineProperty(input, 'files', { configurable: true, value: [file] });
+
+    input.dispatchEvent(new Event('change'));
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('我确认该 JAR 来自可信来源');
+
+    const confirmation = fixture.nativeElement.querySelector('.upload-confirmation input') as HTMLInputElement;
+    confirmation.click();
+    fixture.detectChanges();
+    const confirmButton = [...fixture.nativeElement.querySelectorAll('.upload-dialog .button')]
+      .find((button: Element) => button.textContent?.includes('确认上传')) as HTMLButtonElement;
+    expect(confirmButton.disabled).toBe(false);
+    confirmButton.click();
+    fixture.detectChanges();
+
+    expect(upload).toHaveBeenCalledWith(file);
+    expect(fixture.nativeElement.textContent).toContain('已热升级');
+    expect(fixture.nativeElement.textContent).toContain('2.0.0');
   });
 });
 
@@ -105,5 +137,20 @@ function inventoryFixture(): PluginInventory {
     runtimeAvailable: false,
     scanError: null,
     scannedAt: '2026-07-18T12:00:00Z',
+  };
+}
+
+function uploadResponseFixture(): PluginUploadResponse {
+  return {
+    operation: 'UPGRADED',
+    artifact: {
+      ...inventoryFixture().items[0],
+      version: '2.0.0',
+      status: 'LOADED',
+      loaded: true,
+      sha256: 'abcdefabcdefabcdefabcdefabcdef12',
+    },
+    previousVersion: '1.0.0',
+    previousSha256: '1234567890abcdef1234567890abcdef',
   };
 }

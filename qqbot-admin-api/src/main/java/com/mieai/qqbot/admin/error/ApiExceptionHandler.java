@@ -25,6 +25,7 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
 @RestControllerAdvice
 public class ApiExceptionHandler {
@@ -48,6 +49,12 @@ public class ApiExceptionHandler {
     @ExceptionHandler(HttpMessageNotReadableException.class)
     ResponseEntity<ApiErrorResponse> unreadableBody() {
         return response(HttpStatus.BAD_REQUEST, "INVALID_JSON", "Malformed JSON request", Map.of());
+    }
+
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    ResponseEntity<ApiErrorResponse> uploadTooLarge() {
+        return response(HttpStatus.PAYLOAD_TOO_LARGE, "PLUGIN_FILE_TOO_LARGE",
+                "插件 JAR 不能超过 64 MiB", Map.of());
     }
 
     @ExceptionHandler({NoSuchElementException.class, BotNotFoundException.class})

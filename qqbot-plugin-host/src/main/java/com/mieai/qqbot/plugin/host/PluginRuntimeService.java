@@ -10,6 +10,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -27,8 +28,6 @@ import org.slf4j.LoggerFactory;
 /** Durable Inbox-to-plugin pipeline with bounded retries and fenced database transitions. */
 public final class PluginRuntimeService implements AutoCloseable {
     private static final Logger LOGGER = LoggerFactory.getLogger(PluginRuntimeService.class);
-    private static final String DELIVERY_HANDLER = "default";
-
     private final Pf4jPluginHost host;
     private final EventInboxRepository inbox;
     private final BotPluginBindingRepository bindings;
@@ -103,6 +102,12 @@ public final class PluginRuntimeService implements AutoCloseable {
         }
     }
 
+    public PluginArtifactInstallResult installArtifact(Path stagedArtifact) {
+        synchronized (transitionMonitor) {
+            return host.installArtifact(stagedArtifact);
+        }
+    }
+
     private void tickSafely() {
         if (!running.get() || databaseTransitionActive) return;
         synchronized (transitionMonitor) {
@@ -125,10 +130,12 @@ public final class PluginRuntimeService implements AutoCloseable {
             List<BotPluginBinding> eventBindings = bindings.findByBotId(event.botId()).stream()
                     .filter(BotPluginBinding::enabled).toList();
             for (BotPluginBinding binding : eventBindings) {
-                UUID deliveryId = UUID.nameUUIDFromBytes(
-                        (event.id() + ":" + binding.id() + ":" + DELIVERY_HANDLER)
-                                .getBytes(StandardCharsets.UTF_8));
-                deliveries.createIfAbsent(deliveryId, event.id(), binding.id(), DELIVERY_HANDLER, now);
+                for (String handlerId : host.handlerIds(binding, event.eventType())) {
+                    UUID deliveryId = UUID.nameUUIDFromBytes(
+                            (event.id() + ":" + binding.id() + ":" + handlerId)
+                                    .getBytes(StandardCharsets.UTF_8));
+                    deliveries.createIfAbsent(deliveryId, event.id(), binding.id(), handlerId, now);
+                }
             }
             inbox.markDispatched(event.id(), event.fencingToken(), clock.instant());
         } catch (RuntimeException exception) {
@@ -147,7 +154,7 @@ public final class PluginRuntimeService implements AutoCloseable {
                     () -> new IllegalStateException("Plugin binding no longer exists"));
             InboxEvent event = inbox.findById(delivery.eventId()).orElseThrow(
                     () -> new IllegalStateException("Inbox event no longer exists"));
-            host.execute(binding, event).toCompletableFuture()
+            host.execute(binding, event, delivery.handlerId()).toCompletableFuture()
                     .get(executionTimeout.toMillis(), TimeUnit.MILLISECONDS);
             deliveries.markSucceeded(delivery.id(), delivery.fencingToken(), clock.instant());
         } catch (InterruptedException exception) {

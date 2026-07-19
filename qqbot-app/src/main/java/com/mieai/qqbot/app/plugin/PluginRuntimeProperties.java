@@ -13,6 +13,8 @@ public class PluginRuntimeProperties {
     private Duration executionTimeout = Duration.ofSeconds(20);
     private int maxAttempts = 5;
     private int batchSize = 16;
+    private int bindingQueueCapacity = 256;
+    private Duration shutdownTimeout = Duration.ofSeconds(20);
 
     public boolean isEnabled() { return enabled; }
     public void setEnabled(boolean enabled) { this.enabled = enabled; }
@@ -28,4 +30,8 @@ public class PluginRuntimeProperties {
     public void setMaxAttempts(int maxAttempts) { this.maxAttempts = maxAttempts; }
     public int getBatchSize() { return batchSize; }
     public void setBatchSize(int batchSize) { this.batchSize = batchSize; }
+    public int getBindingQueueCapacity() { return bindingQueueCapacity; }
+    public void setBindingQueueCapacity(int bindingQueueCapacity) { this.bindingQueueCapacity = bindingQueueCapacity; }
+    public Duration getShutdownTimeout() { return shutdownTimeout; }
+    public void setShutdownTimeout(Duration shutdownTimeout) { this.shutdownTimeout = shutdownTimeout; }
 }

@@ -10,7 +10,7 @@
 QQ Gateway 事件
   -> event_inbox 持久化和去重
   -> plugin_deliveries 独立投递
-  -> BotPlugin.onEvent(...)
+  -> EventService 命名 handler 或兼容的 BotPlugin.onEvent(...)
   -> MessageSender 写入 outbox_jobs
   -> Outbox Worker 调用 QQ OpenAPI
 ```
@@ -30,14 +30,15 @@ QQ Gateway 事件
 dependencies {
     compileOnly(project(":qqbot-plugin-api"))
     compileOnly(project(":qqbot-plugin-spi"))
+    testImplementation(project(":qqbot-plugin-testkit"))
 }
 ```
 
-外部插件项目应依赖与宿主完全相同版本的 `qqbot-plugin-api` 和 `qqbot-plugin-spi`。当前 API 版本为 `1.0.0`。这些模块目前没有发布到公共 Maven 仓库；独立项目可以先构建本仓库的 `qqbot-domain`、`qqbot-plugin-api` 和 `qqbot-plugin-spi` JAR，再把三者作为仅编译依赖，或者直接在本仓库中增加插件子模块。
+外部插件项目应依赖与宿主完全相同版本的 `qqbot-plugin-api` 和 `qqbot-plugin-spi`。当前插件 API 版本为 `1.1.0`。根项目的 `pluginSdkRepository` 任务会生成可复制的本地 Maven SDK 仓库，`pluginSdkDistribution` 会把仓库、模板和本指南打成 ZIP；不需要把宿主模块或 PF4J 放进插件项目。
 
 必须使用 `compileOnly` 或 Maven 的 `provided` scope。不要把 API/SPI、PF4J、Spring、数据库驱动或宿主模块打入插件 JAR，否则可能出现类型不相等、类加载冲突或越过宿主安全边界的问题。
 
-仓库内可复制 `qqbot-plugin-example` 作为起点。建议目录如下：
+仓库内可复制 `plugin-template` 作为起点；`qqbot-plugin-example` 是宿主端到端测试使用的 V2 参考实现。建议目录如下：
 
 ```text
 my-plugin/
@@ -107,7 +108,7 @@ com.example.HelloPluginFactory
 | `Plugin-Id` | 是 | 稳定插件 ID，必须与 `BotPluginFactory.pluginId()` 完全一致 |
 | `Plugin-Name` | 建议 | 后台显示名称；未提供时使用插件 ID |
 | `Plugin-Version` | 是 | 插件版本 |
-| `Plugin-Requires` | 建议 | 宿主插件 API 兼容版本；缺省时宿主按当前 `1.0.0` 处理 |
+| `Plugin-Requires` | 建议 | 宿主插件 API 兼容版本；缺省时宿主按当前 `1.1.0` 处理 |
 | `Plugin-Class` | 是 | 固定为 `com.mieai.qqbot.plugin.host.Pf4jPluginBridge` |
 | `Plugin-Config-Schema` | 是 | JAR 内 JSON Schema 资源路径 |
 | `Plugin-Capabilities` | 建议 | 逗号分隔的能力列表 |
@@ -121,7 +122,7 @@ tasks.jar {
             "Plugin-Id" to "hello",
             "Plugin-Name" to "Hello Plugin",
             "Plugin-Version" to project.version.toString(),
-            "Plugin-Requires" to "1.0.0",
+            "Plugin-Requires" to "1.1.0",
             "Plugin-Class" to "com.mieai.qqbot.plugin.host.Pf4jPluginBridge",
             "Plugin-Config-Schema" to "qqbot-plugin-schema.json",
             "Plugin-Capabilities" to "event.read,message.send,storage",
@@ -130,15 +131,19 @@ tasks.jar {
 }
 ```
 
-当前只接受三种能力：
+当前接受以下能力：
 
 | 能力 | 行为 |
 | --- | --- |
 | `event.read` | 接收事件；未声明时宿主会自动补充 |
 | `message.send` | 使用 `MessageSender` 写入可靠 Outbox |
 | `storage` | 使用绑定级 `PluginStorage` |
+| `event.subscribe` | 注册多个命名事件 handler |
+| `scheduler` | 使用绑定级定时任务 |
+| `http` | 使用无凭据、无重定向的受限 HTTPS Client |
+| `media.send` | 通过 `MediaService` 入队媒体消息 |
 
-声明任何其他能力都会导致插件校验失败，插件不会进入已加载状态。未声明 `message.send` 时，发送调用返回失败的 `CompletionStage`；未声明 `storage` 时，存储调用会同步抛出 `SecurityException`。
+声明任何其他能力都会导致插件校验失败，插件不会进入已加载状态。未声明能力时宿主注入拒绝实现；发送和 HTTP 返回失败的 `CompletionStage`，存储、事件订阅和调度器会同步拒绝。`event.read` 由宿主自动补充，不能用它绕过其他能力。
 
 ## 5. 配置 Schema
 
@@ -168,23 +173,26 @@ tasks.jar {
 
 ## 6. 生命周期与并发
 
-`BotPlugin` 提供三个生命周期方法：
+`BotPlugin` 提供兼容旧插件的生命周期方法，并为 V2 插件增加扩展上下文重载：
 
 ```java
 default void start(PluginContext context) {}
-CompletionStage<Void> onEvent(PluginEvent event);
+default void start(PluginRuntimeContext context) {}
+default CompletionStage<Void> onEvent(PluginEvent event) {
+    return CompletableFuture.completedFuture(null);
+}
 default void stop() {}
 ```
 
 - 插件绑定实例按需创建：第一条待处理事件到来时执行 `create(context)`，随后立即调用 `start(context)`。
 - 每个绑定复用同一个插件实例处理事件。
-- 当前生产投递循环逐个等待任务完成，但宿主使用共享执行线程池，未来调度方式也可能变化；插件不应把串行执行当作 API 保证，内部可变状态必须自行保证线程安全。
-- `onEvent` 不能返回 `null`，必须返回代表全部处理完成的 `CompletionStage<Void>`。
+- 当前每个绑定使用独立有界执行队列；插件不应把单线程执行当作 API 保证，内部可变状态仍应自行保证线程安全。
+- `onEvent` 不能返回 `null`。只使用 `EventService` 的 V2 插件可以使用默认实现，不必再写空方法。
 - 不要在 `onEvent` 中长时间阻塞。默认执行超时为 20 秒。
 - 配置变化、绑定删除、插件重载、数据库热切换和应用停止都可能调用 `stop()`。
 - `stop()` 应快速、幂等地释放插件自行创建的资源，且不应抛出异常。
 
-`handlerId()` 当前不会用于生成多个处理器投递；生产投递处理器固定为 `default`。不要依赖自定义 `handlerId()` 获得多处理器语义。
+旧插件的 `handlerId()` 仍作为兼容的默认处理器 ID。V2 插件应在 `start(PluginRuntimeContext)` 中通过 `EventService` 注册命名 handler；每个匹配事件会创建独立的 `(event, binding, handlerId)` 投递记录。
 
 ## 7. 事件 API
 
@@ -236,7 +244,7 @@ return context.messageSender()
 
 ## 9. 发送媒体消息
 
-插件可通过同一个 `MessageSender` 入队 `MediaMessage`：
+插件可通过 `MediaService`（V2）或兼容的 `MessageSender` 入队 `MediaMessage`：
 
 ```java
 MediaMessage message = new MediaMessage(
@@ -286,7 +294,54 @@ context.storage().delete("settings", "last-user");
 
 `PluginStorage` 不提供事务、CAS、扫描游标、TTL 或任意 SQL。需要跨多个键保持严格原子性时，应把状态编码为一个值，或调整业务设计。
 
-## 11. 日志
+## 11. V2 扩展能力
+
+`BotPluginFactoryV2` 的 `create(PluginRuntimeContext)` 会收到以下绑定级能力：
+
+```java
+PluginRuntimeContext context = ...;
+context.configuration();  // ConfigSnapshot
+context.events();         // EventService
+context.scheduler();      // PluginScheduler
+context.httpClient();     // RestrictedHttpClient
+context.mediaService();   // MediaService
+context.base();           // 兼容的 PluginContext
+```
+
+### EventService 与多 handler
+
+```java
+EventSubscription subscription = context.events().subscribe(
+        "commands", Set.of("C2C_MESSAGE_CREATE"), this::handleCommand);
+```
+
+handler ID 必须是非空、无空白且不超过 128 个字符；同一绑定内不能重复注册。空事件类型集合匹配所有事件。订阅属于绑定资源，宿主停止插件时会自动关闭；插件仍应在 `stop()` 中关闭自己保存的句柄。事件类型不匹配时不会创建投递记录。
+
+### PluginScheduler
+
+```java
+PluginTask once = context.scheduler().schedule(Duration.ofSeconds(10), this::refresh);
+PluginTask repeated = context.scheduler().scheduleWithFixedDelay(
+        Duration.ZERO, Duration.ofMinutes(5), this::refresh);
+```
+
+任务回调会进入当前绑定的有界执行队列，不会在 Gateway 或数据库线程执行。`PluginTask.close()` 等价于取消；绑定停止时所有任务都会取消。队列饱和时任务可能被丢弃，插件不应把调度器当作持久化队列。
+
+### RestrictedHttpClient
+
+HTTP 能力只允许公开的 HTTPS URL，禁止 URL 凭据、fragment、重定向、私有/回环/链路本地/组播目标和 `Authorization`、Cookie 等敏感请求头。单次请求超时最多 30 秒，请求体最多 1 MiB，响应体最多 2 MiB。宿主不会向请求添加 QQ 凭据；需要外部服务凭据时应使用专门的服务端中转，而不是把密钥写进插件 JAR。
+
+```java
+PluginHttpResponse response = context.httpClient()
+        .send(PluginHttpRequest.get(URI.create("https://example.com/status")))
+        .toCompletableFuture().join();
+```
+
+### MediaService 与 ConfigSnapshot
+
+`MediaService.enqueue(MediaMessage)` 与 `MessageSender.enqueue(MediaMessage)` 都只写入可靠 Outbox，不会把文件字节或宿主 HTTP 客户端暴露给插件；URL 限制与文本消息相同。`ConfigSnapshot` 是创建实例时捕获的不可变 JSON、绑定 revision 和加载时间。配置更新会创建新实例，插件不要修改或缓存可变配置对象。
+
+## 12. 日志
 
 使用 `PluginContext.logger()`，不要依赖宿主的 SLF4J：
 
@@ -298,7 +353,7 @@ context.logger().error("processing failed", exception);
 
 宿主会附加 `pluginId` 和 `botId`，移除换行并把单条消息截断为 512 字符。不要记录 AppSecret、Access Token、完整个人信息或完整消息载荷。
 
-## 12. 可靠性与幂等
+## 13. 可靠性与幂等
 
 插件投递采用至少一次处理语义。以下情况都可能使同一事件再次进入 `onEvent`：进程崩溃、执行超时、数据库租约过期、插件抛出异常或返回失败的 CompletionStage。
 
@@ -320,8 +375,10 @@ context.logger().error("processing failed", exception);
 | `QQBOT_PLUGINS_EXECUTION_TIMEOUT` | `20s` |
 | `QQBOT_PLUGINS_MAX_ATTEMPTS` | `5` |
 | `QQBOT_PLUGINS_BATCH_SIZE` | `16` |
+| `QQBOT_PLUGINS_BINDING_QUEUE_CAPACITY` | `256` |
+| `QQBOT_PLUGINS_SHUTDOWN_TIMEOUT` | `20s` |
 
-## 13. 测试
+## 14. 测试
 
 至少覆盖以下场景：
 
@@ -334,7 +391,7 @@ context.logger().error("processing failed", exception);
 - 使用 storage 时验证不同绑定之间隔离。
 - 异步失败会通过 CompletionStage 传播，而不是被吞掉。
 
-仓库内的端到端宿主测试位于 `qqbot-plugin-host/src/test/.../Pf4jPluginHostTest.java`，会真实加载示例 JAR、执行事件、检查 Outbox 和绑定存储。当前 `qqbot-plugin-testkit` 模块尚未提供现成 fake 或 fixture 类，外部插件暂时需要自行构造 `PluginContext` 测试替身。
+仓库内的端到端宿主测试位于 `qqbot-plugin-host/src/test/.../Pf4jPluginHostTest.java`，会真实加载示例 JAR、执行事件、检查 Outbox、绑定存储和无重启升级。`qqbot-plugin-testkit` 提供 `PluginTestContext`、消息/媒体/事件/HTTP/存储/日志 fake 和可手动推进的调度器，可直接用于插件单元测试。
 
 构建仓库示例插件：
 
@@ -346,62 +403,58 @@ context.logger().error("processing failed", exception);
 
 产物位于 `qqbot-plugin-example/build/libs/qqbot-plugin-echo-*.jar`。
 
-若在仓库外开发且尚未发布依赖，可先在本仓库执行：
+发布可复制 SDK 仓库和完整模板：
 
 ```powershell
-.\gradlew.bat :qqbot-domain:jar :qqbot-plugin-api:jar :qqbot-plugin-spi:jar `
+.\gradlew.bat pluginSdkRepository pluginSdkDistribution `
   "-Dorg.gradle.java.home=E:\JAVA\dragonwell-21.0.11.0.11+10-GA" `
   --no-daemon
 ```
 
-然后在插件项目中把这三个 JAR 放入 `libs/`，并使用 `compileOnly(files(...))` 引用；最终插件 JAR 中不得包含这些依赖。
+仓库输出 `build/plugin-sdk/repository` 和 `build/distributions/qqbot-plugin-sdk-*.zip`。复制 `plugin-template` 后通过 `-PqqbotSdkRepository=<repository 路径>` 指定 SDK；最终插件 JAR 中不得包含这些依赖。
 
-## 14. 安装与更新
+## 15. 安装、网页上传与无重启升级
 
 Docker Compose 默认使用 `qqbot-plugins` 命名卷并挂载到容器 `/plugins`。安装步骤：
 
 1. 构建插件 JAR。
 2. 将 JAR 放入宿主配置的插件目录或 Docker 插件卷（容器内路径为 `/plugins`）。
-3. 在 Web 后台“插件”页执行重新加载，确认状态为已加载且 SHA-256 符合预期。
+3. 在 Web 后台“插件”页执行扫描或重新加载，确认状态为已加载且 SHA-256 符合预期。
 4. 创建机器人绑定，填写通过 Schema 校验的 JSON 配置并启用。
 5. 在 Inbox、插件投递、Outbox 和 DLQ 页面观察完整链路。
 
-替换已有 JAR 前应先停用相关绑定。插件升级当前允许要求受控重启；虽然后台提供重新加载操作，但不要把它视为任意版本升级下可靠的 ClassLoader 热升级协议。多应用实例部署时，所有实例必须使用相同插件 JAR 和哈希。
+管理员也可以直接在插件页选择 `.jar` 文件。页面会显示文件大小并要求勾选可信来源确认；上传接口是 `POST /api/plugins/upload` 的 multipart `file` 字段，必须带 `X-Plugin-Upload-Confirm: trusted-jar`，单文件上限 64 MiB。请求仍受管理员认证和 CSRF 保护。
+
+上传完成后宿主会在同一进程内校验 Manifest、ServiceLoader、Schema 和 capabilities，停止相关绑定，释放订阅/调度器/HTTP 客户端，卸载旧 ClassLoader，再加载新 JAR。成功后页面显示 `INSTALLED`、`UPGRADED` 或 `UNCHANGED`、旧版本和新 SHA-256；失败会删除候选文件并尝试恢复旧插件，不需要重启应用。升级期间在途任务只等待配置的关闭超时，后续事件使用新实例。
+
+多应用实例部署时，所有实例必须使用相同插件 JAR 和哈希；上传接口只作用于当前实例，不替代共享制品发布或集群协调。
 
 镜像内置的 `echo` 插件可作为部署烟测：`/ping` 回复 `pong`，`/remember` 写入当前绑定自己的存储空间。已有 Docker 命名卷不会因重建镜像自动覆盖同名 JAR。
 
-## 15. 常见故障
+## 16. 常见故障
 
 | 现象 | 检查项 |
 | --- | --- |
 | 插件显示但未加载 | Manifest、`Plugin-Class`、Schema 资源、API 版本、未知 capability |
 | 报工厂数量错误 | ServiceLoader 文件缺失、类名错误或注册了多个工厂 |
+| 插件上传被拒绝 | 文件扩展名/大小、可信确认、管理员会话和服务端校验错误 |
 | 插件 ID 不一致 | `Plugin-Id` 与 `BotPluginFactory.pluginId()` 必须相同 |
 | 绑定保存失败 | 配置必须是对象且满足 Schema；字段不能超过 65,536 个 Java 字符 |
-| 收不到事件 | 机器人 Gateway 状态、Intents、Inbox、绑定启用状态和插件投递队列 |
+| 收不到事件 | 机器人 Gateway 状态、Intents、Inbox、绑定启用状态、handler 事件类型和插件投递队列 |
 | 能收到但不回复 | 是否声明 `message.send`、事件是否有回复目标、Outbox/DLQ 状态 |
-| storage 抛 SecurityException | Manifest 是否声明 `storage` |
+| storage/HTTP/调度器被拒绝 | Manifest 是否声明对应 capability；HTTP 目标和请求头是否触发策略 |
 | 重复执行 | 属于至少一次语义；检查去重键及外部副作用幂等性 |
-| 新 JAR 未生效 | 插件卷中可能仍是旧文件；核对后台 SHA-256 并重新加载或重启 |
+| 新 JAR 未生效 | 核对上传结果、版本和 SHA-256；确认当前请求没有落到旧的多实例副本 |
 
-## 16. 当前未开放能力
+## 17. 安全边界
 
-以下能力出现在需求规划中，但当前插件 API 尚未实现，不能在插件中使用：
+PF4J 类加载隔离不是安全沙箱。第一版只允许运维人员部署可信插件 JAR；网页上传会执行插件代码，因此必须限制管理员权限、插件目录和镜像运行身份。不可信第三方插件必须改为独立进程或容器，通过受控 RPC 接入。插件 API 不暴露 Spring、数据库连接、AppSecret 或 Access Token。
 
-- PluginScheduler
-- 受限 HTTP Client
-- 独立 MediaService
-- EventService 订阅接口
-- 配置对象自动绑定或动态 ConfigSnapshot
-- 多 handler 投递
-- Web 上传并执行插件 JAR
-- 不可信插件沙箱
+## 18. 参考实现
 
-需要访问外部 HTTP、定时任务或其他宿主资源时，不要绕过边界直接依赖 Spring 或数据库；应先在 `qqbot-plugin-api` 中设计受控能力，再由宿主提供实现。
-
-## 17. 参考实现
-
-- `qqbot-plugin-example`：最小可运行插件、Manifest、Schema 和 ServiceLoader 文件。
+- `plugin-template`：可复制的 V2 项目模板和多 handler 示例。
+- `qqbot-plugin-example`：宿主端到端测试使用的最小可运行插件。
+- `qqbot-plugin-testkit`：插件单元测试替身。
 - `qqbot-plugin-api`：插件可调用的稳定接口。
 - `qqbot-plugin-spi`：工厂、生命周期和事件处理契约。
 - `qqbot-plugin-host`：仅用于理解宿主行为，插件不得依赖。

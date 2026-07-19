@@ -11,7 +11,6 @@ import com.mieai.qqbot.persistence.plugin.PluginStorageRepository;
 import com.mieai.qqbot.plugin.host.Pf4jPluginHost;
 import com.mieai.qqbot.plugin.host.PluginRuntimeService;
 import java.time.Clock;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -22,15 +21,6 @@ import org.springframework.context.annotation.Configuration;
 @Configuration(proxyBeanMethods = false)
 @EnableConfigurationProperties(PluginRuntimeProperties.class)
 public class PluginRuntimeConfiguration {
-    @Bean(destroyMethod = "shutdownNow")
-    ExecutorService pluginExecutor(PluginRuntimeProperties properties) {
-        return Executors.newFixedThreadPool(8, runnable -> {
-            Thread thread = new Thread(runnable, "qqbot-plugin-exec");
-            thread.setDaemon(true);
-            return thread;
-        });
-    }
-
     @Bean(destroyMethod = "shutdownNow")
     ScheduledExecutorService pluginScheduler() {
         return Executors.newSingleThreadScheduledExecutor(runnable -> {
@@ -43,10 +33,10 @@ public class PluginRuntimeConfiguration {
     @Bean(destroyMethod = "close")
     Pf4jPluginHost pf4jPluginHost(PluginRuntimeProperties properties,
             PluginArtifactRepository artifacts, BotRepository bots, OutboxRepository outbox,
-            PluginStorageRepository storage, ObjectMapper objectMapper,
-            @Qualifier("pluginExecutor") ExecutorService pluginExecutor) {
+            PluginStorageRepository storage, ObjectMapper objectMapper) {
         return new Pf4jPluginHost(properties.getDirectory(), artifacts, bots, outbox, storage,
-                objectMapper, Clock.systemUTC(), pluginExecutor);
+                objectMapper, Clock.systemUTC(), properties.getBindingQueueCapacity(),
+                properties.getShutdownTimeout());
     }
 
     @Bean(destroyMethod = "close")

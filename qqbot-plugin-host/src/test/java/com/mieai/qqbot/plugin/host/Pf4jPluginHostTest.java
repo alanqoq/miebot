@@ -1,6 +1,7 @@
 package com.mieai.qqbot.plugin.host;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mieai.qqbot.domain.bot.BotEnvironment;
@@ -22,7 +23,12 @@ import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.Enumeration;
 import java.util.UUID;
+import java.util.jar.JarEntry;
+import java.util.jar.JarFile;
+import java.util.jar.JarOutputStream;
+import java.util.jar.Manifest;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -59,6 +65,8 @@ class Pf4jPluginHostTest {
             BotPluginBinding binding = new BotPluginBinding(UUID.randomUUID(), "echo", BotId.parse(BOT),
                     "{}", true, 0, NOW, NOW);
             bindingRepository.insert(binding);
+            assertThat(host.handlerIds(binding, "C2C_MESSAGE_CREATE"))
+                    .containsExactly("commands", "audit");
             IncomingEvent incoming = new IncomingEvent(UUID.randomUUID(), BotEnvironment.SANDBOX,
                     BotId.parse(BOT), "C2C_MESSAGE_CREATE", "message-1",
                     "{\"id\":\"event-1\",\"d\":{\"id\":\"message-1\",\"content\":\"/ping\",\"author\":{\"user_openid\":\"user-1\"}}}", NOW);
@@ -91,6 +99,65 @@ class Pf4jPluginHostTest {
         }
     }
 
+    @Test
+    void upgradesPluginWithoutRestartAndRestoresPreviousArtifactWhenInstallationFails() throws Exception {
+        Path pluginDirectory = temporaryDirectory.resolve("hot-plugins");
+        Path stagingDirectory = pluginDirectory.resolve(".staging");
+        Files.createDirectories(stagingDirectory);
+        Path example = Path.of(System.getProperty("qqbot.example.plugin"));
+        Path oldArtifact = pluginWithVersion(example, pluginDirectory.resolve("echo-old.jar"), "1.0.0");
+
+        DataSource dataSource = SQLiteDataSourceFactory.create(temporaryDirectory.resolve("hot-host.db"));
+        SQLiteDatabaseInitializer.migrate(dataSource);
+        insertBot(dataSource);
+        var artifacts = new JdbcPluginArtifactRepository(dataSource);
+        Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
+
+        try (Pf4jPluginHost host = new Pf4jPluginHost(pluginDirectory, artifacts,
+                new JdbcBotRepository(dataSource), new JdbcOutboxRepository(dataSource),
+                new JdbcPluginStorageRepository(dataSource), new ObjectMapper(), clock, Runnable::run)) {
+            host.start();
+            assertThat(host.loadedPlugins()).singleElement()
+                    .extracting(LoadedPluginMetadata::version).isEqualTo("1.0.0");
+
+            BotPluginBinding binding = new BotPluginBinding(UUID.randomUUID(), "echo", BotId.parse(BOT),
+                    "{}", true, 0, NOW, NOW);
+            assertThat(host.handlerIds(binding, "C2C_MESSAGE_CREATE"))
+                    .containsExactly("commands", "audit");
+
+            Path upgrade = pluginWithVersion(example, stagingDirectory.resolve("echo-upgrade.jar"), "2.0.0");
+            PluginArtifactInstallResult result = host.installArtifact(upgrade);
+
+            assertThat(result.operation()).isEqualTo("UPGRADED");
+            assertThat(result.previousVersion()).contains("1.0.0");
+            assertThat(result.artifact().version()).isEqualTo("2.0.0");
+            assertThat(result.artifact().path()).isRegularFile();
+            assertThat(oldArtifact).doesNotExist();
+            assertThat(upgrade).doesNotExist();
+            assertThat(host.handlerIds(binding, "C2C_MESSAGE_CREATE"))
+                    .containsExactly("commands", "audit");
+
+            Path identical = stagingDirectory.resolve("echo-identical.jar");
+            Files.copy(result.artifact().path(), identical);
+            PluginArtifactInstallResult unchanged = host.installArtifact(identical);
+            assertThat(unchanged.operation()).isEqualTo("UNCHANGED");
+            assertThat(identical).doesNotExist();
+
+            Path rejected = pluginWithVersion(example, stagingDirectory.resolve("echo-rejected.jar"), "3.0.0");
+            PluginArtifactCandidate candidate = host.validateArtifact(rejected);
+            Path occupiedTarget = pluginDirectory.resolve(
+                    "echo-3.0.0-" + candidate.sha256().substring(0, 12) + ".jar");
+            Files.createDirectory(occupiedTarget);
+
+            assertThatThrownBy(() -> host.installArtifact(rejected))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("target already exists");
+            assertThat(occupiedTarget).isDirectory();
+            assertThat(host.loadedPlugins()).singleElement()
+                    .extracting(LoadedPluginMetadata::version).isEqualTo("2.0.0");
+        }
+    }
+
     private static void insertBot(DataSource dataSource) throws Exception {
         insertBot(dataSource, BOT, "10001");
     }
@@ -108,5 +175,29 @@ class Pf4jPluginHostTest {
             statement.setString(4, NOW.toString());
             statement.executeUpdate();
         }
+    }
+
+    private static Path pluginWithVersion(Path source, Path target, String version) throws Exception {
+        try (JarFile input = new JarFile(source.toFile(), false)) {
+            Manifest manifest = new Manifest(input.getManifest());
+            manifest.getMainAttributes().putValue("Plugin-Version", version);
+            try (JarOutputStream output = new JarOutputStream(Files.newOutputStream(target), manifest)) {
+                Enumeration<JarEntry> entries = input.entries();
+                while (entries.hasMoreElements()) {
+                    JarEntry entry = entries.nextElement();
+                    if (JarFile.MANIFEST_NAME.equalsIgnoreCase(entry.getName())) continue;
+                    JarEntry copy = new JarEntry(entry.getName());
+                    copy.setTime(entry.getTime());
+                    output.putNextEntry(copy);
+                    if (!entry.isDirectory()) {
+                        try (var content = input.getInputStream(entry)) {
+                            content.transferTo(output);
+                        }
+                    }
+                    output.closeEntry();
+                }
+            }
+        }
+        return target;
     }
 }

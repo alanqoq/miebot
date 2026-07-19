@@ -10,6 +10,10 @@ spring:
       cache:
         cachecontrol:
           max-age: 1h
+  servlet:
+    multipart:
+      max-file-size: 64MB
+      max-request-size: 65MB
 
 qqbot:
   onboarding:
@@ -36,6 +40,8 @@ qqbot:
     execution-timeout: ${QQBOT_PLUGINS_EXECUTION_TIMEOUT:20s}
     max-attempts: ${QQBOT_PLUGINS_MAX_ATTEMPTS:5}
     batch-size: ${QQBOT_PLUGINS_BATCH_SIZE:16}
+    binding-queue-capacity: ${QQBOT_PLUGINS_BINDING_QUEUE_CAPACITY:256}
+    shutdown-timeout: ${QQBOT_PLUGINS_SHUTDOWN_TIMEOUT:20s}
   outbox:
     enabled: ${QQBOT_OUTBOX_ENABLED:true}
     poll-interval: ${QQBOT_OUTBOX_POLL_INTERVAL:1s}

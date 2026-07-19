@@ -4,6 +4,7 @@
 .run/
 build/
 **/build/
+**/bin/
 out/
 .idea/
 *.iml

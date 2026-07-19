@@ -1,5 +1,5 @@
 import { DatePipe } from '@angular/common';
-import { HttpErrorResponse } from '@angular/common/http';
+import { HttpErrorResponse, HttpEvent, HttpEventType } from '@angular/common/http';
 import { Component, DestroyRef, HostListener, OnInit, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import {
@@ -18,7 +18,9 @@ import {
   LucideSave,
   LucideSearch,
   LucideSettings,
+  LucideShieldCheck,
   LucideTrash2,
+  LucideUpload,
   LucideX,
 } from '@lucide/angular';
 import { forkJoin, of } from 'rxjs';
@@ -36,6 +38,8 @@ import {
   PluginArtifact,
   PluginBinding,
   PluginInventory,
+  PluginUploadResponse,
+  MAX_PLUGIN_UPLOAD_BYTES,
   UpdatePluginBindingRequest,
 } from '../../core/plugin-api.service';
 
@@ -65,7 +69,9 @@ const jsonObject: ValidatorFn = (control: AbstractControl): ValidationErrors | n
     LucideSave,
     LucideSearch,
     LucideSettings,
+    LucideShieldCheck,
     LucideTrash2,
+    LucideUpload,
     LucideX,
   ],
   templateUrl: './plugins-page.html',
@@ -97,6 +103,12 @@ export class PluginsPage implements OnInit {
   protected readonly saving = signal(false);
   protected readonly dialogError = signal<string | null>(null);
   protected readonly mutatingIds = signal<ReadonlySet<string>>(new Set());
+  protected readonly selectedFile = signal<File | null>(null);
+  protected readonly uploadTrusted = signal(false);
+  protected readonly uploading = signal(false);
+  protected readonly uploadProgress = signal<number | null>(null);
+  protected readonly uploadError = signal<string | null>(null);
+  protected readonly uploadResult = signal<PluginUploadResponse | null>(null);
 
   protected readonly discoveredCount = computed(() => this.items().length);
   protected readonly loadedCount = computed(() => this.items().filter((item) => item.loaded).length);
@@ -153,8 +165,8 @@ export class PluginsPage implements OnInit {
     }
   }
 
-  protected scan(): void {
-    if (this.loading() || this.refreshing() || this.reloading()) return;
+  protected scan(force = false): void {
+    if (this.loading() || this.refreshing() || this.reloading() || (!force && this.uploading())) return;
     this.refreshing.set(true);
     this.warning.set(null);
     this.api
@@ -172,7 +184,7 @@ export class PluginsPage implements OnInit {
   }
 
   protected reloadHost(): void {
-    if (this.loading() || this.refreshing() || this.reloading()) return;
+    if (this.loading() || this.refreshing() || this.reloading() || this.uploading()) return;
     this.reloading.set(true);
     this.warning.set(null);
     forkJoin({ inventory: this.api.reload(this.search()), bindings: this.api.listBindings() })
@@ -189,6 +201,84 @@ export class PluginsPage implements OnInit {
           this.warning.set(this.errorMessage(error, '插件宿主重新加载失败。'));
         },
       });
+  }
+
+  protected openUploadPicker(input: HTMLInputElement): void {
+    if (this.loading() || this.refreshing() || this.reloading() || this.uploading()) return;
+    input.click();
+  }
+
+  protected selectPluginFile(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0] ?? null;
+    input.value = '';
+    if (!file) return;
+    this.selectedFile.set(null);
+    this.uploadResult.set(null);
+    this.uploadError.set(null);
+    this.uploadProgress.set(null);
+    this.uploadTrusted.set(false);
+    const lowerName = file.name.toLowerCase();
+    if (!lowerName.endsWith('.jar')) {
+      this.uploadError.set('只允许选择 .jar 插件制品。');
+      return;
+    }
+    if (file.size < 1 || file.size > MAX_PLUGIN_UPLOAD_BYTES) {
+      this.uploadError.set('插件 JAR 不能超过 64 MiB，且不能为空。');
+      return;
+    }
+    this.selectedFile.set(file);
+  }
+
+  protected closeUpload(): void {
+    if (this.uploading()) return;
+    this.selectedFile.set(null);
+    this.uploadTrusted.set(false);
+    this.uploadProgress.set(null);
+    this.uploadError.set(null);
+  }
+
+  protected setUploadTrusted(event: Event): void {
+    this.uploadTrusted.set((event.target as HTMLInputElement).checked);
+  }
+
+  protected uploadSelected(): void {
+    const file = this.selectedFile();
+    if (!file || !this.uploadTrusted() || this.loading() || this.refreshing()
+        || this.reloading() || this.uploading()) return;
+    this.uploading.set(true);
+    this.uploadError.set(null);
+    this.uploadProgress.set(0);
+    this.api
+      .upload(file)
+      .pipe(
+        finalize(() => this.uploading.set(false)),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe({
+        next: (event: HttpEvent<PluginUploadResponse>) => {
+          if (event.type === HttpEventType.UploadProgress) {
+            const total = event.total ?? file.size;
+            this.uploadProgress.set(total > 0 ? Math.min(100, Math.round((event.loaded / total) * 100)) : null);
+          } else if (event.type === HttpEventType.Response && event.body) {
+            this.uploadProgress.set(100);
+            this.uploadResult.set(event.body);
+            this.scan(true);
+          }
+        },
+        error: (error: unknown) => {
+          this.uploadError.set(this.errorMessage(error, '插件上传或热升级失败。'));
+        },
+      });
+  }
+
+  protected uploadOperationLabel(operation: string): string {
+    switch (operation) {
+      case 'INSTALLED': return '已安装';
+      case 'UPGRADED': return '已热升级';
+      case 'UNCHANGED': return '版本未变化';
+      default: return operation || '已完成';
+    }
   }
 
   protected openCreate(plugin: PluginArtifact): void {

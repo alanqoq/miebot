@@ -10,9 +10,12 @@
 - 默认启用的真实 QQ Gateway 多机器人运行时
 - SQLite/MySQL/PostgreSQL 持久化、版本化迁移和安全热切换
 - Angular 22 管理后台工程
+- V2 插件 SDK（API、SPI、testkit）、可复制项目模板和本地 Maven 分发任务
 - Gateway Dispatch 持久化到 `event_inbox`，并提供管理员 Inbox 查询 API
 - Outbox/DLQ 持久化状态、生产 QQ OpenAPI 发送、管理员查询 API 与后台实时视图
 - PF4J 可信插件宿主、每机器人绑定、配置 Schema 校验、绑定级 `PluginStorage`、插件投递重试和插件 DLQ
+- PluginScheduler、受限 HTTP、MediaService、EventService 多 handler 和绑定 ConfigSnapshot
+- 插件页可信 JAR 选择/上传、校验、同进程无重启热升级和失败回滚
 - 管理员改密、机器人删除（含二次确认）、变更审计日志和运行状态 SSE
 - SQL bot/shard 租约与 fencing token，避免多实例重复连接
 - 文本及受 URL 策略保护的图片、语音、视频、文件消息 Outbox
@@ -27,11 +30,11 @@ QQ Gateway 默认启用。应用启动后会读取当前数据库中的机器人
 
 普通 QQ Gateway Dispatch 会先保留事件类型和原始 JSON，同步写入 `event_inbox` 并按环境、机器人、事件类型和平台事件 ID 去重；写入成功后才推进 Resume 序号。管理员登录后可通过 `GET /api/events/inbox` 分页、筛选和搜索事件，通过 `GET /api/events/inbox/{id}` 查看受限长度的原始 Payload。`outbox_jobs` 已提供创建、租约领取、重试、成功、结果未知和死信状态转换；生产 Outbox worker 会按机器人隔离凭据调用 QQ OpenAPI，并将 429/5xx 重试、永久错误死信化。插件产生的消息先写入 Outbox，再由 worker 发送，避免插件线程直接接触网络或密钥。
 
-后台“插件”页通过 `GET /api/plugins` 扫描挂载的 `/plugins` JAR，读取 manifest、大小、修改时间和 SHA-256，并显示宿主加载状态。可信 JAR 通过 PF4J 加载，使用 `ServiceLoader` 暴露纯 Java `BotPluginFactory`；`GET/POST/PUT/DELETE /api/plugin-bindings` 管理每个机器人独立配置。插件声明 `storage` 能力后可通过 `PluginContext.storage()` 使用按绑定隔离、受长度限制的 SQL 持久化键值存储；未声明能力的插件会收到拒绝实现。插件事件投递和失败记录可通过 `/api/events/plugin-deliveries`、`/api/events/plugin-dlq` 查询。
+后台“插件”页通过 `GET /api/plugins` 扫描挂载的 `/plugins` JAR，读取 manifest、大小、修改时间和 SHA-256，并显示宿主加载状态。可信 JAR 通过 PF4J 加载，使用 `ServiceLoader` 暴露纯 Java `BotPluginFactory` 或 V2 工厂；页面可选择 `.jar` 并通过 `POST /api/plugins/upload` 上传，服务端完成校验后在当前进程内热升级，不需要应用重启，失败会尝试恢复旧插件。`GET/POST/PUT/DELETE /api/plugin-bindings` 管理每个机器人独立配置。插件声明 capability 后可使用绑定级存储、调度器、受限 HTTP、媒体和多 handler 事件订阅；未声明能力的插件会收到拒绝实现。插件事件投递和失败记录可通过 `/api/events/plugin-deliveries`、`/api/events/plugin-dlq` 查询。
 
 后台功能复核结果：登录/首次设置、改密、机器人配置/启停/删除、数据库测试与热切换、Inbox、Outbox、两类 DLQ、Dashboard 指标、插件制品/绑定/投递、审计查询和顶部健康状态均读取真实 API。运行状态同时提供 `GET /api/bots/runtime` 和同源 `GET /api/bots/runtime/stream` SSE；浏览器不支持 SSE 时后台保留轮询兜底。`/login` 等后台路由支持直接刷新，应用壳会在认证后主动读取当前数据库配置。
 
-插件宿主只允许运维人员挂载可信 JAR，PF4J 类加载不是安全沙箱；插件 API 不暴露 Spring、数据库、AppSecret 或 Access Token。插件配置按 manifest Schema 校验，插件超时/异常按有限次数重试，超过上限进入插件 DLQ。
+插件宿主只允许管理员安装可信 JAR，PF4J 类加载不是安全沙箱；插件 API 不暴露 Spring、数据库、AppSecret 或 Access Token。插件配置按 manifest Schema 校验，插件超时/异常按有限次数重试，超过上限进入插件 DLQ。
 
 镜像内置 `echo` 示例插件制品，新建插件卷时会复制到 `/plugins/qqbot-plugin-echo.jar`。在插件页将它绑定到机器人后，收到 `/ping` 会通过真实 Inbox -> 插件投递 -> Outbox -> QQ OpenAPI 链路回复 `pong`；`/remember` 会写入该绑定自己的存储空间，用于验证多机器人数据隔离。
 
@@ -62,4 +65,4 @@ npm.cmd ci
 
 前端构建完成后，重新执行 `:qqbot-app:bootJar` 会把 `dist` 静态资源打入可执行 JAR。应用默认监听 `8080`；本机端口被占用时可追加 `--server.port=18080`。
 
-插件作者应先阅读 [PLUGIN_DEVELOPMENT.md](./PLUGIN_DEVELOPMENT.md)，其中包含当前可用能力、Manifest、Schema、消息发送、绑定存储、测试和安装说明。完整平台需求见 [REQUIREMENTS.md](./REQUIREMENTS.md)。
+插件作者应先阅读 [PLUGIN_DEVELOPMENT.md](./PLUGIN_DEVELOPMENT.md)，并可直接复制 [plugin-template](./plugin-template)；文档包含当前可用能力、Manifest、Schema、消息发送、绑定存储、测试、网页上传和热升级说明。运行 `pluginSdkRepository` 或 `pluginSdkDistribution` 可生成 SDK 分发物。完整平台需求见 [REQUIREMENTS.md](./REQUIREMENTS.md)。

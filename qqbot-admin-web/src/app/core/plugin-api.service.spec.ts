@@ -56,4 +56,26 @@ describe('PluginApiService', () => {
     expect(remove.request.method).toBe('DELETE');
     remove.flush(null);
   });
+
+  it('uploads a trusted plugin jar as multipart data with progress events', () => {
+    const file = new File([new Uint8Array([1, 2, 3])], 'support.jar', {
+      type: 'application/java-archive',
+    });
+    let operation: string | undefined;
+    api.upload(file).subscribe((event) => {
+      if ('body' in event && event.body) operation = event.body.operation;
+    });
+
+    const request = http.expectOne('/api/plugins/upload');
+    expect(request.request.method).toBe('POST');
+    expect(request.request.reportProgress).toBe(true);
+    expect(request.request.headers.get('X-Plugin-Upload-Confirm')).toBe('trusted-jar');
+    expect(request.request.body).toBeInstanceOf(FormData);
+    const uploaded = (request.request.body as FormData).get('file') as File;
+    expect(uploaded.name).toBe(file.name);
+    expect(uploaded.size).toBe(file.size);
+    request.flush({ operation: 'INSTALLED', artifact: {}, previousVersion: null, previousSha256: null });
+
+    expect(operation).toBe('INSTALLED');
+  });
 });
