@@ -12,9 +12,18 @@ public record PluginBindingResponse(
         boolean enabled,
         long revision,
         Instant createdAt,
-        Instant updatedAt) {
+        Instant updatedAt,
+        String runtimeState,
+        String runtimeError) {
+
+    public PluginBindingResponse(UUID id, String pluginId, UUID botId, String configJson,
+            boolean enabled, long revision, Instant createdAt, Instant updatedAt) {
+        this(id, pluginId, botId, configJson, enabled, revision, createdAt, updatedAt,
+                enabled ? "ACTIVE" : "PAUSED", null);
+    }
     static PluginBindingResponse from(BotPluginBinding binding) {
         return new PluginBindingResponse(binding.id(), binding.pluginId(), binding.botId().value(),
-                binding.configJson(), binding.enabled(), binding.revision(), binding.createdAt(), binding.updatedAt());
+                binding.configJson(), binding.enabled(), binding.revision(), binding.createdAt(), binding.updatedAt(),
+                binding.runtimeState().name(), binding.runtimeError().orElse(null));
     }
 }

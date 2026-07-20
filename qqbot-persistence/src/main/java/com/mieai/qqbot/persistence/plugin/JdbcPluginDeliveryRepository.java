@@ -130,6 +130,18 @@ public final class JdbcPluginDeliveryRepository implements PluginDeliveryReposit
 
     @Override
     public Optional<PluginDelivery> claimNext(String leaseOwner, Instant now, Duration leaseDuration) {
+        return claimNextInternal(leaseOwner, null, now, leaseDuration);
+    }
+
+    @Override
+    public Optional<PluginDelivery> claimNextOwned(
+            String leaseOwner, String botLeaseOwner, Instant now, Duration leaseDuration) {
+        requireToken(botLeaseOwner, "botLeaseOwner", 255);
+        return claimNextInternal(leaseOwner, botLeaseOwner, now, leaseDuration);
+    }
+
+    private Optional<PluginDelivery> claimNextInternal(
+            String leaseOwner, String botLeaseOwner, Instant now, Duration leaseDuration) {
         requireToken(leaseOwner, "leaseOwner", 255);
         Objects.requireNonNull(now, "now must not be null");
         Objects.requireNonNull(leaseDuration, "leaseDuration must not be null");
@@ -139,11 +151,73 @@ public final class JdbcPluginDeliveryRepository implements PluginDeliveryReposit
         Optional<PluginDelivery> result = transaction.execute(status -> {
             String product = jdbc.execute((ConnectionCallback<String>) connection ->
                     connection.getMetaData().getDatabaseProductName().toLowerCase(Locale.ROOT));
-            if (product != null && product.contains("sqlite")) return claimSqlite(leaseOwner, until, text);
-            if (product != null && (product.contains("mysql") || product.contains("postgresql"))) return claimLocked(leaseOwner, until, text);
+            if (product != null && product.contains("sqlite")) {
+                return botLeaseOwner == null
+                        ? claimSqlite(leaseOwner, until, text)
+                        : claimSqliteOwned(leaseOwner, botLeaseOwner, until, text);
+            }
+            if (product != null && (product.contains("mysql") || product.contains("postgresql"))) {
+                return botLeaseOwner == null
+                        ? claimLocked(leaseOwner, until, text)
+                        : claimLockedOwned(leaseOwner, botLeaseOwner, until, text);
+            }
             throw new IllegalStateException("Unsupported database product: " + product);
         });
         return result == null ? Optional.empty() : result;
+    }
+
+    private Optional<PluginDelivery> claimSqliteOwned(
+            String owner, String botLeaseOwner, Instant until, String now) {
+        List<PluginDelivery> rows = jdbc.query("""
+                WITH candidate AS (
+                    SELECT d.id FROM plugin_deliveries d
+                    JOIN bot_plugins b ON b.id=d.binding_id
+                    WHERE (((d.status IN ('PENDING','RETRY_WAIT') AND d.available_at <= ?)
+                        OR (d.status='IN_PROGRESS' AND d.lease_until <= ?))
+                        AND b.enabled=1 AND b.runtime_state='ACTIVE'
+                        AND EXISTS (SELECT 1 FROM bot_leases l
+                            JOIN bots configured
+                              ON configured.id=l.bot_id AND configured.shard_index=l.shard_index
+                            WHERE l.bot_id=b.bot_id AND l.owner_id=? AND l.lease_until > ?))
+                    ORDER BY CASE WHEN d.status='IN_PROGRESS' THEN d.lease_until ELSE d.available_at END,
+                        d.created_at, d.id LIMIT 1
+                )
+                UPDATE plugin_deliveries
+                SET status='IN_PROGRESS', attempt=attempt+1, lease_owner=?, lease_until=?,
+                    fencing_token=fencing_token+1, updated_at=?, completed_at=NULL
+                WHERE id=(SELECT id FROM candidate)
+                RETURNING %s
+                """.formatted(COLUMNS), new PluginDeliveryRowMapper(), now, now,
+                botLeaseOwner, now, owner, UtcTimestampCodec.format(until), now);
+        if (rows.size() > 1) throw new IllegalStateException("Plugin delivery claim returned more than one row");
+        return rows.stream().findFirst();
+    }
+
+    private Optional<PluginDelivery> claimLockedOwned(
+            String owner, String botLeaseOwner, Instant until, String now) {
+        List<String> ids = jdbc.query("""
+                SELECT d.id FROM plugin_deliveries d
+                JOIN bot_plugins b ON b.id=d.binding_id
+                WHERE (((d.status IN ('PENDING','RETRY_WAIT') AND d.available_at <= ?)
+                    OR (d.status='IN_PROGRESS' AND d.lease_until <= ?))
+                    AND b.enabled=1 AND b.runtime_state='ACTIVE'
+                    AND EXISTS (SELECT 1 FROM bot_leases l
+                        JOIN bots configured
+                          ON configured.id=l.bot_id AND configured.shard_index=l.shard_index
+                        WHERE l.bot_id=b.bot_id AND l.owner_id=? AND l.lease_until > ?))
+                ORDER BY CASE WHEN d.status='IN_PROGRESS' THEN d.lease_until ELSE d.available_at END,
+                    d.created_at, d.id LIMIT 1 FOR UPDATE SKIP LOCKED
+                """, (rs, row) -> rs.getString(1), now, now, botLeaseOwner, now);
+        if (ids.isEmpty()) return Optional.empty();
+        String id = ids.getFirst();
+        int updated = jdbc.update("""
+                UPDATE plugin_deliveries SET status='IN_PROGRESS', attempt=attempt+1,
+                    lease_owner=?, lease_until=?, fencing_token=fencing_token+1, updated_at=?, completed_at=NULL
+                WHERE id=?
+                """, owner, UtcTimestampCodec.format(until), now, id);
+        if (updated != 1) throw new IllegalStateException("Plugin delivery claim affected " + updated + " rows instead of one");
+        return jdbc.query("SELECT " + COLUMNS + " FROM plugin_deliveries WHERE id=?",
+                new PluginDeliveryRowMapper(), id).stream().findFirst();
     }
 
     private Optional<PluginDelivery> claimSqlite(String owner, Instant until, String now) {
@@ -152,7 +226,8 @@ public final class JdbcPluginDeliveryRepository implements PluginDeliveryReposit
                     SELECT id FROM plugin_deliveries
                     WHERE (((status IN ('PENDING','RETRY_WAIT') AND available_at <= ?)
                         OR (status = 'IN_PROGRESS' AND lease_until <= ?))
-                        AND EXISTS (SELECT 1 FROM bot_plugins b WHERE b.id = binding_id AND b.enabled = 1))
+                        AND EXISTS (SELECT 1 FROM bot_plugins b WHERE b.id = binding_id
+                            AND b.enabled = 1 AND b.runtime_state = 'ACTIVE'))
                     ORDER BY CASE WHEN status='IN_PROGRESS' THEN lease_until ELSE available_at END, created_at, id LIMIT 1
                 )
                 UPDATE plugin_deliveries
@@ -170,7 +245,8 @@ public final class JdbcPluginDeliveryRepository implements PluginDeliveryReposit
                 SELECT id FROM plugin_deliveries
                 WHERE (((status IN ('PENDING','RETRY_WAIT') AND available_at <= ?)
                     OR (status = 'IN_PROGRESS' AND lease_until <= ?))
-                    AND EXISTS (SELECT 1 FROM bot_plugins b WHERE b.id = binding_id AND b.enabled = 1))
+                    AND EXISTS (SELECT 1 FROM bot_plugins b WHERE b.id = binding_id
+                        AND b.enabled = 1 AND b.runtime_state = 'ACTIVE'))
                 ORDER BY CASE WHEN status='IN_PROGRESS' THEN lease_until ELSE available_at END, created_at, id
                 LIMIT 1 FOR UPDATE SKIP LOCKED
                 """, (rs, row) -> rs.getString(1), now, now);
@@ -199,6 +275,29 @@ public final class JdbcPluginDeliveryRepository implements PluginDeliveryReposit
     @Override
     public void markDeadLetter(UUID id, long token, Instant now, String reason) {
         transition(id, token, now, PluginDeliveryStatus.DEAD_LETTER, now, now, reason);
+    }
+
+    @Override
+    public int pauseForBinding(UUID bindingId, Instant now, String reason) {
+        requireIdentifier(bindingId, "bindingId");
+        Objects.requireNonNull(now, "now must not be null");
+        if (reason != null) requirePayload(reason, "reason");
+        return jdbc.update("""
+                UPDATE plugin_deliveries
+                SET status='PAUSED', lease_owner=NULL, lease_until=NULL, last_error=?, updated_at=?, completed_at=NULL
+                WHERE binding_id=? AND status IN ('PENDING','RETRY_WAIT','IN_PROGRESS')
+                """, reason, UtcTimestampCodec.format(now), bindingId.toString());
+    }
+
+    @Override
+    public int resumeForBinding(UUID bindingId, Instant now) {
+        requireIdentifier(bindingId, "bindingId");
+        Objects.requireNonNull(now, "now must not be null");
+        return jdbc.update("""
+                UPDATE plugin_deliveries
+                SET status='PENDING', available_at=?, last_error=NULL, updated_at=?
+                WHERE binding_id=? AND status='PAUSED'
+                """, UtcTimestampCodec.format(now), UtcTimestampCodec.format(now), bindingId.toString());
     }
 
     private void transition(UUID id, long token, Instant now, PluginDeliveryStatus target, Instant completed,

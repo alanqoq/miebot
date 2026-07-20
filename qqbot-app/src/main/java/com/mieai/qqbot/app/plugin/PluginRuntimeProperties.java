@@ -11,6 +11,7 @@ public class PluginRuntimeProperties {
     private Duration pollInterval = Duration.ofSeconds(1);
     private Duration leaseDuration = Duration.ofSeconds(30);
     private Duration executionTimeout = Duration.ofSeconds(20);
+    private Duration cancellationGrace = Duration.ofSeconds(5);
     private int maxAttempts = 5;
     private int batchSize = 16;
     private int bindingQueueCapacity = 256;
@@ -26,6 +27,8 @@ public class PluginRuntimeProperties {
     public void setLeaseDuration(Duration leaseDuration) { this.leaseDuration = leaseDuration; }
     public Duration getExecutionTimeout() { return executionTimeout; }
     public void setExecutionTimeout(Duration executionTimeout) { this.executionTimeout = executionTimeout; }
+    public Duration getCancellationGrace() { return cancellationGrace; }
+    public void setCancellationGrace(Duration cancellationGrace) { this.cancellationGrace = cancellationGrace; }
     public int getMaxAttempts() { return maxAttempts; }
     public void setMaxAttempts(int maxAttempts) { this.maxAttempts = maxAttempts; }
     public int getBatchSize() { return batchSize; }

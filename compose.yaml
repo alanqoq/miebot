@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: mirai-qqbot:0.1.0
+    image: mirai-qqbot:0.2.0
     platform: linux/amd64
     restart: unless-stopped
     stop_grace_period: 30s
@@ -23,6 +23,7 @@ services:
       QQBOT_PLUGINS_DIR: /plugins
       QQBOT_PLUGINS_BINDING_QUEUE_CAPACITY: "${QQBOT_PLUGINS_BINDING_QUEUE_CAPACITY:-256}"
       QQBOT_PLUGINS_SHUTDOWN_TIMEOUT: "${QQBOT_PLUGINS_SHUTDOWN_TIMEOUT:-20s}"
+      QQBOT_MEDIA_STAGING_DIRECTORY: /data/media-staging
       QQBOT_DATABASE_CONFIG_FILE: /data/config/database.json
       QQBOT_DATABASE_CANDIDATE_CONFIG_FILE: /data/config/database-candidate.json
       QQBOT_SQLITE_PATH: /data/qqbot.db

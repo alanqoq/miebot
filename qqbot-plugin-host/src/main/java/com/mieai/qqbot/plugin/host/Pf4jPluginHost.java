@@ -9,6 +9,7 @@ import com.mieai.qqbot.persistence.plugin.BotPluginBinding;
 import com.mieai.qqbot.persistence.plugin.PluginArtifact;
 import com.mieai.qqbot.persistence.plugin.PluginArtifactRepository;
 import com.mieai.qqbot.persistence.plugin.PluginStorageRepository;
+import com.mieai.qqbot.client.MediaAssetStore;
 import com.mieai.qqbot.plugin.api.ConfigSnapshot;
 import com.mieai.qqbot.plugin.api.EventService;
 import com.mieai.qqbot.plugin.api.MediaService;
@@ -73,6 +74,7 @@ public final class Pf4jPluginHost implements AutoCloseable {
     private final BotRepository bots;
     private final OutboxRepository outbox;
     private final Optional<PluginStorageRepository> storage;
+    private final Optional<MediaAssetStore> mediaStore;
     private final ObjectMapper mapper;
     private final Clock clock;
     private final int queueCapacity;
@@ -86,7 +88,7 @@ public final class Pf4jPluginHost implements AutoCloseable {
     public Pf4jPluginHost(Path pluginDirectory, PluginArtifactRepository artifacts, BotRepository bots,
             OutboxRepository outbox, ObjectMapper mapper, Clock clock, Executor ignoredExecutor) {
         this(pluginDirectory, artifacts, bots, outbox, Optional.empty(), mapper, clock,
-                DEFAULT_QUEUE_CAPACITY, DEFAULT_SHUTDOWN_TIMEOUT);
+                DEFAULT_QUEUE_CAPACITY, DEFAULT_SHUTDOWN_TIMEOUT, Optional.empty());
     }
 
     public Pf4jPluginHost(Path pluginDirectory, PluginArtifactRepository artifacts, BotRepository bots,
@@ -94,7 +96,7 @@ public final class Pf4jPluginHost implements AutoCloseable {
             Clock clock, Executor ignoredExecutor) {
         this(pluginDirectory, artifacts, bots, outbox,
                 Optional.of(Objects.requireNonNull(storage, "storage must not be null")), mapper, clock,
-                DEFAULT_QUEUE_CAPACITY, DEFAULT_SHUTDOWN_TIMEOUT);
+                DEFAULT_QUEUE_CAPACITY, DEFAULT_SHUTDOWN_TIMEOUT, Optional.empty());
     }
 
     public Pf4jPluginHost(Path pluginDirectory, PluginArtifactRepository artifacts, BotRepository bots,
@@ -102,18 +104,29 @@ public final class Pf4jPluginHost implements AutoCloseable {
             Clock clock, int queueCapacity, Duration shutdownTimeout) {
         this(pluginDirectory, artifacts, bots, outbox,
                 Optional.of(Objects.requireNonNull(storage, "storage must not be null")), mapper, clock,
-                queueCapacity, shutdownTimeout);
+                queueCapacity, shutdownTimeout, Optional.empty());
+    }
+
+    public Pf4jPluginHost(Path pluginDirectory, PluginArtifactRepository artifacts, BotRepository bots,
+            OutboxRepository outbox, PluginStorageRepository storage, MediaAssetStore mediaStore,
+            ObjectMapper mapper, Clock clock, int queueCapacity, Duration shutdownTimeout) {
+        this(pluginDirectory, artifacts, bots, outbox,
+                Optional.of(Objects.requireNonNull(storage, "storage must not be null")), mapper, clock,
+                queueCapacity, shutdownTimeout,
+                Optional.of(Objects.requireNonNull(mediaStore, "mediaStore must not be null")));
     }
 
     private Pf4jPluginHost(Path pluginDirectory, PluginArtifactRepository artifacts, BotRepository bots,
             OutboxRepository outbox, Optional<PluginStorageRepository> storage, ObjectMapper mapper,
-            Clock clock, int queueCapacity, Duration shutdownTimeout) {
+            Clock clock, int queueCapacity, Duration shutdownTimeout,
+            Optional<MediaAssetStore> mediaStore) {
         this.pluginDirectory = Objects.requireNonNull(pluginDirectory, "pluginDirectory must not be null")
                 .toAbsolutePath().normalize();
         this.artifacts = Objects.requireNonNull(artifacts, "artifacts must not be null");
         this.bots = Objects.requireNonNull(bots, "bots must not be null");
         this.outbox = Objects.requireNonNull(outbox, "outbox must not be null");
         this.storage = Objects.requireNonNull(storage, "storage must not be null");
+        this.mediaStore = Objects.requireNonNull(mediaStore, "mediaStore must not be null");
         this.mapper = Objects.requireNonNull(mapper, "mapper must not be null");
         this.clock = Objects.requireNonNull(clock, "clock must not be null");
         if (queueCapacity < 1 || queueCapacity > 100_000) throw new IllegalArgumentException("queueCapacity is invalid");
@@ -138,7 +151,7 @@ public final class Pf4jPluginHost implements AutoCloseable {
         }
         for (Path path : jars) {
             try {
-                loadIntoHost(path);
+                loadIntoHost(path, false);
             } catch (RuntimeException exception) {
                 LOGGER.warn("Plugin artifact {} could not be loaded ({})",
                         path.getFileName(), exception.getClass().getSimpleName());
@@ -201,7 +214,7 @@ public final class Pf4jPluginHost implements AutoCloseable {
                 move(candidate.path(), target);
                 targetCreated = true;
             }
-            LoadedPlugin installed = loadIntoHost(target);
+            LoadedPlugin installed = loadIntoHost(target, true);
             cleanupSupersededArtifacts(candidate.pluginId(), target, previousPath);
             return new PluginArtifactInstallResult(previous == null ? "INSTALLED" : "UPGRADED",
                     installed.metadata(), previous == null ? Optional.empty() : Optional.of(previous.metadata().version()),
@@ -211,7 +224,7 @@ public final class Pf4jPluginHost implements AutoCloseable {
             if (previousPath != null && Files.isRegularFile(previousPath)
                     && !loaded.containsKey(candidate.pluginId())) {
                 try {
-                    loadIntoHost(previousPath);
+                    loadIntoHost(previousPath, true);
                 } catch (RuntimeException rollbackFailure) {
                     failure.addSuppressed(rollbackFailure);
                 }
@@ -228,6 +241,12 @@ public final class Pf4jPluginHost implements AutoCloseable {
         return plugin != null && plugin.metadata().sha256().equals(sha256);
     }
     public synchronized Set<String> loadedPluginIds() { return Set.copyOf(loaded.keySet()); }
+
+    /** Hashes currently loaded by this JVM, used for multi-instance lease admission. */
+    public synchronized Map<String, String> loadedPluginHashes() {
+        return loaded.values().stream().collect(java.util.stream.Collectors.toUnmodifiableMap(
+                value -> value.metadata().id(), value -> value.metadata().sha256()));
+    }
 
     public synchronized List<LoadedPluginMetadata> loadedPlugins() {
         return loaded.values().stream().map(LoadedPlugin::metadata)
@@ -266,17 +285,36 @@ public final class Pf4jPluginHost implements AutoCloseable {
     }
 
     public CompletionStage<Void> execute(BotPluginBinding binding, InboxEvent inboxEvent, String handlerId) {
+        return executeCancellable(binding, inboxEvent, handlerId).stage();
+    }
+
+    PluginExecution executeCancellable(
+            BotPluginBinding binding, InboxEvent inboxEvent, String handlerId) {
         Objects.requireNonNull(binding, "binding must not be null");
         Objects.requireNonNull(inboxEvent, "inboxEvent must not be null");
         InstanceHandle handle;
         synchronized (this) { handle = instance(binding); }
         PluginEvent event = eventMapper.map(inboxEvent);
-        return handle.resources().execute(handlerId, event, handle.plugin()::onEvent);
+        return handle.resources().executeCancellable(handlerId, event, handle.plugin()::onEvent);
     }
 
     public synchronized void invalidate(UUID bindingId) {
         InstanceHandle handle = instances.remove(bindingId);
         if (handle != null) stop(handle);
+    }
+
+    /** Immediately fences a timed-out binding before its durable state is quarantined. */
+    synchronized void quarantine(UUID bindingId) {
+        InstanceHandle handle = instances.remove(bindingId);
+        if (handle == null) return;
+        handle.resources().beginShutdown();
+        handle.resources().close();
+        if (handle.httpClient() != null) handle.httpClient().close();
+        try { handle.plugin().stop(); }
+        catch (RuntimeException exception) {
+            LOGGER.warn("Plugin {} failed while quarantining binding {}",
+                    handle.pluginId(), handle.bindingId());
+        }
     }
 
     public synchronized void invalidateAll() {
@@ -297,12 +335,14 @@ public final class Pf4jPluginHost implements AutoCloseable {
                 () -> new IllegalStateException("Bot does not exist for plugin binding"));
         var environment = bot.definition().environment();
         PluginLogger logger = new BindingLogger(binding.pluginId(), binding.botId().toString());
-        DurableMessageSender durable = new DurableMessageSender(binding.id(), binding.botId(), environment, outbox, mapper, clock);
+        BindingRuntimeResources resources = new BindingRuntimeResources(
+                binding.pluginId(), binding.id().toString(), queueCapacity);
+        DurableMessageSender durable = new DurableMessageSender(binding.id(), binding.botId(), environment,
+                outbox, mapper, clock, resources.capabilityGuard(), mediaStore.orElse(null),
+                bot.definition().maxMediaUploadBytes());
         MessageSender sender = plugin.metadata().capabilities().contains("message.send") ? durable : new DeniedMessageSender();
         PluginStorage pluginStorage = plugin.metadata().capabilities().contains("storage") && storage.isPresent()
                 ? new DurablePluginStorage(binding.id(), storage.orElseThrow(), clock) : PluginStorage.denied();
-        BindingRuntimeResources resources = new BindingRuntimeResources(
-                binding.pluginId(), binding.id().toString(), queueCapacity);
         RestrictedPluginHttpClient http = plugin.metadata().capabilities().contains("http")
                 ? new RestrictedPluginHttpClient() : null;
         PluginContext base = new PluginContext(binding.botId(), environment, binding.pluginId(),
@@ -315,7 +355,7 @@ public final class Pf4jPluginHost implements AutoCloseable {
                         ? resources.pluginScheduler() : PluginScheduler.denied(),
                 http == null ? RestrictedHttpClient.denied() : http,
                 plugin.metadata().capabilities().contains("media.send")
-                        ? durable::enqueue : MediaService.denied());
+                        ? durable : MediaService.denied());
         try {
             BotPlugin created = plugin.factory() instanceof BotPluginFactoryV2 v2
                     ? v2.create(extended) : plugin.factory().create(base);
@@ -333,7 +373,7 @@ public final class Pf4jPluginHost implements AutoCloseable {
         }
     }
 
-    private LoadedPlugin loadIntoHost(Path path) {
+    private LoadedPlugin loadIntoHost(Path path, boolean authoritative) {
         ensureManager();
         String pluginId = manager.loadPlugin(path);
         if (pluginId == null) throw new IllegalStateException("PF4J did not return a plugin id");
@@ -342,7 +382,7 @@ public final class Pf4jPluginHost implements AutoCloseable {
             LoadedPluginDetails details = details(manager.getPlugin(pluginId));
             LoadedPlugin plugin = new LoadedPlugin(details.metadata(), details.factory(), details.schema());
             loaded.put(pluginId, plugin);
-            persist(plugin.metadata());
+            persist(plugin.metadata(), authoritative);
             return plugin;
         } catch (RuntimeException exception) {
             try { manager.stopPlugin(pluginId); } catch (RuntimeException ignored) {}
@@ -406,9 +446,15 @@ public final class Pf4jPluginHost implements AutoCloseable {
         return new LoadedPluginDetails(metadata, factory, schema);
     }
 
-    private void persist(LoadedPluginMetadata metadata) {
+    private void persist(LoadedPluginMetadata metadata, boolean authoritative) {
         Instant now = clock.instant();
         Optional<PluginArtifact> previous = artifacts.findById(metadata.id());
+        if (!authoritative && previous.isPresent()
+                && !previous.orElseThrow().sha256().equals(metadata.sha256())) {
+            LOGGER.warn("Plugin {} hash {} differs from catalog hash {}; this instance will not own matching bots",
+                    metadata.id(), metadata.sha256(), previous.orElseThrow().sha256());
+            return;
+        }
         artifacts.upsert(new PluginArtifact(metadata.id(), metadata.name(), metadata.version(),
                 metadata.apiCompatibility(), metadata.path().getFileName().toString(), metadata.sha256(),
                 metadata.entrypoint(), "LOADED", true, previous.map(PluginArtifact::createdAt).orElse(now), now));

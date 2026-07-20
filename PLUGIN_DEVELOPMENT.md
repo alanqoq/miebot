@@ -19,7 +19,9 @@ QQ Gateway 事件
 - 一个插件可以绑定多个机器人。
 - 每个绑定创建独立的 `BotPlugin` 实例、配置和 `PluginStorage` 空间。
 - 配置或启用状态变化时，旧实例停止，后续事件使用新实例。
-- 插件异常或超时会触发有限重试，超过上限进入插件 DLQ。
+- 停用绑定时未完成投递进入 `PAUSED`，重新启用后恢复。
+- 插件异常或能在宽限期内停止的超时会触发有限重试，超过上限进入插件 DLQ。
+- 超时后拒绝合作取消的执行会使整个绑定进入 `QUARANTINED`，需要管理员恢复。
 - PF4J 类加载隔离不是安全沙箱，只能部署可信插件。
 
 ## 2. 开发环境
@@ -34,7 +36,7 @@ dependencies {
 }
 ```
 
-外部插件项目应依赖与宿主完全相同版本的 `qqbot-plugin-api` 和 `qqbot-plugin-spi`。当前插件 API 版本为 `1.1.0`。根项目的 `pluginSdkRepository` 任务会生成可复制的本地 Maven SDK 仓库，`pluginSdkDistribution` 会把仓库、模板和本指南打成 ZIP；不需要把宿主模块或 PF4J 放进插件项目。
+外部插件项目应依赖与宿主完全相同的 Maven 制品版本。当前平台制品版本为 `0.2.0`，Manifest 的插件 API 兼容级别为 `1.2.0`。根项目的 `pluginSdkRepository` 任务会生成可复制的本地 Maven SDK 仓库，`pluginSdkDistribution` 会把仓库、模板和本指南打成 ZIP；不需要把宿主模块或 PF4J 放进插件项目。
 
 必须使用 `compileOnly` 或 Maven 的 `provided` scope。不要把 API/SPI、PF4J、Spring、数据库驱动或宿主模块打入插件 JAR，否则可能出现类型不相等、类加载冲突或越过宿主安全边界的问题。
 
@@ -108,7 +110,7 @@ com.example.HelloPluginFactory
 | `Plugin-Id` | 是 | 稳定插件 ID，必须与 `BotPluginFactory.pluginId()` 完全一致 |
 | `Plugin-Name` | 建议 | 后台显示名称；未提供时使用插件 ID |
 | `Plugin-Version` | 是 | 插件版本 |
-| `Plugin-Requires` | 建议 | 宿主插件 API 兼容版本；缺省时宿主按当前 `1.1.0` 处理 |
+| `Plugin-Requires` | 建议 | 宿主插件 API 兼容版本；缺省时宿主按当前 `1.2.0` 处理 |
 | `Plugin-Class` | 是 | 固定为 `com.mieai.qqbot.plugin.host.Pf4jPluginBridge` |
 | `Plugin-Config-Schema` | 是 | JAR 内 JSON Schema 资源路径 |
 | `Plugin-Capabilities` | 建议 | 逗号分隔的能力列表 |
@@ -122,7 +124,7 @@ tasks.jar {
             "Plugin-Id" to "hello",
             "Plugin-Name" to "Hello Plugin",
             "Plugin-Version" to project.version.toString(),
-            "Plugin-Requires" to "1.1.0",
+            "Plugin-Requires" to "1.2.0",
             "Plugin-Class" to "com.mieai.qqbot.plugin.host.Pf4jPluginBridge",
             "Plugin-Config-Schema" to "qqbot-plugin-schema.json",
             "Plugin-Capabilities" to "event.read,message.send,storage",
@@ -189,6 +191,7 @@ default void stop() {}
 - 当前每个绑定使用独立有界执行队列；插件不应把单线程执行当作 API 保证，内部可变状态仍应自行保证线程安全。
 - `onEvent` 不能返回 `null`。只使用 `EventService` 的 V2 插件可以使用默认实现，不必再写空方法。
 - 不要在 `onEvent` 中长时间阻塞。默认执行超时为 20 秒。
+- handler 开始时可读取 `context.cancellationToken()`；异步链必须保存该对象，超时后检查 `isCancellationRequested()` 或调用 `throwIfCancellationRequested()`，不能在其他线程重新读取 ThreadLocal。
 - 配置变化、绑定删除、插件重载、数据库热切换和应用停止都可能调用 `stop()`。
 - `stop()` 应快速、幂等地释放插件自行创建的资源，且不应抛出异常。
 
@@ -242,7 +245,34 @@ return context.messageSender()
 
 `enqueue()` 完成只表示任务已经可靠写入 `outbox_jobs`。返回的 `MessageEnqueueReceipt` 包含任务 ID、是否命中已有去重任务及入队时间；它不表示 QQ 已经接收或发送成功。最终结果应在后台 Outbox/DLQ 中查看。
 
-## 9. 发送媒体消息
+## 9. 发送富消息与媒体消息
+
+`MessageSender.enqueue(RichMessage)` 支持 `MARKDOWN`、`KEYBOARD`、`ARK` 和 `EMBED`。除 `KEYBOARD` 外，`payload` 是对应 QQ OpenAPI 字段内部的 JSON 对象，宿主会把它放入同名小写字段并补充回复 ID、事件 ID、序号和 C2C/群聊所需的消息类型：
+
+```java
+RichMessage markdown = new RichMessage(
+        inbound.replyTarget(),
+        RichMessageKind.MARKDOWN,
+        Map.of("content", "**处理完成**"),
+        inbound.messageId(),
+        inbound.eventId(),
+        1,
+        Optional.of("markdown:" + event.id()),
+        Optional.of(event.id()));
+return context.messageSender().enqueue(markdown).thenApply(receipt -> null);
+```
+
+QQ 不支持独立 Keyboard 消息。`KEYBOARD` 是 SDK 提供的组合类型，payload 必须同时包含非空 `markdown` 和 `keyboard` 对象，发送时使用官方 Markdown 类型 `msg_type=2`：
+
+```java
+Map<String, Object> payload = Map.of(
+        "markdown", Map.of("content", "请选择操作"),
+        "keyboard", Map.of("id", "已审核的按钮模板 ID"));
+```
+
+自定义按钮使用 `keyboard.content.rows`，其中每个 row 是包含 `buttons` 数组的对象；不要把 row 写成裸按钮数组。Web 机器人页选择 Keyboard 时会填入一个可编辑的完整骨架。
+
+插件可通过 `MediaService`（V2）或兼容的 `MessageSender` 入队远程 `MediaMessage`：
 
 插件可通过 `MediaService`（V2）或兼容的 `MessageSender` 入队 `MediaMessage`：
 
@@ -263,13 +293,26 @@ return context.messageSender().enqueue(message).thenApply(receipt -> null);
 
 限制如下：
 
-- 只接受公开的 HTTPS URL，最长 2048 字符。
-- 禁止 URL 凭据、fragment、localhost、回环地址、私有 IP、链路本地和组播 IP 字面量。
+- 只接受公开的 HTTPS URL，最长 2048 字符；每次跳转都会重新校验 DNS 和目标地址。
+- 禁止 URL 凭据、fragment、localhost、回环、私网、链路本地和组播目标。
 - `C2C` 和 `GROUP` 支持 `IMAGE`、`VIDEO`、`AUDIO`、`FILE`，发送前走 QQ 官方文件预上传。
-- `CHANNEL` 和 `DIRECT` 当前只支持 `IMAGE` URL。
-- 不支持本地文件路径、字节流或插件自行上传后传递 `file_info`。
+- `CHANNEL` 和 `DIRECT` 当前只支持 `IMAGE`，通过 multipart `file_image` 发送。
+- 宿主会受控下载远程内容并执行机器人级大小上限、重定向和超时检查，不会把 URL 直接交给 QQ 绕过限制。
 
-应用不会下载媒体 URL，而是把 URL提交给 QQ OpenAPI。构造消息时只会拒绝明显不安全的 URL；QQ 服务器取用 URL 时的可访问性、重定向、文件大小、机器人权限和平台格式限制仍可能使 Outbox 任务失败或进入 DLQ。
+插件不能传入本地文件路径或自行生成 `file_info`，但声明 `media.send` 后可以把本地字节交给宿主暂存：
+
+```java
+StagedMedia staged = context.mediaService().stage(new MediaUpload(
+        MediaKind.IMAGE, "result.png", "image/png", imageBytes))
+        .toCompletableFuture().join();
+return context.mediaService().enqueue(new StagedMediaMessage(
+        inbound.replyTarget(), staged, Optional.of("处理结果"),
+        inbound.messageId(), inbound.eventId(), 1,
+        Optional.of("result:" + event.id()), Optional.of(event.id())))
+        .thenApply(receipt -> null);
+```
+
+暂存句柄只包含 UUID、类型、文件名和大小，不暴露宿主路径。上传最大值来自当前机器人配置（默认 `16 MiB`，范围 `1-256 MiB`）；MIME 必须与媒体类型匹配，入队和实际发送时会再次核对元数据。Outbox 到达成功、结果未知或死信终态后删除对应暂存文件。
 
 ## 10. PluginStorage
 
@@ -339,7 +382,7 @@ PluginHttpResponse response = context.httpClient()
 
 ### MediaService 与 ConfigSnapshot
 
-`MediaService.enqueue(MediaMessage)` 与 `MessageSender.enqueue(MediaMessage)` 都只写入可靠 Outbox，不会把文件字节或宿主 HTTP 客户端暴露给插件；URL 限制与文本消息相同。`ConfigSnapshot` 是创建实例时捕获的不可变 JSON、绑定 revision 和加载时间。配置更新会创建新实例，插件不要修改或缓存可变配置对象。
+`MediaService.enqueue(MediaMessage)`、`MediaService.enqueue(StagedMediaMessage)` 与富消息发送都只写入可靠 Outbox，不会把 QQ 凭据、`file_info`、宿主路径或 HTTP 客户端暴露给插件。`ConfigSnapshot` 是创建实例时捕获的不可变 JSON、绑定 revision 和加载时间。配置更新会创建新实例，插件不要修改或缓存可变配置对象。
 
 ## 12. 日志
 
@@ -362,7 +405,8 @@ context.logger().error("processing failed", exception);
 - 不要在完成外部副作用后返回失败，否则宿主会重试整个事件。
 - 插件写入 `PluginStorage` 和消息入队不是一个跨资源事务。
 - 默认最多尝试 5 次，退避从 1 秒指数增加，上限 300 秒。
-- 默认单次插件执行超时 20 秒，超时任务可能仍在插件自己的异步线程中继续运行，因此插件应支持取消或幂等完成。
+- 默认单次插件执行超时 20 秒。宿主会设置取消令牌并中断仍在同步执行的 callback；5 秒宽限期内仍未完成会把绑定隔离为 `QUARANTINED`，阻止新调用能力和后续投递。
+- 取消令牌是合作式机制，插件自行创建的线程和网络请求仍必须主动传播取消并保证幂等。
 
 插件配置可通过环境变量调整：
 
@@ -373,6 +417,7 @@ context.logger().error("processing failed", exception);
 | `QQBOT_PLUGINS_POLL_INTERVAL` | `1s` |
 | `QQBOT_PLUGINS_LEASE_DURATION` | `30s` |
 | `QQBOT_PLUGINS_EXECUTION_TIMEOUT` | `20s` |
+| `QQBOT_PLUGINS_CANCELLATION_GRACE` | `5s` |
 | `QQBOT_PLUGINS_MAX_ATTEMPTS` | `5` |
 | `QQBOT_PLUGINS_BATCH_SIZE` | `16` |
 | `QQBOT_PLUGINS_BINDING_QUEUE_CAPACITY` | `256` |
@@ -427,7 +472,7 @@ Docker Compose 默认使用 `qqbot-plugins` 命名卷并挂载到容器 `/plugin
 
 上传完成后宿主会在同一进程内校验 Manifest、ServiceLoader、Schema 和 capabilities，停止相关绑定，释放订阅/调度器/HTTP 客户端，卸载旧 ClassLoader，再加载新 JAR。成功后页面显示 `INSTALLED`、`UPGRADED` 或 `UNCHANGED`、旧版本和新 SHA-256；失败会删除候选文件并尝试恢复旧插件，不需要重启应用。升级期间在途任务只等待配置的关闭超时，后续事件使用新实例。
 
-多应用实例部署时，所有实例必须使用相同插件 JAR 和哈希；上传接口只作用于当前实例，不替代共享制品发布或集群协调。
+多应用实例部署时，所有实例必须使用相同插件 JAR 和哈希；机器人租约在获取和续租时都会校验活动绑定所需哈希，不一致实例不会继续持有该机器人。上传接口只作用于当前实例，不替代共享制品发布或集群协调。本地媒体暂存目录也必须是所有可能处理该机器人 Outbox 的实例共同挂载的共享目录。
 
 镜像内置的 `echo` 插件可作为部署烟测：`/ping` 回复 `pong`，`/remember` 写入当前绑定自己的存储空间。已有 Docker 命名卷不会因重建镜像自动覆盖同名 JAR。
 

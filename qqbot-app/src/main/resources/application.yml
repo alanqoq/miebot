@@ -12,8 +12,13 @@ spring:
           max-age: 1h
   servlet:
     multipart:
-      max-file-size: 64MB
-      max-request-size: 65MB
+      max-file-size: 256MB
+      max-request-size: 257MB
+  session:
+    store-type: jdbc
+    jdbc:
+      initialize-schema: never
+    timeout: 8h
 
 qqbot:
   onboarding:
@@ -38,6 +43,7 @@ qqbot:
     poll-interval: ${QQBOT_PLUGINS_POLL_INTERVAL:1s}
     lease-duration: ${QQBOT_PLUGINS_LEASE_DURATION:30s}
     execution-timeout: ${QQBOT_PLUGINS_EXECUTION_TIMEOUT:20s}
+    cancellation-grace: ${QQBOT_PLUGINS_CANCELLATION_GRACE:5s}
     max-attempts: ${QQBOT_PLUGINS_MAX_ATTEMPTS:5}
     batch-size: ${QQBOT_PLUGINS_BATCH_SIZE:16}
     binding-queue-capacity: ${QQBOT_PLUGINS_BINDING_QUEUE_CAPACITY:256}
@@ -49,6 +55,8 @@ qqbot:
     request-timeout: ${QQBOT_OUTBOX_REQUEST_TIMEOUT:20s}
     max-attempts: ${QQBOT_OUTBOX_MAX_ATTEMPTS:8}
     batch-size: ${QQBOT_OUTBOX_BATCH_SIZE:16}
+  media:
+    staging-directory: ${QQBOT_MEDIA_STAGING_DIRECTORY:media-staging}
   database:
     type: ${QQBOT_DATABASE_TYPE:sqlite}
     config-file: ${QQBOT_DATABASE_CONFIG_FILE:database-config.json}

@@ -1,0 +1,3 @@
+ALTER TABLE bots
+    ADD COLUMN max_media_upload_bytes INTEGER NOT NULL DEFAULT 16777216
+    CHECK (max_media_upload_bytes BETWEEN 1048576 AND 268435456);

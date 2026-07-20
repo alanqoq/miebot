@@ -10,6 +10,9 @@ import com.mieai.qqbot.admin.security.InvalidCurrentPasswordException;
 import com.mieai.qqbot.admin.security.LoginThrottledException;
 import com.mieai.qqbot.runtime.configuration.BotNotFoundException;
 import com.mieai.qqbot.runtime.security.KeyUnavailableException;
+import com.mieai.qqbot.admin.bot.MediaUploadTooLargeException;
+import com.mieai.qqbot.admin.bot.BotMessageAdministrationException;
+import jakarta.servlet.http.HttpServletRequest;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -52,9 +55,24 @@ public class ApiExceptionHandler {
     }
 
     @ExceptionHandler(MaxUploadSizeExceededException.class)
-    ResponseEntity<ApiErrorResponse> uploadTooLarge() {
+    ResponseEntity<ApiErrorResponse> uploadTooLarge(HttpServletRequest request) {
+        if (request.getRequestURI().matches("/api/bots/[^/]+/media")) {
+            return response(HttpStatus.PAYLOAD_TOO_LARGE, "MEDIA_FILE_TOO_LARGE",
+                    "媒体上传请求不能超过平台上限 256 MiB，机器人配置的上限可能更低", Map.of());
+        }
         return response(HttpStatus.PAYLOAD_TOO_LARGE, "PLUGIN_FILE_TOO_LARGE",
                 "插件 JAR 不能超过 64 MiB", Map.of());
+    }
+
+    @ExceptionHandler(MediaUploadTooLargeException.class)
+    ResponseEntity<ApiErrorResponse> mediaUploadTooLarge(MediaUploadTooLargeException exception) {
+        return response(HttpStatus.PAYLOAD_TOO_LARGE, "MEDIA_FILE_TOO_LARGE",
+                "媒体文件超过该机器人配置的上传上限（" + exception.maxBytes() + " bytes）", Map.of());
+    }
+
+    @ExceptionHandler(BotMessageAdministrationException.class)
+    ResponseEntity<ApiErrorResponse> botMessage(BotMessageAdministrationException exception) {
+        return response(exception.status(), exception.code(), exception.getMessage(), Map.of());
     }
 
     @ExceptionHandler({NoSuchElementException.class, BotNotFoundException.class})

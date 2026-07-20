@@ -4,6 +4,7 @@ import com.mieai.qqbot.domain.bot.BotId;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.time.Instant;
 
 public interface BotPluginBindingRepository {
     List<BotPluginBinding> findAll();
@@ -13,5 +14,6 @@ public interface BotPluginBindingRepository {
     Optional<BotPluginBinding> findByPluginAndBot(String pluginId, BotId botId);
     void insert(BotPluginBinding binding);
     BotPluginBinding update(BotPluginBinding binding, long expectedRevision);
+    void setRuntimeState(UUID id, PluginBindingRuntimeState state, String error, Instant now);
     void delete(UUID id);
 }

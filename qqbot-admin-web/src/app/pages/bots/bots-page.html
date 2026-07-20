@@ -200,6 +200,15 @@
                   <svg lucideSettings [size]="17"></svg>
                 </button>
                 <button
+                  class="icon-button"
+                  type="button"
+                  aria-label="发送测试消息"
+                  title="发送测试消息"
+                  (click)="openMessage(bot)"
+                >
+                  <svg lucideSend [size]="17"></svg>
+                </button>
+                <button
                   class="icon-button danger-icon"
                   type="button"
                   aria-label="删除机器人"
@@ -364,6 +373,22 @@
               </div>
 
               <label class="form-field field-wide">
+                <span>最大媒体上传大小（MiB）</span>
+                <input
+                  type="number"
+                  formControlName="maxMediaUploadMiB"
+                  min="1"
+                  max="256"
+                  step="1"
+                  [class.invalid]="fieldError(form.controls.maxMediaUploadMiB, '最大媒体上传大小')"
+                />
+                <small class="field-hint">超过此值的网页或插件媒体上传会被拒绝（1–256 MiB）。</small>
+                @if (fieldError(form.controls.maxMediaUploadMiB, '最大媒体上传大小'); as error) {
+                  <small class="field-error">{{ error }}</small>
+                }
+              </label>
+
+              <label class="form-field field-wide">
                 <span class="secret-label">
                   AppSecret
                   @if (mode === 'edit' && editingBot()?.secretConfigured) {
@@ -411,6 +436,84 @@
           </footer>
         </form>
       }
+    </section>
+  </div>
+}
+
+@if (messageBot(); as bot) {
+  <div class="dialog-backdrop" (click)="closeMessage()">
+    <section class="bot-dialog message-dialog" role="dialog" aria-modal="true" (click)="$event.stopPropagation()">
+      <header class="dialog-header">
+        <div>
+          <p class="eyebrow">MESSAGE TEST</p>
+          <h2>发送测试消息</h2>
+          <p>{{ bot.displayName }} · 任务会先进入 Outbox。</p>
+        </div>
+        <button class="icon-button" type="button" aria-label="关闭" title="关闭" (click)="closeMessage()">
+          <svg lucideX [size]="19"></svg>
+        </button>
+      </header>
+      <form [formGroup]="messageForm" (ngSubmit)="sendTestMessage()" novalidate>
+        <div class="dialog-body">
+          @if (messageError()) { <div class="notice notice-error dialog-notice" role="alert">{{ messageError() }}</div> }
+          @if (messageResult()) { <div class="notice notice-success dialog-notice" role="status">{{ messageResult() }}</div> }
+          <div class="form-grid">
+            <label class="form-field">
+              <span>消息类型</span>
+              <select formControlName="kind" (change)="messageKindChanged()">
+                @for (kind of messageKinds; track kind) { <option [value]="kind">{{ messageKindLabel(kind) }}</option> }
+              </select>
+            </label>
+            <label class="form-field">
+              <span>目标类型</span>
+              <select formControlName="targetType">
+                @for (target of targetTypes; track target) { <option [value]="target">{{ target }}</option> }
+              </select>
+            </label>
+            <label class="form-field field-wide">
+              <span>目标 ID</span>
+              <input type="text" formControlName="targetId" autocomplete="off" />
+            </label>
+            @if (messageForm.controls.kind.value === 'TEXT' || messageForm.controls.kind.value === 'MEDIA') {
+              <label class="form-field field-wide">
+                <span>{{ messageForm.controls.kind.value === 'MEDIA' ? '媒体说明' : '文本内容' }}</span>
+                <textarea formControlName="content" rows="4"></textarea>
+              </label>
+            }
+            @if (messageForm.controls.kind.value === 'MEDIA') {
+              <label class="form-field">
+                <span>媒体类型</span>
+                <select formControlName="mediaKind">
+                  @for (kind of mediaKinds; track kind) { <option [value]="kind">{{ kind }}</option> }
+                </select>
+              </label>
+              <label class="form-field">
+                <span>本地文件</span>
+                <input type="file" (change)="chooseMedia($event)" />
+                @if (selectedMedia(); as file) { <small class="field-hint">{{ file.name }} · {{ formatBytes(file.size) }}</small> }
+              </label>
+              <label class="form-field field-wide">
+                <span>或远程 HTTPS URL</span>
+                <input type="url" formControlName="mediaUrl" placeholder="https://" />
+              </label>
+            }
+            @if (messageForm.controls.kind.value !== 'TEXT' && messageForm.controls.kind.value !== 'MEDIA') {
+              <label class="form-field field-wide">
+                <span>Payload JSON</span>
+                <textarea formControlName="payloadJson" rows="9" spellcheck="false"></textarea>
+              </label>
+            }
+          </div>
+        </div>
+        <footer class="dialog-footer">
+          <button class="button button-secondary" type="button" [disabled]="messageSending()" (click)="closeMessage()">关闭</button>
+          <button class="button button-primary" type="submit" [disabled]="messageSending()">
+            @if (messageSending()) { <svg lucideRefreshCw class="spinning" [size]="16"></svg> }
+            <svg lucideSend [size]="16"></svg>
+            <span>入队发送</span>
+          </button>
+        </footer>
+      </form>
     </section>
   </div>
 }

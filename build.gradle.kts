@@ -11,7 +11,7 @@ plugins {
 }
 allprojects {
     group = "com.mieai.qqbot"
-    version = "0.1.0"
+    version = "0.2.0"
 }
 
 subprojects {
@@ -54,7 +54,9 @@ subprojects {
 
 // The SDK is consumed by plugin projects, so publish a self-contained local
 // Maven repository in addition to the normal Gradle module outputs.
-val pluginSdkModules = listOf("qqbot-domain", "qqbot-plugin-api", "qqbot-plugin-spi", "qqbot-plugin-testkit")
+val pluginSdkModules = listOf(
+    "qqbot-domain", "qqbot-protocol", "qqbot-client",
+    "qqbot-plugin-api", "qqbot-plugin-spi", "qqbot-plugin-testkit")
 val cleanPluginSdkRepository by tasks.registering(Delete::class) {
     delete(layout.buildDirectory.dir("plugin-sdk/repository"))
 }
@@ -65,6 +67,10 @@ pluginSdkModules.forEach { moduleName ->
             publications {
                 create<MavenPublication>("sdk") {
                     from(components["java"])
+                    versionMapping {
+                        usage("java-api") { fromResolutionOf("runtimeClasspath") }
+                        usage("java-runtime") { fromResolutionResult() }
+                    }
                     pom {
                         name.set(project.name)
                         description.set(project.description ?: "QQBot plugin SDK module")

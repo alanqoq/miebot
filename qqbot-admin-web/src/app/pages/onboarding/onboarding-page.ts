@@ -210,6 +210,7 @@ export class OnboardingPage implements OnInit {
       shardCount: 1,
       enabled: true,
       appSecret: value.appSecret,
+      maxMediaUploadBytes: 16 * 1024 * 1024,
     };
 
     this.botSaving.set(true);

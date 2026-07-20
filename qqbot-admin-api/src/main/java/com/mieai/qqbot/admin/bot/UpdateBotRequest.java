@@ -17,5 +17,13 @@ public record UpdateBotRequest(
         @PositiveOrZero long intents,
         @Min(0) @Max(4095) int shardIndex,
         @Positive @Max(4096) int shardCount,
-        @Size(min = 1, max = 4096) String appSecret) {
+        @Size(min = 1, max = 4096) String appSecret,
+        @Min(1048576) @Max(268435456) Long maxMediaUploadBytes) {
+
+    public UpdateBotRequest(long expectedRevision, String displayName, String appId,
+            BotEnvironment environment, long intents, int shardIndex, int shardCount,
+            String appSecret) {
+        this(expectedRevision, displayName, appId, environment, intents, shardIndex, shardCount,
+                appSecret, null);
+    }
 }

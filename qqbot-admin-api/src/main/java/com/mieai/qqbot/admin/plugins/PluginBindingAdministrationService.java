@@ -9,6 +9,7 @@ import com.mieai.qqbot.persistence.plugin.BotPluginBinding;
 import com.mieai.qqbot.persistence.plugin.BotPluginBindingRepository;
 import com.mieai.qqbot.persistence.plugin.PluginArtifactRepository;
 import com.mieai.qqbot.persistence.plugin.PluginBindingOptimisticLockException;
+import com.mieai.qqbot.persistence.plugin.PluginBindingRuntimeState;
 import com.mieai.qqbot.plugin.host.Pf4jPluginHost;
 import com.mieai.qqbot.plugin.host.PluginRuntimeService;
 import java.time.Clock;
@@ -80,8 +81,15 @@ public class PluginBindingAdministrationService {
         BotPluginBinding current = bindings.findById(id).orElseThrow(
                 () -> notFound("BINDING_NOT_FOUND", "Plugin binding does not exist"));
         String config = normalizedConfiguration(current.pluginId(), request.configJson());
+        PluginBindingRuntimeState runtimeState = request.enabled()
+                ? current.runtimeState() == PluginBindingRuntimeState.QUARANTINED
+                        ? PluginBindingRuntimeState.QUARANTINED : PluginBindingRuntimeState.ACTIVE
+                : PluginBindingRuntimeState.PAUSED;
+        Optional<String> runtimeError = runtimeState == PluginBindingRuntimeState.QUARANTINED
+                ? current.runtimeError() : Optional.empty();
         BotPluginBinding changed = new BotPluginBinding(current.id(), current.pluginId(), current.botId(),
-                config, request.enabled(), request.expectedRevision(), current.createdAt(), clock.instant());
+                config, request.enabled(), request.expectedRevision(), current.createdAt(), clock.instant(),
+                runtimeState, runtimeError);
         try {
             BotPluginBinding saved = bindings.update(changed, request.expectedRevision());
             runtime.bindingChanged(id);
@@ -93,8 +101,19 @@ public class PluginBindingAdministrationService {
 
     public void delete(UUID id) {
         if (bindings.findById(id).isEmpty()) throw notFound("BINDING_NOT_FOUND", "Plugin binding does not exist");
-        runtime.bindingChanged(id);
         bindings.delete(id);
+        runtime.bindingChanged(id);
+    }
+
+    public PluginBindingResponse reset(UUID id) {
+        BotPluginBinding current = bindings.findById(id).orElseThrow(
+                () -> notFound("BINDING_NOT_FOUND", "Plugin binding does not exist"));
+        if (!current.enabled()) {
+            throw new PluginAdministrationException(HttpStatus.CONFLICT, "BINDING_DISABLED",
+                    "Enable the plugin binding before resetting its quarantine");
+        }
+        runtime.resetQuarantinedBinding(id);
+        return PluginBindingResponse.from(bindings.findById(id).orElseThrow());
     }
 
     private String normalizedConfiguration(String pluginId, String value) {

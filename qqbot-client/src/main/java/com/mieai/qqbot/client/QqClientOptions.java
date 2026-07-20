@@ -15,17 +15,33 @@ public final class QqClientOptions {
             URI.create("https://sandbox.api.sgroup.qq.com/");
     public static final Duration DEFAULT_REQUEST_TIMEOUT = Duration.ofSeconds(10);
     public static final Duration DEFAULT_TOKEN_REFRESH_SKEW = Duration.ofSeconds(60);
+    public static final long DEFAULT_MAX_MEDIA_BYTES = 16L * 1024L * 1024L;
+    public static final Duration DEFAULT_MEDIA_DOWNLOAD_TIMEOUT = Duration.ofSeconds(15);
+    public static final int DEFAULT_MAX_MEDIA_REDIRECTS = 3;
 
     private final URI tokenEndpoint;
     private final URI openApiBaseUri;
     private final Duration requestTimeout;
     private final Duration tokenRefreshSkew;
+    private final long maxMediaBytes;
+    private final Duration mediaDownloadTimeout;
+    private final int maxMediaRedirects;
 
     private QqClientOptions(Builder builder) {
         tokenEndpoint = validateHttpUri(builder.tokenEndpoint, "tokenEndpoint");
         openApiBaseUri = normalizeBaseUri(validateHttpUri(builder.openApiBaseUri, "openApiBaseUri"));
         requestTimeout = validatePositive(builder.requestTimeout, "requestTimeout");
         tokenRefreshSkew = validateNonNegative(builder.tokenRefreshSkew, "tokenRefreshSkew");
+        if (builder.maxMediaBytes < 1024L * 1024L
+                || builder.maxMediaBytes > 256L * 1024L * 1024L) {
+            throw new IllegalArgumentException("maxMediaBytes must be between 1 and 256 MiB");
+        }
+        maxMediaBytes = builder.maxMediaBytes;
+        mediaDownloadTimeout = validatePositive(builder.mediaDownloadTimeout, "mediaDownloadTimeout");
+        if (builder.maxMediaRedirects < 0 || builder.maxMediaRedirects > 8) {
+            throw new IllegalArgumentException("maxMediaRedirects is invalid");
+        }
+        maxMediaRedirects = builder.maxMediaRedirects;
     }
 
     public static QqClientOptions defaults() {
@@ -59,11 +75,18 @@ public final class QqClientOptions {
         return tokenRefreshSkew;
     }
 
+    public long maxMediaBytes() { return maxMediaBytes; }
+    public Duration mediaDownloadTimeout() { return mediaDownloadTimeout; }
+    public int maxMediaRedirects() { return maxMediaRedirects; }
+
     public static final class Builder {
         private URI tokenEndpoint = DEFAULT_TOKEN_ENDPOINT;
         private URI openApiBaseUri = DEFAULT_OPEN_API_BASE_URI;
         private Duration requestTimeout = DEFAULT_REQUEST_TIMEOUT;
         private Duration tokenRefreshSkew = DEFAULT_TOKEN_REFRESH_SKEW;
+        private long maxMediaBytes = DEFAULT_MAX_MEDIA_BYTES;
+        private Duration mediaDownloadTimeout = DEFAULT_MEDIA_DOWNLOAD_TIMEOUT;
+        private int maxMediaRedirects = DEFAULT_MAX_MEDIA_REDIRECTS;
 
         private Builder() {}
 
@@ -86,6 +109,10 @@ public final class QqClientOptions {
             tokenRefreshSkew = value;
             return this;
         }
+
+        public Builder maxMediaBytes(long value) { maxMediaBytes = value; return this; }
+        public Builder mediaDownloadTimeout(Duration value) { mediaDownloadTimeout = value; return this; }
+        public Builder maxMediaRedirects(int value) { maxMediaRedirects = value; return this; }
 
         public QqClientOptions build() {
             return new QqClientOptions(this);

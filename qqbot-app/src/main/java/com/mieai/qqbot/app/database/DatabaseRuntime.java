@@ -39,6 +39,7 @@ final class DatabaseRuntime implements DatabaseAdministrationService, AutoClosea
     private final Runnable activeDatabaseChanged;
 
     private ActiveState state;
+    private SQLiteInstanceLock sqliteInstanceLock;
 
     DatabaseRuntime(
             DatabaseBootstrapProperties bootstrapProperties,
@@ -120,9 +121,11 @@ final class DatabaseRuntime implements DatabaseAdministrationService, AutoClosea
                         1L,
                         null));
         DatabaseProfile initialProfile = loaded.profile();
+        SQLiteInstanceLock initialLock = lockFor(initialProfile);
         try (DatabaseCandidate candidate = prepareCandidate(initialProfile)) {
             DataSource initialDataSource = candidate.transferDataSource();
             dataSource = new SwitchableDataSource(initialDataSource);
+            sqliteInstanceLock = initialLock;
             state = new ActiveState(
                     initialProfile,
                     loaded.revision(),
@@ -130,6 +133,7 @@ final class DatabaseRuntime implements DatabaseAdministrationService, AutoClosea
                     candidate.version(),
                     loaded.lastSwitchedAt());
         } catch (RuntimeException exception) {
+            initialLock.close();
             initialProfile.close();
             throw exception;
         }
@@ -137,6 +141,18 @@ final class DatabaseRuntime implements DatabaseAdministrationService, AutoClosea
 
     DataSource dataSource() {
         return dataSource;
+    }
+
+    boolean sqliteActive() {
+        synchronized (stateMonitor) {
+            return state.profile().type() == DatabaseType.SQLITE;
+        }
+    }
+
+    java.nio.file.Path sqlitePath() {
+        synchronized (stateMonitor) {
+            return state.profile().sqlitePath();
+        }
     }
 
     @Override
@@ -180,9 +196,13 @@ final class DatabaseRuntime implements DatabaseAdministrationService, AutoClosea
 
     @Override
     public void close() {
-        dataSource.close();
-        synchronized (stateMonitor) {
-            state.profile().close();
+        try {
+            dataSource.close();
+        } finally {
+            synchronized (stateMonitor) {
+                state.profile().close();
+                sqliteInstanceLock.close();
+            }
         }
     }
 
@@ -219,6 +239,10 @@ final class DatabaseRuntime implements DatabaseAdministrationService, AutoClosea
                             "CURRENT_ADMIN_MISSING",
                             "The active administrator could not be loaded"));
 
+            boolean reuseSqliteLock = sameSQLitePath(previousState.profile(), profile);
+            SQLiteInstanceLock nextSqliteLock = reuseSqliteLock
+                    ? sqliteInstanceLock : lockFor(profile);
+            boolean activated = false;
             try (DatabaseCandidate candidate = prepareCandidate(profile)) {
                 boolean adminSeeded = ensureAdministrator(candidate.dataSource(), currentAdmin);
                 long nextRevision = Math.addExact(previousState.revision(), 1L);
@@ -235,8 +259,8 @@ final class DatabaseRuntime implements DatabaseAdministrationService, AutoClosea
                             candidate.version(),
                             switchedAt);
                     DataSource previousDelegate;
-                    boolean activated = false;
                     boolean fenced = false;
+                    SQLiteInstanceLock previousSqliteLock = sqliteInstanceLock;
                     try {
                         if (fenceBeforeActivation) {
                             beforeActiveDatabaseChanged.run();
@@ -248,6 +272,7 @@ final class DatabaseRuntime implements DatabaseAdministrationService, AutoClosea
                             configurationStore.commit(prepared);
                             synchronized (stateMonitor) {
                                 state = nextState;
+                                sqliteInstanceLock = nextSqliteLock;
                             }
                             swap.commit();
                             activated = true;
@@ -255,6 +280,7 @@ final class DatabaseRuntime implements DatabaseAdministrationService, AutoClosea
 
                         previousState.profile().close();
                         SwitchableDataSource.closeDataSource(previousDelegate);
+                        if (previousSqliteLock != nextSqliteLock) previousSqliteLock.close();
                         notifyActiveDatabaseChanged();
                         return new DatabaseSwitchResult(view(nextState, false), verification);
                     } finally {
@@ -268,6 +294,8 @@ final class DatabaseRuntime implements DatabaseAdministrationService, AutoClosea
                         }
                     }
                 }
+            } finally {
+                if (!activated && !reuseSqliteLock) nextSqliteLock.close();
             }
         } catch (DatabaseAdministrationException exception) {
             profile.close();
@@ -350,6 +378,17 @@ final class DatabaseRuntime implements DatabaseAdministrationService, AutoClosea
         } catch (RuntimeException exception) {
             throw mapFailure(exception);
         }
+    }
+
+    private static SQLiteInstanceLock lockFor(DatabaseProfile profile) {
+        return SQLiteInstanceLock.acquire(profile.type() == DatabaseType.SQLITE
+                ? profile.sqlitePath() : null);
+    }
+
+    private static boolean sameSQLitePath(DatabaseProfile first, DatabaseProfile second) {
+        return first.type() == DatabaseType.SQLITE
+                && second.type() == DatabaseType.SQLITE
+                && first.sqlitePath().equals(second.sqlitePath());
     }
 
     private static DatabaseAdministrationException mapFailure(RuntimeException exception) {

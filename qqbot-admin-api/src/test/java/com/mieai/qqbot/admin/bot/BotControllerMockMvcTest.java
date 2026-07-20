@@ -164,6 +164,7 @@ class BotControllerMockMvcTest {
         assertThat(command.getValue().displayName()).isEqualTo("Updated Bot");
         assertThat(command.getValue().environment()).isEqualTo(BotEnvironment.SANDBOX);
         assertThat(command.getValue().appSecret()).isEmpty();
+        assertThat(command.getValue().maxMediaUploadBytes()).isNull();
     }
 
     @ParameterizedTest

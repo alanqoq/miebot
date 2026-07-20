@@ -14,7 +14,28 @@ public record BotDefinition(
         boolean enabled,
         BotRevision revision,
         Instant createdAt,
-        Instant updatedAt) {
+        Instant updatedAt,
+        long maxMediaUploadBytes) {
+
+    public static final long DEFAULT_MAX_MEDIA_UPLOAD_BYTES = 16L * 1024L * 1024L;
+    public static final long MIN_MAX_MEDIA_UPLOAD_BYTES = 1024L * 1024L;
+    public static final long MAX_MAX_MEDIA_UPLOAD_BYTES = 256L * 1024L * 1024L;
+
+    /** Binary/source-compatible constructor for callers compiled against platform 0.1.x. */
+    public BotDefinition(
+            BotId id,
+            String displayName,
+            QqAppId appId,
+            BotEnvironment environment,
+            GatewayIntents intents,
+            ShardSpec shardSpec,
+            boolean enabled,
+            BotRevision revision,
+            Instant createdAt,
+            Instant updatedAt) {
+        this(id, displayName, appId, environment, intents, shardSpec, enabled, revision,
+                createdAt, updatedAt, DEFAULT_MAX_MEDIA_UPLOAD_BYTES);
+    }
 
     public BotDefinition {
         Objects.requireNonNull(id, "id must not be null");
@@ -38,6 +59,10 @@ public record BotDefinition(
         }
         if (updatedAt.isBefore(createdAt)) {
             throw new IllegalArgumentException("updatedAt must not be before createdAt");
+        }
+        if (maxMediaUploadBytes < MIN_MAX_MEDIA_UPLOAD_BYTES
+                || maxMediaUploadBytes > MAX_MAX_MEDIA_UPLOAD_BYTES) {
+            throw new IllegalArgumentException("maxMediaUploadBytes must be between 1 MiB and 256 MiB");
         }
     }
 }

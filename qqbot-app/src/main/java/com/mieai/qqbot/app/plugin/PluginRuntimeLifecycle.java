@@ -41,5 +41,5 @@ final class PluginRuntimeLifecycle implements SmartLifecycle {
 
     @Override public boolean isRunning() { return running.get(); }
     @Override public boolean isAutoStartup() { return true; }
-    @Override public int getPhase() { return Integer.MAX_VALUE - 500; }
+    @Override public int getPhase() { return Integer.MAX_VALUE - 1_200; }
 }

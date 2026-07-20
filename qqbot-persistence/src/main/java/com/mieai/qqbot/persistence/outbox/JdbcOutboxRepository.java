@@ -169,6 +169,18 @@ public final class JdbcOutboxRepository implements OutboxRepository {
 
     @Override
     public Optional<OutboxJob> claimNext(String leaseOwner, Instant now, Duration leaseDuration) {
+        return claimNextInternal(leaseOwner, null, now, leaseDuration);
+    }
+
+    @Override
+    public Optional<OutboxJob> claimNextOwned(
+            String leaseOwner, String botLeaseOwner, Instant now, Duration leaseDuration) {
+        requireToken(botLeaseOwner, "botLeaseOwner");
+        return claimNextInternal(leaseOwner, botLeaseOwner, now, leaseDuration);
+    }
+
+    private Optional<OutboxJob> claimNextInternal(
+            String leaseOwner, String botLeaseOwner, Instant now, Duration leaseDuration) {
         requireToken(leaseOwner, "leaseOwner");
         Objects.requireNonNull(now, "now must not be null");
         Objects.requireNonNull(leaseDuration, "leaseDuration must not be null");
@@ -182,15 +194,76 @@ public final class JdbcOutboxRepository implements OutboxRepository {
             String databaseProduct = jdbc.execute((ConnectionCallback<String>) connection ->
                     connection.getMetaData().getDatabaseProductName().toLowerCase(Locale.ROOT));
             if (databaseProduct != null && databaseProduct.contains("sqlite")) {
-                return claimSQLite(leaseOwner, leaseUntil, nowText);
+                return botLeaseOwner == null
+                        ? claimSQLite(leaseOwner, leaseUntil, nowText)
+                        : claimSQLiteOwned(leaseOwner, botLeaseOwner, leaseUntil, nowText);
             }
             if (databaseProduct != null
                     && (databaseProduct.contains("mysql") || databaseProduct.contains("postgresql"))) {
-                return claimWithLockedCandidate(leaseOwner, leaseUntil, nowText);
+                return botLeaseOwner == null
+                        ? claimWithLockedCandidate(leaseOwner, leaseUntil, nowText)
+                        : claimWithLockedOwnedCandidate(leaseOwner, botLeaseOwner, leaseUntil, nowText);
             }
             throw new IllegalStateException("Unsupported database product: " + databaseProduct);
         });
         return claimed == null ? Optional.empty() : claimed;
+    }
+
+    private Optional<OutboxJob> claimSQLiteOwned(
+            String leaseOwner, String botLeaseOwner, Instant leaseUntil, String nowText) {
+        List<OutboxJob> claimed = jdbc.query("""
+                        WITH candidate AS (
+                            SELECT j.id
+                            FROM outbox_jobs j
+                            WHERE (((j.status IN ('PENDING', 'RETRY_WAIT') AND j.available_at <= ?)
+                                OR (j.status = 'IN_PROGRESS' AND j.lease_until <= ?))
+                              AND EXISTS (SELECT 1 FROM bot_leases l
+                                  JOIN bots configured
+                                    ON configured.id=l.bot_id AND configured.shard_index=l.shard_index
+                                  WHERE l.bot_id=j.bot_id AND l.owner_id=? AND l.lease_until > ?))
+                            ORDER BY CASE WHEN j.status='IN_PROGRESS' THEN j.lease_until ELSE j.available_at END,
+                                j.created_at, j.id
+                            LIMIT 1
+                        )
+                        UPDATE outbox_jobs
+                        SET status='IN_PROGRESS', attempt=attempt+1, lease_owner=?, lease_until=?,
+                            fencing_token=fencing_token+1, updated_at=?, completed_at=NULL
+                        WHERE id=(SELECT id FROM candidate)
+                        RETURNING %s
+                        """.formatted(SELECT_COLUMNS), ROW_MAPPER,
+                nowText, nowText, botLeaseOwner, nowText, leaseOwner,
+                UtcTimestampCodec.format(leaseUntil), nowText);
+        if (claimed.size() > 1) throw new IllegalStateException("Outbox claim returned more than one job");
+        return claimed.stream().findFirst();
+    }
+
+    private Optional<OutboxJob> claimWithLockedOwnedCandidate(
+            String leaseOwner, String botLeaseOwner, Instant leaseUntil, String nowText) {
+        List<String> candidates = jdbc.query("""
+                        SELECT j.id
+                        FROM outbox_jobs j
+                        WHERE (((j.status IN ('PENDING', 'RETRY_WAIT') AND j.available_at <= ?)
+                            OR (j.status = 'IN_PROGRESS' AND j.lease_until <= ?))
+                          AND EXISTS (SELECT 1 FROM bot_leases l
+                              JOIN bots configured
+                                ON configured.id=l.bot_id AND configured.shard_index=l.shard_index
+                              WHERE l.bot_id=j.bot_id AND l.owner_id=? AND l.lease_until > ?))
+                        ORDER BY CASE WHEN j.status='IN_PROGRESS' THEN j.lease_until ELSE j.available_at END,
+                            j.created_at, j.id
+                        LIMIT 1 FOR UPDATE SKIP LOCKED
+                        """, (resultSet, rowNumber) -> resultSet.getString(1),
+                nowText, nowText, botLeaseOwner, nowText);
+        if (candidates.isEmpty()) return Optional.empty();
+        String id = candidates.getFirst();
+        int updated = jdbc.update("""
+                        UPDATE outbox_jobs
+                        SET status='IN_PROGRESS', attempt=attempt+1, lease_owner=?, lease_until=?,
+                            fencing_token=fencing_token+1, updated_at=?, completed_at=NULL
+                        WHERE id=?
+                        """, leaseOwner, UtcTimestampCodec.format(leaseUntil), nowText, id);
+        if (updated != 1) throw new IllegalStateException("Outbox claim affected " + updated + " rows instead of one");
+        return jdbc.query("SELECT " + SELECT_COLUMNS + " FROM outbox_jobs WHERE id=?",
+                ROW_MAPPER, id).stream().findFirst();
     }
 
     private Optional<OutboxJob> claimSQLite(String leaseOwner, Instant leaseUntil, String nowText) {

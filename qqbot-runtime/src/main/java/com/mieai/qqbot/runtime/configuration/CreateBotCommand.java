@@ -15,7 +15,14 @@ public record CreateBotCommand(
         GatewayIntents intents,
         ShardSpec shardSpec,
         boolean enabled,
-        AppSecret appSecret) {
+        AppSecret appSecret,
+        long maxMediaUploadBytes) {
+
+    public CreateBotCommand(String displayName, QqAppId appId, BotEnvironment environment,
+            GatewayIntents intents, ShardSpec shardSpec, boolean enabled, AppSecret appSecret) {
+        this(displayName, appId, environment, intents, shardSpec, enabled, appSecret,
+                com.mieai.qqbot.domain.bot.BotDefinition.DEFAULT_MAX_MEDIA_UPLOAD_BYTES);
+    }
 
     public CreateBotCommand {
         displayName = ConfigurationValidation.displayName(displayName);
@@ -24,5 +31,9 @@ public record CreateBotCommand(
         Objects.requireNonNull(intents, "intents must not be null");
         Objects.requireNonNull(shardSpec, "shardSpec must not be null");
         Objects.requireNonNull(appSecret, "appSecret must not be null");
+        if (maxMediaUploadBytes < com.mieai.qqbot.domain.bot.BotDefinition.MIN_MAX_MEDIA_UPLOAD_BYTES
+                || maxMediaUploadBytes > com.mieai.qqbot.domain.bot.BotDefinition.MAX_MAX_MEDIA_UPLOAD_BYTES) {
+            throw new IllegalArgumentException("maxMediaUploadBytes must be between 1 MiB and 256 MiB");
+        }
     }
 }

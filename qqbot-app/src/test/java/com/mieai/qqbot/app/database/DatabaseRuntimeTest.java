@@ -1,6 +1,7 @@
 package com.mieai.qqbot.app.database;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowable;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -112,6 +113,30 @@ class DatabaseRuntimeTest {
         try (DatabaseProfile persistedProfile = persisted.profile()) {
             assertThat(persisted.revision()).isEqualTo(2L);
             assertThat(persistedProfile.sqlitePath()).isEqualTo(target.toAbsolutePath().normalize());
+        }
+    }
+
+    @Test
+    void movesTheExclusiveSQLiteInstanceLockWhenTheActiveDatabaseChanges() {
+        Path target = temporaryDirectory.resolve("locked-target.db");
+
+        runtime.switchDatabase(1L, sqliteSettings(target), administrator.username());
+
+        try (SQLiteInstanceLock lock = SQLiteInstanceLock.acquire(initialDatabase)) {
+            assertThat(lock).isNotNull();
+            assertThat(initialDatabase.resolveSibling(initialDatabase.getFileName() + ".instance.lock"))
+                    .exists();
+        }
+        assertThatThrownBy(() -> SQLiteInstanceLock.acquire(target))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("already owned");
+
+        runtime.close();
+        runtime = null;
+        try (SQLiteInstanceLock lock = SQLiteInstanceLock.acquire(target)) {
+            assertThat(lock).isNotNull();
+            assertThat(target.resolveSibling(target.getFileName() + ".instance.lock"))
+                    .exists();
         }
     }
 

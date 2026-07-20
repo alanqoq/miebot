@@ -148,6 +148,18 @@ public final class JdbcEventInboxRepository implements EventInboxRepository {
 
     @Override
     public Optional<InboxEvent> claimNext(String leaseOwner, Instant now, Duration leaseDuration) {
+        return claimNextInternal(leaseOwner, null, now, leaseDuration);
+    }
+
+    @Override
+    public Optional<InboxEvent> claimNextOwned(
+            String leaseOwner, String botLeaseOwner, Instant now, Duration leaseDuration) {
+        requireToken(botLeaseOwner, "botLeaseOwner");
+        return claimNextInternal(leaseOwner, botLeaseOwner, now, leaseDuration);
+    }
+
+    private Optional<InboxEvent> claimNextInternal(
+            String leaseOwner, String botLeaseOwner, Instant now, Duration leaseDuration) {
         requireToken(leaseOwner, "leaseOwner");
         Objects.requireNonNull(now, "now must not be null");
         Objects.requireNonNull(leaseDuration, "leaseDuration must not be null");
@@ -160,14 +172,69 @@ public final class JdbcEventInboxRepository implements EventInboxRepository {
             String product = jdbc.execute((ConnectionCallback<String>) connection ->
                     connection.getMetaData().getDatabaseProductName().toLowerCase(Locale.ROOT));
             if (product != null && product.contains("sqlite")) {
-                return claimSQLite(leaseOwner, leaseUntil, nowText);
+                return botLeaseOwner == null
+                        ? claimSQLite(leaseOwner, leaseUntil, nowText)
+                        : claimSQLiteOwned(leaseOwner, botLeaseOwner, leaseUntil, nowText);
             }
             if (product != null && (product.contains("mysql") || product.contains("postgresql"))) {
-                return claimLocked(leaseOwner, leaseUntil, nowText);
+                return botLeaseOwner == null
+                        ? claimLocked(leaseOwner, leaseUntil, nowText)
+                        : claimLockedOwned(leaseOwner, botLeaseOwner, leaseUntil, nowText);
             }
             throw new IllegalStateException("Unsupported database product: " + product);
         });
         return result == null ? Optional.empty() : result;
+    }
+
+    private Optional<InboxEvent> claimSQLiteOwned(
+            String owner, String botLeaseOwner, Instant until, String now) {
+        List<InboxEvent> claimed = jdbc.query("""
+                WITH candidate AS (
+                    SELECT e.id FROM event_inbox e
+                    WHERE (((e.status='RECEIVED' AND e.available_at <= ?)
+                        OR (e.status='PROCESSING' AND e.lease_until <= ?))
+                        AND EXISTS (SELECT 1 FROM bot_leases l
+                            JOIN bots configured
+                              ON configured.id=l.bot_id AND configured.shard_index=l.shard_index
+                            WHERE l.bot_id=e.bot_id AND l.owner_id=? AND l.lease_until > ?))
+                    ORDER BY CASE WHEN e.status='PROCESSING' THEN e.lease_until ELSE e.available_at END,
+                        e.received_at, e.id LIMIT 1
+                )
+                UPDATE event_inbox
+                SET status='PROCESSING', attempt=attempt+1, lease_owner=?, lease_until=?,
+                    fencing_token=fencing_token+1, updated_at=?
+                WHERE id=(SELECT id FROM candidate)
+                RETURNING %s
+                """.formatted(SELECT_COLUMNS), new InboxEventRowMapper(), now, now,
+                botLeaseOwner, now, owner, UtcTimestampCodec.format(until), now);
+        if (claimed.size() > 1) throw new IllegalStateException("Inbox claim returned more than one event");
+        return claimed.stream().findFirst();
+    }
+
+    private Optional<InboxEvent> claimLockedOwned(
+            String owner, String botLeaseOwner, Instant until, String now) {
+        List<String> candidates = jdbc.query("""
+                SELECT e.id FROM event_inbox e
+                WHERE (((e.status='RECEIVED' AND e.available_at <= ?)
+                    OR (e.status='PROCESSING' AND e.lease_until <= ?))
+                    AND EXISTS (SELECT 1 FROM bot_leases l
+                        JOIN bots configured
+                          ON configured.id=l.bot_id AND configured.shard_index=l.shard_index
+                        WHERE l.bot_id=e.bot_id AND l.owner_id=? AND l.lease_until > ?))
+                ORDER BY CASE WHEN e.status='PROCESSING' THEN e.lease_until ELSE e.available_at END,
+                    e.received_at, e.id LIMIT 1 FOR UPDATE SKIP LOCKED
+                """, (resultSet, rowNumber) -> resultSet.getString(1), now, now,
+                botLeaseOwner, now);
+        if (candidates.isEmpty()) return Optional.empty();
+        String id = candidates.getFirst();
+        int updated = jdbc.update("""
+                UPDATE event_inbox SET status='PROCESSING', attempt=attempt+1,
+                    lease_owner=?, lease_until=?, fencing_token=fencing_token+1, updated_at=?
+                WHERE id=?
+                """, owner, UtcTimestampCodec.format(until), now, id);
+        if (updated != 1) throw new IllegalStateException("Inbox claim affected " + updated + " rows instead of one");
+        return jdbc.query("SELECT " + SELECT_COLUMNS + " FROM event_inbox WHERE id=?",
+                new InboxEventRowMapper(), id).stream().findFirst();
     }
 
     private Optional<InboxEvent> claimSQLite(String owner, Instant until, String nowText) {

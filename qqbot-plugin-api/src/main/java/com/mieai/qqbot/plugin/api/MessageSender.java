@@ -11,4 +11,9 @@ public interface MessageSender {
         return java.util.concurrent.CompletableFuture.failedFuture(
                 new UnsupportedOperationException("media messages are not supported by this sender"));
     }
+
+    default CompletionStage<MessageEnqueueReceipt> enqueue(RichMessage message) {
+        return java.util.concurrent.CompletableFuture.failedFuture(
+                new UnsupportedOperationException("rich messages are not supported by this sender"));
+    }
 }

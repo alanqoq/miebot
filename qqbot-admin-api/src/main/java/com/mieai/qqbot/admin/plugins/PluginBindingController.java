@@ -45,4 +45,9 @@ public class PluginBindingController {
         service.delete(bindingId);
         return ResponseEntity.noContent().build();
     }
+
+    @PostMapping("/{bindingId}/reset")
+    public PluginBindingResponse reset(@PathVariable UUID bindingId) {
+        return service.reset(bindingId);
+    }
 }

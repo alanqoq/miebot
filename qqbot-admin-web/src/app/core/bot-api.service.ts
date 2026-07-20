@@ -3,6 +3,9 @@ import { inject, Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
 
 export type BotEnvironment = 'SANDBOX' | 'PRODUCTION';
+export type MessageTargetType = 'C2C' | 'GROUP' | 'CHANNEL' | 'DIRECT';
+export type BotMessageKind = 'TEXT' | 'MEDIA' | 'MARKDOWN' | 'KEYBOARD' | 'ARK' | 'EMBED';
+export type MediaKind = 'IMAGE' | 'VIDEO' | 'AUDIO' | 'FILE';
 
 export type BotRuntimeState =
   | 'DISABLED'
@@ -63,6 +66,8 @@ export interface BotConfiguration {
   createdAt: string;
   updatedAt: string;
   secretConfigured: boolean;
+  /** Stored and exchanged in bytes; older API responses may omit it. */
+  maxMediaUploadBytes?: number;
 }
 
 export interface CreateBotRequest {
@@ -74,6 +79,7 @@ export interface CreateBotRequest {
   shardCount: number;
   enabled: boolean;
   appSecret: string;
+  maxMediaUploadBytes?: number;
 }
 
 export interface UpdateBotRequest {
@@ -85,11 +91,42 @@ export interface UpdateBotRequest {
   shardIndex: number;
   shardCount: number;
   appSecret?: string;
+  maxMediaUploadBytes?: number;
 }
 
 export interface SetBotEnabledRequest {
   expectedRevision: number;
   enabled: boolean;
+}
+
+export interface MediaUploadResponse {
+  id: string;
+  botId: string;
+  kind: MediaKind;
+  fileName: string;
+  contentType: string;
+  sizeBytes: number;
+  createdAt: string;
+}
+
+export interface SendBotMessageRequest {
+  kind: BotMessageKind;
+  targetType: MessageTargetType;
+  targetId: string;
+  content?: string;
+  mediaKind?: MediaKind;
+  mediaUrl?: string;
+  mediaAssetId?: string;
+  payload?: Record<string, unknown>;
+  replyMessageId?: string;
+  replyEventId?: string;
+  messageSequence: number;
+}
+
+export interface BotMessageResponse {
+  jobId: string;
+  alreadyPresent: boolean;
+  queuedAt: string;
 }
 
 export interface ApiErrorResponse {
@@ -160,5 +197,21 @@ export class BotApiService {
 
   delete(id: string): Observable<void> {
     return this.http.delete<void>(`${this.resourceUrl}/${encodeURIComponent(id)}`);
+  }
+
+  uploadMedia(id: string, kind: MediaKind, file: File): Observable<MediaUploadResponse> {
+    const form = new FormData();
+    form.append('file', file, file.name);
+    return this.http.post<MediaUploadResponse>(
+      `${this.resourceUrl}/${encodeURIComponent(id)}/media?kind=${encodeURIComponent(kind)}`,
+      form,
+    );
+  }
+
+  sendMessage(id: string, request: SendBotMessageRequest): Observable<BotMessageResponse> {
+    return this.http.post<BotMessageResponse>(
+      `${this.resourceUrl}/${encodeURIComponent(id)}/messages`,
+      request,
+    );
   }
 }

@@ -28,6 +28,12 @@ public interface OutboxRepository {
     /** Atomically claims one available or lease-expired job and increments its fencing token. */
     Optional<OutboxJob> claimNext(String leaseOwner, Instant now, Duration leaseDuration);
 
+    /** Claims only work for a bot currently leased by {@code botLeaseOwner}. */
+    default Optional<OutboxJob> claimNextOwned(
+            String leaseOwner, String botLeaseOwner, Instant now, Duration leaseDuration) {
+        return claimNext(leaseOwner, now, leaseDuration);
+    }
+
     void markSucceeded(UUID id, long fencingToken, Instant now);
 
     void markRetry(UUID id, long fencingToken, Instant now, Instant availableAt, String error);

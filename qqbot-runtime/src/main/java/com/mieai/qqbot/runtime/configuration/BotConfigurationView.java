@@ -1,6 +1,7 @@
 package com.mieai.qqbot.runtime.configuration;
 
 import com.mieai.qqbot.domain.bot.BotEnvironment;
+import com.mieai.qqbot.domain.bot.BotDefinition;
 import com.mieai.qqbot.domain.bot.BotId;
 import com.mieai.qqbot.domain.bot.BotRevision;
 import com.mieai.qqbot.domain.bot.GatewayIntents;
@@ -21,7 +22,16 @@ public record BotConfigurationView(
         BotRevision revision,
         Instant createdAt,
         Instant updatedAt,
-        boolean secretConfigured) {
+        boolean secretConfigured,
+        long maxMediaUploadBytes) {
+
+    public BotConfigurationView(BotId id, String displayName, QqAppId appId,
+            BotEnvironment environment, GatewayIntents intents, ShardSpec shardSpec,
+            boolean enabled, BotRevision revision, Instant createdAt, Instant updatedAt,
+            boolean secretConfigured) {
+        this(id, displayName, appId, environment, intents, shardSpec, enabled, revision,
+                createdAt, updatedAt, secretConfigured, BotDefinition.DEFAULT_MAX_MEDIA_UPLOAD_BYTES);
+    }
 
     public BotConfigurationView {
         Objects.requireNonNull(id, "id must not be null");
@@ -33,5 +43,9 @@ public record BotConfigurationView(
         Objects.requireNonNull(revision, "revision must not be null");
         Objects.requireNonNull(createdAt, "createdAt must not be null");
         Objects.requireNonNull(updatedAt, "updatedAt must not be null");
+        if (maxMediaUploadBytes < BotDefinition.MIN_MAX_MEDIA_UPLOAD_BYTES
+                || maxMediaUploadBytes > BotDefinition.MAX_MAX_MEDIA_UPLOAD_BYTES) {
+            throw new IllegalArgumentException("maxMediaUploadBytes must be between 1 MiB and 256 MiB");
+        }
     }
 }

@@ -18,7 +18,16 @@ public record BotPluginBinding(
         boolean enabled,
         long revision,
         Instant createdAt,
-        Instant updatedAt) {
+        Instant updatedAt,
+        PluginBindingRuntimeState runtimeState,
+        java.util.Optional<String> runtimeError) {
+
+    public BotPluginBinding(UUID id, String pluginId, BotId botId, String configJson,
+            boolean enabled, long revision, Instant createdAt, Instant updatedAt) {
+        this(id, pluginId, botId, configJson, enabled, revision, createdAt, updatedAt,
+                enabled ? PluginBindingRuntimeState.ACTIVE : PluginBindingRuntimeState.PAUSED,
+                java.util.Optional.empty());
+    }
     public BotPluginBinding {
         requireIdentifier(id, "id");
         requireToken(pluginId, "pluginId", 128);
@@ -28,5 +37,8 @@ public record BotPluginBinding(
         Objects.requireNonNull(createdAt, "createdAt must not be null");
         Objects.requireNonNull(updatedAt, "updatedAt must not be null");
         if (updatedAt.isBefore(createdAt)) throw new IllegalArgumentException("updatedAt must not be before createdAt");
+        Objects.requireNonNull(runtimeState, "runtimeState must not be null");
+        Objects.requireNonNull(runtimeError, "runtimeError must not be null");
+        runtimeError.ifPresent(value -> requirePayload(value, "runtimeError"));
     }
 }

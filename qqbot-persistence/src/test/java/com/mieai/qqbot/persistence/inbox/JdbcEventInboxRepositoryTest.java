@@ -8,6 +8,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.mieai.qqbot.domain.bot.BotEnvironment;
 import com.mieai.qqbot.domain.bot.BotId;
+import com.mieai.qqbot.persistence.lease.JdbcBotLeaseRepository;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.sql.Connection;
@@ -25,6 +26,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 class JdbcEventInboxRepositoryTest {
     private static final String BOT_ID = "550e8400-e29b-41d4-a716-446655440001";
@@ -195,11 +197,52 @@ class JdbcEventInboxRepositoryTest {
         assertThat(repository.findById(claimed.id()).orElseThrow().status()).isEqualTo(InboxStatus.DISPATCHED);
     }
 
+    @Test
+    void ownedClaimSkipsEventsForBotsLeasedByAnotherInstance() {
+        String secondBot = "550e8400-e29b-41d4-a716-446655440002";
+        insertBot(dataSource, secondBot, "10002", BotEnvironment.SANDBOX);
+        repository.insertOrGet(event(BOT_ID, "51000000-0000-0000-0000-000000000001",
+                "MESSAGE_CREATE", "platform-other-owner", "{}"));
+        InboxEvent owned = repository.insertOrGet(event(secondBot,
+                "51000000-0000-0000-0000-000000000002", "MESSAGE_CREATE",
+                "platform-owned", "{}")).event();
+        new JdbcBotLeaseRepository(dataSource).acquire(BotId.parse(secondBot), 0, "instance-b",
+                BASE_TIME, Duration.ofSeconds(30)).orElseThrow();
+
+        InboxEvent claimed = repository.claimNextOwned("inbox-worker", "instance-b", BASE_TIME,
+                Duration.ofSeconds(10)).orElseThrow();
+
+        assertThat(claimed.id()).isEqualTo(owned.id());
+        assertThat(repository.findById(UUID.fromString("51000000-0000-0000-0000-000000000001"))
+                .orElseThrow().status()).isEqualTo(InboxStatus.RECEIVED);
+    }
+
+    @Test
+    void ownedClaimIgnoresALeaseForTheBotsPreviousShard() {
+        InboxEvent event = repository.insertOrGet(event(
+                "51000000-0000-0000-0000-000000000003", "MESSAGE_CREATE",
+                "platform-stale-shard", "{}")).event();
+        new JdbcBotLeaseRepository(dataSource).acquire(BotId.parse(BOT_ID), 0, "instance-b",
+                BASE_TIME, Duration.ofSeconds(30)).orElseThrow();
+        new JdbcTemplate(dataSource).update(
+                "UPDATE bots SET shard_index=1, shard_count=2 WHERE id=?", BOT_ID);
+
+        assertThat(repository.claimNextOwned("inbox-worker", "instance-b", BASE_TIME,
+                Duration.ofSeconds(10))).isEmpty();
+        assertThat(repository.findById(event.id()).orElseThrow().status())
+                .isEqualTo(InboxStatus.RECEIVED);
+    }
+
     private static IncomingEvent event(String id, String eventType, String platformEventId, String payload) {
+        return event(BOT_ID, id, eventType, platformEventId, payload);
+    }
+
+    private static IncomingEvent event(
+            String botId, String id, String eventType, String platformEventId, String payload) {
         return new IncomingEvent(
                 UUID.fromString(id),
                 BotEnvironment.SANDBOX,
-                BotId.parse(BOT_ID),
+                BotId.parse(botId),
                 eventType,
                 platformEventId,
                 payload,

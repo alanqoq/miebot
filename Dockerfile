@@ -102,6 +102,7 @@ ENV JAVA_HOME=/opt/dragonwell \
     QQBOT_GATEWAY_ENABLED=true \
     QQBOT_GATEWAY_SESSION_DIRECTORY=/data/config/gateway-sessions \
     QQBOT_GATEWAY_LEASE_DURATION=45s \
+    QQBOT_MEDIA_STAGING_DIRECTORY=/data/media-staging \
     QQBOT_DATABASE_CONFIG_FILE=/data/config/database.json \
     QQBOT_DATABASE_CANDIDATE_CONFIG_FILE=/data/config/database-candidate.json \
     QQBOT_SQLITE_PATH=/data/qqbot.db \

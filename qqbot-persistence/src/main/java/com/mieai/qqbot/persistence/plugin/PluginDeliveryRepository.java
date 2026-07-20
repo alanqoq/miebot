@@ -11,7 +11,13 @@ public interface PluginDeliveryRepository {
     PluginDeliveryPage query(PluginDeliveryQuery query);
     PluginDeliveryQueueStats statistics();
     Optional<PluginDelivery> claimNext(String leaseOwner, Instant now, Duration leaseDuration);
+    default Optional<PluginDelivery> claimNextOwned(
+            String leaseOwner, String botLeaseOwner, Instant now, Duration leaseDuration) {
+        return claimNext(leaseOwner, now, leaseDuration);
+    }
     void markSucceeded(UUID id, long fencingToken, Instant now);
     void markRetry(UUID id, long fencingToken, Instant now, Instant availableAt, String error);
     void markDeadLetter(UUID id, long fencingToken, Instant now, String reason);
+    int pauseForBinding(UUID bindingId, Instant now, String reason);
+    int resumeForBinding(UUID bindingId, Instant now);
 }

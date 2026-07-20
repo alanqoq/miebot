@@ -25,7 +25,7 @@ class SQLiteMigrationTest {
         Path databaseFile = temporaryDirectory.resolve("database with space.db");
         DataSource dataSource = SQLiteDataSourceFactory.create(databaseFile);
 
-        assertThat(SQLiteDatabaseInitializer.migrate(dataSource)).isEqualTo(8);
+        assertThat(SQLiteDatabaseInitializer.migrate(dataSource)).isEqualTo(13);
         assertThat(SQLiteDatabaseInitializer.migrate(dataSource)).isZero();
 
         assertThat(databaseFile).isRegularFile();
@@ -34,14 +34,15 @@ class SQLiteMigrationTest {
                     SELECT count(*)
                     FROM pragma_table_list
                     WHERE schema = 'main'
-                      AND name IN ('admin_users', 'audit_logs', 'bot_leases', 'bots', 'event_inbox', 'outbox_jobs', 'plugin_artifacts', 'bot_plugins', 'plugin_deliveries', 'plugin_storage')
+                      AND name IN ('admin_users', 'admin_login_attempts', 'audit_logs', 'bot_leases', 'bots', 'event_inbox', 'outbox_jobs', 'plugin_artifacts', 'bot_plugins', 'plugin_deliveries', 'plugin_storage', 'instance_plugin_hashes')
                       AND strict = 1
-                """)).isEqualTo(10);
+                """)).isEqualTo(12);
             assertThat(queryString(connection,
                     "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'bots'"))
                     .contains("UNIQUE (environment, app_id)")
                     .contains("app_secret_ciphertext")
                     .contains("app_secret_key_id")
+                    .contains("max_media_upload_bytes")
                     .contains("revision");
         }
     }
@@ -82,7 +83,7 @@ class SQLiteMigrationTest {
     }
 
     @Test
-    void createsOnlyTheExpectedApplicationTablesThroughV008() throws SQLException {
+    void createsOnlyTheExpectedApplicationTablesThroughV013() throws SQLException {
         DataSource dataSource = SQLiteDataSourceFactory.create(temporaryDirectory.resolve("schema.db"));
         SQLiteDatabaseInitializer.migrate(dataSource);
 
@@ -95,6 +96,12 @@ class SQLiteMigrationTest {
                         ORDER BY name
                         """)) {
             assertThat(resultSet.next()).isTrue();
+            assertThat(resultSet.getString(1)).isEqualTo("SPRING_SESSION");
+            assertThat(resultSet.next()).isTrue();
+            assertThat(resultSet.getString(1)).isEqualTo("SPRING_SESSION_ATTRIBUTES");
+            assertThat(resultSet.next()).isTrue();
+            assertThat(resultSet.getString(1)).isEqualTo("admin_login_attempts");
+            assertThat(resultSet.next()).isTrue();
             assertThat(resultSet.getString(1)).isEqualTo("admin_users");
             assertThat(resultSet.next()).isTrue();
             assertThat(resultSet.getString(1)).isEqualTo("audit_logs");
@@ -106,6 +113,8 @@ class SQLiteMigrationTest {
             assertThat(resultSet.getString(1)).isEqualTo("bots");
             assertThat(resultSet.next()).isTrue();
             assertThat(resultSet.getString(1)).isEqualTo("event_inbox");
+            assertThat(resultSet.next()).isTrue();
+            assertThat(resultSet.getString(1)).isEqualTo("instance_plugin_hashes");
             assertThat(resultSet.next()).isTrue();
             assertThat(resultSet.getString(1)).isEqualTo("outbox_jobs");
             assertThat(resultSet.next()).isTrue();
@@ -144,7 +153,7 @@ class SQLiteMigrationTest {
                     """);
         }
 
-        assertThat(SQLiteDatabaseInitializer.migrate(dataSource)).isEqualTo(5);
+        assertThat(SQLiteDatabaseInitializer.migrate(dataSource)).isEqualTo(10);
 
         try (Connection connection = dataSource.getConnection()) {
             assertThat(queryInt(connection, "SELECT intents FROM bots"))

@@ -25,7 +25,8 @@ final class StoredBotRowMapper implements RowMapper<StoredBot> {
                 resultSet.getInt("enabled") == 1,
                 BotRevision.of(resultSet.getLong("revision")),
                 Instant.parse(resultSet.getString("created_at")),
-                Instant.parse(resultSet.getString("updated_at")));
+                Instant.parse(resultSet.getString("updated_at")),
+                resultSet.getLong("max_media_upload_bytes"));
         SecretCiphertext appSecret = SecretCiphertext.of(
                 resultSet.getString("app_secret_ciphertext"),
                 resultSet.getString("app_secret_key_id"));

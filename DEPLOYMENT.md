@@ -135,7 +135,9 @@ Outbox/DLQ 管理接口为：
 - `GET /api/events/dlq` 和 `GET /api/events/dlq/{id}`：固定只读 `DEAD_LETTER` 的死信列表和详情。
 - `GET /api/events/dlq/stats`：死信视图使用同一份安全统计结构。
 
-列表不会读取或返回完整 Payload，详情以纯文本返回并限制为 1 MiB；队列 lease owner 和 fencing token 永不暴露。Outbox worker 已连接生产 QQ OpenAPI：文本和媒体任务按机器人隔离凭据发送，429/5xx 有界重试，永久错误进入 Outbox DLQ，超时或响应无法解析进入 `RESULT_UNKNOWN`。插件宿主产生的任务同样先持久化再发送。
+列表不会读取或返回完整 Payload，详情以纯文本返回并限制为 1 MiB；队列 lease owner 和 fencing token 永不暴露。Outbox worker 已连接生产 QQ OpenAPI：文本、Markdown、Keyboard、Ark、Embed 和媒体任务按机器人隔离凭据发送，429/5xx 有界重试，永久错误进入 Outbox DLQ，超时或响应无法解析进入 `RESULT_UNKNOWN`。插件宿主产生的任务同样先持久化再发送。
+
+机器人页提供消息入队入口。`POST /api/bots/{botId}/media` 上传本地媒体，`POST /api/bots/{botId}/messages` 入队文本、富消息、远程媒体或已上传媒体。机器人编辑页的媒体上限默认 `16 MiB`，范围 `1-256 MiB`；浏览器、服务端流式写入、SDK 和发送 worker 均执行上限校验。远程 URL 会在服务端受控下载，不会直接交给 QQ 绕过大小限制。
 
 插件投递管理接口：
 
@@ -143,15 +145,17 @@ Outbox/DLQ 管理接口为：
 - `GET /api/events/plugin-dlq`、`/{id}`：仅返回 `DEAD_LETTER` 插件投递。
 - `GET/POST/PUT/DELETE /api/plugin-bindings`：按机器人绑定、配置和启停插件。
 
-插件后台通过 `GET /api/plugins` 扫描 `/plugins` 目录中的 JAR manifest 和 SHA-256；PF4J 宿主会加载声明 `Plugin-Config-Schema`、API 版本和能力的可信 JAR。插件页可以选择并上传 `.jar`，通过 `POST /api/plugins/upload` 完成校验和同进程无重启热升级，失败会尝试恢复旧插件；请求必须是已认证管理员并带 CSRF 和 `X-Plugin-Upload-Confirm: trusted-jar`。声明 capability 的插件可使用按绑定 UUID 隔离的存储、调度器、受限 HTTP、媒体和多 handler 事件订阅；未声明能力时调用会被拒绝。插件绑定与投递状态在插件页和上述投递 API 中显示。插件 JAR 的完整开发、打包、网页上传和排障说明见 [PLUGIN_DEVELOPMENT.md](./PLUGIN_DEVELOPMENT.md)。
+插件后台通过 `GET /api/plugins` 扫描 `/plugins` 目录中的 JAR manifest 和 SHA-256；PF4J 宿主会加载声明 `Plugin-Config-Schema`、API 版本和能力的可信 JAR。插件页可以选择并上传 `.jar`，通过 `POST /api/plugins/upload` 完成校验和同进程无重启热升级，失败会尝试恢复旧插件；请求必须是已认证管理员并带 CSRF 和 `X-Plugin-Upload-Confirm: trusted-jar`。停用绑定会暂停未完成投递，重新启用后继续；超时执行先合作取消，未在宽限期停止则进入 `QUARANTINED`，页面显示原因并提供恢复操作。声明 capability 的插件可使用按绑定 UUID 隔离的存储、调度器、受限 HTTP、富消息、本地/远程媒体和多 handler 事件订阅。
 
 镜像携带 `echo` 示例插件。首次创建 `qqbot-plugins` 卷时 Docker 会把 `/plugins/qqbot-plugin-echo.jar` 初始化到卷中；在 Web 插件页把它绑定到机器人后，发送 `/ping` 可验证回复 `pong` 的完整闭环，发送 `/remember` 可验证绑定级存储隔离。已有插件卷不会因升级自动覆盖同名 JAR，需由运维人员显式更新可信制品。
 
 后台审计过滤器会记录所有管理变更请求的 HTTP 方法、路径、结果状态、操作者、来源地址和 trace ID，不保存请求体；通过 `GET /api/audit-logs` 分页查询。账户安全区支持旧密码校验后改密；机器人删除会二次确认并清理该机器人 Inbox、Outbox、插件绑定和投递记录。运行状态可通过 `GET /api/bots/runtime/stream` 订阅 SSE，客户端断线会回到轮询。
 
-多实例部署时每个机器人 Shard 使用 `bot_leases` SQL 租约。实例通过 `QQBOT_INSTANCE_ID` 标识自己，只有持有未过期租约的实例才建立 Gateway；租约续期失败会停止会话并等待重新获取。SQLite 默认也会阻止第二个实例接管同一机器人，MySQL/PostgreSQL 使用行级租约和 fencing token。
+多实例部署时每个机器人 Shard 使用 `bot_leases` SQL 租约。实例通过唯一的 `QQBOT_INSTANCE_ID` 标识自己，只有持有未过期租约的实例才建立 Gateway，Inbox、插件投递和 Outbox 也只领取属于该实例机器人的任务；处理前会再次核对租约归属。启用插件的机器人在获取和续租时还会对比活动数据库中的插件 SHA-256，不匹配实例会释放租约。管理员 Session 和登录失败限流同样存入活动数据库。SQLite 通过数据库旁的 `.instance.lock` 文件拒绝第二个进程，并在数据库热切换时转移锁；真正多实例必须使用共享 MySQL/PostgreSQL。
 
-当前配置项如下。Compose 已直接映射 `QQBOT_GATEWAY_ENABLED`、`QQBOT_GATEWAY_SHUTDOWN_TIMEOUT`，并固定把 session 目录设为 `/data/config/gateway-sessions`、插件目录设为 `/plugins`；要覆盖表中其他项，需要在 `compose.yaml` 的 `environment` 下显式传入。
+所有实例必须使用不同且稳定于单次进程生命周期的 `QQBOT_INSTANCE_ID`，共享同一个活动数据库和相同插件制品。网页插件上传只更新收到请求的实例，不是集群制品分发方案。若多实例可能处理网页上传的本地媒体，`QQBOT_MEDIA_STAGING_DIRECTORY` 必须挂载为所有实例可读写的同一共享文件系统；默认本地 Docker Volume 只适合作为单主机部署基线。
+
+当前配置项如下。Compose 已直接映射常用 Gateway/插件配置，并固定把 session 目录设为 `/data/config/gateway-sessions`、插件目录设为 `/plugins`、媒体目录设为 `/data/media-staging`；要覆盖表中其他项，需要在 `compose.yaml` 的 `environment` 下显式传入。
 
 | 环境变量 | 应用默认值 | 作用 |
 | --- | --- | --- |
@@ -164,8 +168,14 @@ Outbox/DLQ 管理接口为：
 | `QQBOT_GATEWAY_CONNECT_TIMEOUT` | `10s` | 建立 WSS 连接的超时 |
 | `QQBOT_GATEWAY_MAX_TEXT_CHARACTERS` | `2097152` | 单个 Gateway 文本帧允许的最大字符数 |
 | `QQBOT_PLUGINS_DIR` | `/plugins` | 可信插件扫描、上传和版本制品目录；启用网页上传时必须可写 |
+| `QQBOT_PLUGINS_LEASE_DURATION` | `30s` | 插件投递领取租约，必须覆盖一次正常执行 |
+| `QQBOT_PLUGINS_EXECUTION_TIMEOUT` | `20s` | 单次事件 handler 最长执行时间 |
+| `QQBOT_PLUGINS_CANCELLATION_GRACE` | `5s` | 超时发出取消后等待插件合作停止的宽限期 |
 | `QQBOT_PLUGINS_BINDING_QUEUE_CAPACITY` | `256` | 每个插件绑定的独立执行队列容量 |
 | `QQBOT_PLUGINS_SHUTDOWN_TIMEOUT` | `20s` | 热升级或停用时等待绑定在途任务的最长时间 |
+| `QQBOT_OUTBOX_LEASE_DURATION` | `45s` | Outbox 任务领取租约 |
+| `QQBOT_OUTBOX_REQUEST_TIMEOUT` | `20s` | worker 等待一次 QQ 请求的时间 |
+| `QQBOT_MEDIA_STAGING_DIRECTORY` | `media-staging`；Compose 为 `/data/media-staging` | 网页/插件本地媒体暂存目录；多实例时必须共享 |
 
 QQ HTTP 客户端还支持 `QQBOT_QQ_REQUEST_TIMEOUT`（默认 `10s`）、`QQBOT_QQ_TOKEN_REFRESH_SKEW`（默认 `60s`）、`QQBOT_QQ_TOKEN_ENDPOINT`、`QQBOT_QQ_OPEN_API_BASE_URI` 和 `QQBOT_QQ_SANDBOX_OPEN_API_BASE_URI`。后三项默认就是上表官方地址，除受控测试或明确的企业代理场景外不建议覆盖。
 
@@ -179,6 +189,7 @@ Compose 使用以下持久化位置：
 | 活动/候选数据库配置 | `/data/config` | `./config` 绑定目录 |
 | 首次设置进度 | `/data/config/onboarding.json` | `./config/onboarding.json`，应用自动维护 |
 | Gateway Resume 状态 | `/data/config/gateway-sessions` | `./config/gateway-sessions`，应用自动维护 |
+| 媒体暂存 | `/data/media-staging` | `qqbot-data` 命名卷；终态任务自动删除对应文件 |
 | 插件 | `/plugins` | `qqbot-plugins` 命名卷 |
 | 主密钥 | `/data/config/app-secret.key` | `./config/app-secret.key`，首次启动自动生成 |
 | 临时文件 | `/tmp/qqbot` | 内存 tmpfs |
@@ -298,7 +309,7 @@ sudo cp -a config ./backup/config
 docker compose start qqbot
 ```
 
-MySQL/PostgreSQL 使用对应数据库的原生备份工具；同时备份 `config/database.json`、`config/onboarding.json` 和主密钥。插件卷如包含生产插件，也应单独归档。
+MySQL/PostgreSQL 使用对应数据库的原生备份工具；同时备份 `config/database.json`、`config/onboarding.json` 和主密钥。插件卷如包含生产插件，也应单独归档。停止应用后备份 `/data` 会同时保留仍在 Outbox 中等待发送的本地媒体；不要只复制 SQLite 文件而遗漏 `media-staging`。
 
 升级流程：
 

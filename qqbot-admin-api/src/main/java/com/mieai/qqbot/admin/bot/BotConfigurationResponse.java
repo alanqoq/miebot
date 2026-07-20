@@ -16,7 +16,8 @@ public record BotConfigurationResponse(
         long revision,
         Instant createdAt,
         Instant updatedAt,
-        boolean secretConfigured) {
+        boolean secretConfigured,
+        long maxMediaUploadBytes) {
 
     static BotConfigurationResponse from(BotConfigurationView view) {
         return new BotConfigurationResponse(
@@ -31,6 +32,7 @@ public record BotConfigurationResponse(
                 view.revision().value(),
                 view.createdAt(),
                 view.updatedAt(),
-                view.secretConfigured());
+                view.secretConfigured(),
+                view.maxMediaUploadBytes());
     }
 }

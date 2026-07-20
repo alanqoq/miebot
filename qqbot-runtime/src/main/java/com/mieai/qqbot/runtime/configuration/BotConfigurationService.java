@@ -88,7 +88,8 @@ public final class BotConfigurationService {
                 command.enabled(),
                 BotRevision.initial(),
                 now,
-                now);
+                now,
+                command.maxMediaUploadBytes());
         AppSecretBinding binding = binding(definition);
         SecretCiphertext encryptedSecret = secretCipher.encrypt(command.appSecret(), binding);
         repository.insert(new StoredBot(definition, encryptedSecret));
@@ -122,6 +123,8 @@ public final class BotConfigurationService {
         requireRevision(current, command.expectedRevision());
 
         BotDefinition currentDefinition = current.definition();
+        long maxMediaUploadBytes = command.maxMediaUploadBytes() == null
+                ? currentDefinition.maxMediaUploadBytes() : command.maxMediaUploadBytes();
         BotDefinition desired = new BotDefinition(
                 currentDefinition.id(),
                 command.displayName(),
@@ -132,7 +135,8 @@ public final class BotConfigurationService {
                 currentDefinition.enabled(),
                 command.expectedRevision(),
                 currentDefinition.createdAt(),
-                updateTime(currentDefinition));
+                updateTime(currentDefinition),
+                maxMediaUploadBytes);
         SecretCiphertext encryptedSecret = selectSecret(current, desired, command.appSecret());
         BotConfigurationView updated =
                 persistUpdate(desired, encryptedSecret, command.expectedRevision());
@@ -181,7 +185,8 @@ public final class BotConfigurationService {
                 enabled,
                 expectedRevision,
                 existing.createdAt(),
-                updateTime(existing));
+                updateTime(existing),
+                existing.maxMediaUploadBytes());
         BotConfigurationView updated =
                 persistUpdate(desired, current.appSecret(), expectedRevision);
         notifyCommitted(
@@ -225,7 +230,8 @@ public final class BotConfigurationService {
                 desired.enabled(),
                 updatedRevision,
                 desired.createdAt(),
-                desired.updatedAt());
+                desired.updatedAt(),
+                desired.maxMediaUploadBytes());
         return toView(persisted);
     }
 
@@ -261,7 +267,8 @@ public final class BotConfigurationService {
                 definition.revision(),
                 definition.createdAt(),
                 definition.updatedAt(),
-                true);
+                true,
+                definition.maxMediaUploadBytes());
     }
 
     private void notifyCommitted(

@@ -24,12 +24,13 @@ import {
   LucidePlus,
   LucideRefreshCw,
   LucideSearch,
+  LucideSend,
   LucideSettings,
   LucideTrash2,
   LucideX,
 } from '@lucide/angular';
 import { EMPTY, timer } from 'rxjs';
-import { catchError, exhaustMap, finalize } from 'rxjs/operators';
+import { catchError, exhaustMap, finalize, switchMap } from 'rxjs/operators';
 import {
   ApiErrorResponse,
   BotApiService,
@@ -39,6 +40,10 @@ import {
   BotRuntimeStatus,
   BotRuntimeSummary,
   CreateBotRequest,
+  BotMessageKind,
+  MediaKind,
+  MessageTargetType,
+  SendBotMessageRequest,
   UpdateBotRequest,
 } from '../../core/bot-api.service';
 import {
@@ -60,6 +65,7 @@ interface BotFormValue {
   shardCount: number;
   enabled: boolean;
   appSecret: string;
+  maxMediaUploadMiB: number;
 }
 
 const trimmedText: ValidatorFn = (control: AbstractControl): ValidationErrors | null => {
@@ -97,6 +103,7 @@ const shardRange: ValidatorFn = (control: AbstractControl): ValidationErrors | n
     LucidePlus,
     LucideRefreshCw,
     LucideSearch,
+    LucideSend,
     LucideSettings,
     LucideTrash2,
     LucideX,
@@ -125,6 +132,14 @@ export class BotsPage implements OnInit {
   protected readonly saving = signal(false);
   protected readonly mutatingIds = signal<ReadonlySet<string>>(new Set());
   protected readonly intentOptions = GATEWAY_INTENT_OPTIONS;
+  protected readonly messageBot = signal<BotConfiguration | null>(null);
+  protected readonly messageError = signal<string | null>(null);
+  protected readonly messageResult = signal<string | null>(null);
+  protected readonly messageSending = signal(false);
+  protected readonly selectedMedia = signal<File | null>(null);
+  protected readonly messageKinds: BotMessageKind[] = ['TEXT', 'MEDIA', 'MARKDOWN', 'KEYBOARD', 'ARK', 'EMBED'];
+  protected readonly targetTypes: MessageTargetType[] = ['C2C', 'GROUP', 'CHANNEL', 'DIRECT'];
+  protected readonly mediaKinds: MediaKind[] = ['IMAGE', 'VIDEO', 'AUDIO', 'FILE'];
 
   protected readonly filteredBots = computed(() => {
     const query = this.search().trim().toLocaleLowerCase();
@@ -148,9 +163,22 @@ export class BotsPage implements OnInit {
       shardCount: [1, [Validators.required, Validators.min(1), Validators.max(4096), safeInteger]],
       enabled: [true],
       appSecret: ['', [Validators.maxLength(4096)]],
+      maxMediaUploadMiB: [16, [Validators.required, Validators.min(1), Validators.max(256), safeInteger]],
     },
     { validators: shardRange },
   );
+
+  protected readonly messageForm = this.formBuilder.group({
+    kind: ['TEXT' as BotMessageKind, Validators.required],
+    targetType: ['C2C' as MessageTargetType, Validators.required],
+    targetId: ['', [Validators.required, Validators.maxLength(255), tokenText]],
+    content: [''],
+    mediaKind: ['IMAGE' as MediaKind],
+    mediaUrl: [''],
+    payloadJson: ['{}'],
+    replyMessageId: [''],
+    replyEventId: [''],
+  });
 
   ngOnInit(): void {
     this.loadBots();
@@ -208,6 +236,7 @@ export class BotsPage implements OnInit {
       shardCount: 1,
       enabled: true,
       appSecret: '',
+      maxMediaUploadMiB: 16,
     });
   }
 
@@ -219,6 +248,156 @@ export class BotsPage implements OnInit {
     this.editingBot.set(null);
     this.configureSecretValidation(false);
     this.loadEditingBot();
+  }
+
+  protected openMessage(bot: BotConfiguration): void {
+    this.messageBot.set(bot);
+    this.messageError.set(null);
+    this.messageResult.set(null);
+    this.selectedMedia.set(null);
+    this.messageForm.reset({
+      kind: 'TEXT', targetType: 'C2C', targetId: '', content: '', mediaKind: 'IMAGE',
+      mediaUrl: '', payloadJson: '{}', replyMessageId: '', replyEventId: '',
+    });
+  }
+
+  protected closeMessage(): void {
+    if (this.messageSending()) return;
+    this.messageBot.set(null);
+    this.messageError.set(null);
+    this.messageResult.set(null);
+    this.selectedMedia.set(null);
+  }
+
+  protected chooseMedia(event: Event): void {
+    const file = (event.target as HTMLInputElement).files?.[0] ?? null;
+    const bot = this.messageBot();
+    if (file && bot && bot.maxMediaUploadBytes !== undefined && file.size > bot.maxMediaUploadBytes) {
+      this.messageError.set(`文件超过该机器人配置的上限（${this.formatBytes(bot.maxMediaUploadBytes)}）`);
+      this.selectedMedia.set(null);
+      return;
+    }
+    this.messageError.set(null);
+    this.selectedMedia.set(file);
+  }
+
+  protected messageKindChanged(): void {
+    this.messageError.set(null);
+    this.messageResult.set(null);
+    const kind = this.messageForm.controls.kind.value;
+    if (kind !== 'MEDIA') this.selectedMedia.set(null);
+    const template = this.richPayloadTemplate(kind);
+    if (template) this.messageForm.controls.payloadJson.setValue(JSON.stringify(template, null, 2));
+  }
+
+  protected sendTestMessage(): void {
+    const bot = this.messageBot();
+    if (!bot || this.messageSending()) return;
+    this.messageError.set(null);
+    this.messageResult.set(null);
+    if (this.messageForm.invalid) {
+      this.messageForm.markAllAsTouched();
+      return;
+    }
+    const value = this.messageForm.getRawValue();
+    if (value.kind === 'TEXT' && !value.content.trim()) {
+      this.messageError.set('文本内容不能为空。');
+      return;
+    }
+    if (value.kind === 'MEDIA') {
+      if (!this.selectedMedia() && !value.mediaUrl.trim()) {
+        this.messageError.set('请选择本地文件或填写远程 HTTPS URL。');
+        return;
+      }
+      if (
+        (value.targetType === 'CHANNEL' || value.targetType === 'DIRECT') &&
+        value.mediaKind !== 'IMAGE'
+      ) {
+        this.messageError.set('频道和私信当前只支持图片媒体。');
+        return;
+      }
+    }
+    let payload: Record<string, unknown> | undefined;
+    if (!['TEXT', 'MEDIA'].includes(value.kind)) {
+      try {
+        const parsed = JSON.parse(value.payloadJson || '{}') as unknown;
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('object required');
+        payload = parsed as Record<string, unknown>;
+        if (Object.keys(payload).length === 0) throw new Error('non-empty object required');
+      } catch {
+        this.messageError.set('富消息 Payload 必须是 JSON 对象。');
+        return;
+      }
+    }
+    const base: SendBotMessageRequest = {
+      kind: value.kind,
+      targetType: value.targetType,
+      targetId: value.targetId,
+      ...(value.content ? { content: value.content } : {}),
+      ...(value.mediaKind ? { mediaKind: value.mediaKind } : {}),
+      ...(value.mediaUrl ? { mediaUrl: value.mediaUrl } : {}),
+      ...(payload ? { payload } : {}),
+      ...(value.replyMessageId ? { replyMessageId: value.replyMessageId } : {}),
+      ...(value.replyEventId ? { replyEventId: value.replyEventId } : {}),
+      messageSequence: 1,
+    };
+    const file = value.kind === 'MEDIA' ? this.selectedMedia() : null;
+    this.messageSending.set(true);
+    const request$ = file
+      ? this.api.uploadMedia(bot.id, value.mediaKind, file).pipe(
+          switchMap((asset) => this.api.sendMessage(bot.id, { ...base, mediaAssetId: asset.id, mediaUrl: undefined })),
+        )
+      : this.api.sendMessage(bot.id, base);
+    request$.pipe(finalize(() => this.messageSending.set(false))).subscribe({
+      next: (result) => this.messageResult.set(`已入队：${result.jobId}`),
+      error: (error: unknown) => this.messageError.set(this.errorMessage(error, '消息入队失败，请检查目标和 Payload。')),
+    });
+  }
+
+  protected messageKindLabel(kind: BotMessageKind): string {
+    return ({ TEXT: '文本', MEDIA: '媒体', MARKDOWN: 'Markdown', KEYBOARD: 'Keyboard', ARK: 'Ark', EMBED: 'Embed' } as Record<BotMessageKind, string>)[kind];
+  }
+
+  private richPayloadTemplate(kind: BotMessageKind): Record<string, unknown> | null {
+    switch (kind) {
+      case 'MARKDOWN':
+        return { content: '**消息内容**' };
+      case 'KEYBOARD':
+        return {
+          markdown: { content: '请选择操作' },
+          keyboard: {
+            content: {
+              rows: [
+                {
+                  buttons: [
+                    {
+                      id: 'confirm',
+                      render_data: { label: '确认', visited_label: '已确认', style: 1 },
+                      action: {
+                        type: 2,
+                        permission: { type: 2 },
+                        data: '/confirm',
+                        unsupport_tips: '当前客户端不支持此按钮',
+                      },
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        };
+      case 'ARK':
+        return { template_id: 23, kv: [] };
+      case 'EMBED':
+        return { title: '消息标题', prompt: '消息提示', fields: [] };
+      default:
+        return null;
+    }
+  }
+
+  protected formatBytes(bytes: number): string {
+    if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(0)} MiB`;
+    return `${Math.max(1, Math.round(bytes / 1024))} KiB`;
   }
 
   protected loadEditingBot(): void {
@@ -245,6 +424,7 @@ export class BotsPage implements OnInit {
             shardCount: bot.shardCount,
             enabled: bot.enabled,
             appSecret: '',
+            maxMediaUploadMiB: Math.round((bot.maxMediaUploadBytes ?? 16 * 1024 * 1024) / (1024 * 1024)),
           });
         },
         error: (error: unknown) => {
@@ -293,6 +473,7 @@ export class BotsPage implements OnInit {
             shardCount: value.shardCount,
             enabled: value.enabled,
             appSecret: value.appSecret,
+            maxMediaUploadBytes: this.mediaBytes(value.maxMediaUploadMiB),
           } satisfies CreateBotRequest)
         : this.updateRequest(value);
 
@@ -488,6 +669,7 @@ export class BotsPage implements OnInit {
       shardIndex: value.shardIndex,
       shardCount: value.shardCount,
       ...(value.appSecret ? { appSecret: value.appSecret } : {}),
+      maxMediaUploadBytes: this.mediaBytes(value.maxMediaUploadMiB),
     };
     return this.api.update(bot.id, request);
   }
@@ -500,6 +682,10 @@ export class BotsPage implements OnInit {
       return;
     }
     this.dialogError.set(this.errorMessage(error, '保存失败，请检查输入后重试。'));
+  }
+
+  private mediaBytes(megabytes: number): number {
+    return Math.round(megabytes * 1024 * 1024);
   }
 
   private applyFieldErrors(error: unknown): void {

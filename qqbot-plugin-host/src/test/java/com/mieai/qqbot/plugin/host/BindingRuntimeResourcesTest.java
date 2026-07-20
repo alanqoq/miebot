@@ -12,7 +12,11 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 class BindingRuntimeResourcesTest {
@@ -62,6 +66,34 @@ class BindingRuntimeResourcesTest {
         pending.complete(null);
         assertThat(execution.toCompletableFuture().join()).isNull();
         assertThat(resources.awaitIdle(Duration.ofSeconds(1))).isTrue();
+        resources.close();
+    }
+
+    @Test
+    void cancellationSignalsThePluginAndInterruptsASynchronousCallback() throws Exception {
+        BindingRuntimeResources resources = new BindingRuntimeResources("example", "cancel", 8);
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch interrupted = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicReference<com.mieai.qqbot.plugin.api.CancellationToken> token = new AtomicReference<>();
+
+        PluginExecution execution = resources.executeCancellable("default", event("TYPE_A"), ignored -> {
+            token.set(com.mieai.qqbot.plugin.api.CancellationToken.current());
+            entered.countDown();
+            try {
+                release.await(10, TimeUnit.SECONDS);
+                return CompletableFuture.completedFuture(null);
+            } catch (InterruptedException exception) {
+                interrupted.countDown();
+                throw new CancellationException("cancelled");
+            }
+        });
+
+        assertThat(entered.await(1, TimeUnit.SECONDS)).isTrue();
+        execution.cancel();
+        assertThat(execution.await(Duration.ofSeconds(1))).isTrue();
+        assertThat(interrupted.await(1, TimeUnit.SECONDS)).isTrue();
+        assertThat(token).hasValueSatisfying(value -> assertThat(value.isCancellationRequested()).isTrue());
         resources.close();
     }
 

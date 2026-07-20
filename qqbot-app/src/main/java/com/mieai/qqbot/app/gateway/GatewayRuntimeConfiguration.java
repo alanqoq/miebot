@@ -11,6 +11,7 @@ import com.mieai.qqbot.persistence.bot.BotRepository;
 import com.mieai.qqbot.persistence.bot.StoredBot;
 import com.mieai.qqbot.persistence.inbox.EventInboxRepository;
 import com.mieai.qqbot.persistence.lease.BotLeaseRepository;
+import com.mieai.qqbot.plugin.host.Pf4jPluginHost;
 import com.mieai.qqbot.runtime.security.AppSecretCipher;
 import com.mieai.qqbot.runtime.supervisor.BotRuntimeFactory;
 import com.mieai.qqbot.runtime.supervisor.BotSupervisor;
@@ -31,6 +32,13 @@ import org.springframework.context.annotation.Configuration;
 @Configuration(proxyBeanMethods = false)
 @EnableConfigurationProperties(GatewayRuntimeProperties.class)
 public class GatewayRuntimeConfiguration {
+
+    @Bean("qqbotInstanceId")
+    String qqbotInstanceId(GatewayRuntimeProperties properties) {
+        String configured = properties.getInstanceId();
+        return configured == null || configured.isBlank()
+                ? "qqbot-" + java.util.UUID.randomUUID() : configured.strip();
+    }
 
     @Bean
     GatewayTransport gatewayTransport(GatewayRuntimeProperties properties) {
@@ -69,11 +77,9 @@ public class GatewayRuntimeConfiguration {
             BotRuntimeFactory productionBotRuntimeFactory,
             GatewayRuntimeProperties properties,
             EventInboxRepository eventInboxRepository,
-            BotLeaseRepository botLeaseRepository) {
-        String instanceId = properties.getInstanceId();
-        if (instanceId == null || instanceId.isBlank()) {
-            instanceId = "qqbot-" + java.util.UUID.randomUUID();
-        }
+            BotLeaseRepository botLeaseRepository,
+            @org.springframework.beans.factory.annotation.Qualifier("qqbotInstanceId") String instanceId,
+            Pf4jPluginHost pluginHost) {
         return new BotSupervisor(
                 botRepository,
                 productionBotRuntimeFactory,
@@ -83,7 +89,8 @@ public class GatewayRuntimeConfiguration {
                 eventInboxRepository,
                 botLeaseRepository,
                 instanceId,
-                properties.getLeaseDuration());
+                properties.getLeaseDuration(),
+                pluginHost::loadedPluginHashes);
     }
 
     @Bean

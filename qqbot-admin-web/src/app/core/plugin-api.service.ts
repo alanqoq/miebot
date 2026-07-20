@@ -38,6 +38,8 @@ export interface PluginBinding {
   revision: number;
   createdAt: string;
   updatedAt: string;
+  runtimeState?: 'ACTIVE' | 'PAUSED' | 'QUARANTINED' | string;
+  runtimeError?: string | null;
 }
 
 export interface CreatePluginBindingRequest {
@@ -107,5 +109,9 @@ export class PluginApiService {
 
   deleteBinding(id: string): Observable<void> {
     return this.http.delete<void>(`/api/plugin-bindings/${encodeURIComponent(id)}`);
+  }
+
+  resetBinding(id: string): Observable<PluginBinding> {
+    return this.http.post<PluginBinding>(`/api/plugin-bindings/${encodeURIComponent(id)}/reset`, null);
   }
 }

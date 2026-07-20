@@ -6,6 +6,8 @@ import com.mieai.qqbot.client.QqClientOptions;
 import com.mieai.qqbot.domain.bot.BotEnvironment;
 import com.mieai.qqbot.persistence.bot.BotRepository;
 import com.mieai.qqbot.persistence.outbox.OutboxRepository;
+import com.mieai.qqbot.persistence.lease.BotLeaseRepository;
+import com.mieai.qqbot.client.MediaAssetStore;
 import com.mieai.qqbot.runtime.outbox.ProductionOutboxWorker;
 import com.mieai.qqbot.runtime.security.AppSecretCipher;
 import java.time.Clock;
@@ -31,12 +33,15 @@ public class OutboxRuntimeConfiguration {
     @Bean(destroyMethod = "close")
     ProductionOutboxWorker productionOutboxWorker(OutboxRuntimeProperties properties,
             OutboxRepository outbox, BotRepository bots, AppSecretCipher secretCipher,
+            BotLeaseRepository botLeases,
+            MediaAssetStore mediaStore,
             GatewayRuntimeProperties gateway, ObjectMapper mapper,
+            @org.springframework.beans.factory.annotation.Qualifier("qqbotInstanceId") String instanceId,
             @Qualifier("outboxScheduler") ScheduledExecutorService scheduler) {
         return new ProductionOutboxWorker(outbox, bots, secretCipher,
                 environment -> options(gateway, environment), mapper, scheduler, Clock.systemUTC(),
                 properties.getPollInterval(), properties.getLeaseDuration(), properties.getRequestTimeout(),
-                properties.getMaxAttempts(), properties.getBatchSize());
+                properties.getMaxAttempts(), properties.getBatchSize(), botLeases, instanceId, mediaStore);
     }
 
     @Bean

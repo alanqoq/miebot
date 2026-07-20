@@ -19,6 +19,12 @@ public interface EventInboxRepository {
         throw new UnsupportedOperationException("Inbox claiming is not implemented by this adapter");
     }
 
+    /** Claims only events for a bot currently owned by {@code botLeaseOwner}. */
+    default Optional<InboxEvent> claimNextOwned(
+            String leaseOwner, String botLeaseOwner, Instant now, Duration leaseDuration) {
+        return claimNext(leaseOwner, now, leaseDuration);
+    }
+
     default void markDispatched(UUID id, long fencingToken, Instant now) {
         throw new UnsupportedOperationException("Inbox transitions are not implemented by this adapter");
     }

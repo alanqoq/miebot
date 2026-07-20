@@ -19,6 +19,11 @@ public record PluginRuntimeContext(
         Objects.requireNonNull(mediaService, "mediaService must not be null");
     }
 
+    /** Resolves the token for the callback currently executing on this thread. */
+    public CancellationToken cancellationToken() {
+        return CancellationToken.current();
+    }
+
     public static PluginRuntimeContext legacy(PluginContext context, long revision) {
         return new PluginRuntimeContext(context,
                 new ConfigSnapshot(context.configurationJson(), revision, java.time.Instant.now()),

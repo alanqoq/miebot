@@ -13,6 +13,8 @@ final class BotPluginBindingRowMapper implements RowMapper<BotPluginBinding> {
         return new BotPluginBinding(UUID.fromString(rs.getString("id")), rs.getString("plugin_id"),
                 BotId.parse(rs.getString("bot_id")), rs.getString("config_json"), rs.getInt("enabled") != 0,
                 rs.getLong("revision"), UtcTimestampCodec.parse(rs.getString("created_at")),
-                UtcTimestampCodec.parse(rs.getString("updated_at")));
+                UtcTimestampCodec.parse(rs.getString("updated_at")),
+                PluginBindingRuntimeState.valueOf(rs.getString("runtime_state")),
+                java.util.Optional.ofNullable(rs.getString("runtime_error")));
     }
 }

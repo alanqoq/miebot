@@ -8,6 +8,10 @@ import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Base64;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CompletionStage;
 
@@ -20,11 +24,14 @@ public final class QqOpenApiClient {
     private final QqClientOptions options;
     private final TokenProvider tokenProvider;
     private final JdkQqHttpTransport transport;
+    private final QqMediaDownloader mediaDownloader;
 
     public QqOpenApiClient(QqClientOptions options, TokenProvider tokenProvider) {
         this.options = Objects.requireNonNull(options, "options must not be null");
         this.tokenProvider = Objects.requireNonNull(tokenProvider, "tokenProvider must not be null");
         transport = new JdkQqHttpTransport(JsonCodecs.defaultCodec(), options.requestTimeout());
+        mediaDownloader = new QqMediaDownloader(options.maxMediaBytes(), options.mediaDownloadTimeout(),
+                options.maxMediaRedirects());
     }
 
     public CompletionStage<URI> getGateway() {
@@ -62,7 +69,7 @@ public final class QqOpenApiClient {
                 || request.targetType() == QqMessageTargetType.GROUP) {
             URI uploadEndpoint = mediaUploadEndpoint(request.targetType(), request.targetId());
             MediaUploadPayload upload = new MediaUploadPayload(
-                    request.mediaKind().fileType(), request.mediaUrl().toString(), false);
+                    request.mediaKind().fileType(), request.mediaUrl().toString(), null, false);
             return tokenProvider.getAccessToken().thenCompose(token ->
                     transport.postAuthorizedJson(uploadEndpoint, token, upload, QqMediaUploadResult.class)
                             .thenCompose(result -> {
@@ -90,6 +97,147 @@ public final class QqOpenApiClient {
         URI endpoint = messageEndpoint(request.targetType(), request.targetId());
         return tokenProvider.getAccessToken().thenCompose(token ->
                 transport.postAuthorizedJson(endpoint, token, payload, QqMessageSendResult.class));
+    }
+
+    /** Downloads a remote URL under the configured SSRF, redirect, timeout, and size policy. */
+    public CompletionStage<QqMessageSendResult> sendMediaBounded(QqMediaMessageRequest request) {
+        Objects.requireNonNull(request, "request must not be null");
+        if ((request.targetType() == QqMessageTargetType.CHANNEL
+                || request.targetType() == QqMessageTargetType.DIRECT)
+                && request.mediaKind() != QqMediaKind.IMAGE) {
+            return java.util.concurrent.CompletableFuture.failedFuture(
+                    new IllegalArgumentException("Channel and direct messages only support image media"));
+        }
+        return mediaDownloader.download(request.mediaUrl()).thenCompose(bytes -> sendMedia(request, bytes));
+    }
+
+    /** Sends caller-owned media bytes using QQ's file_data upload form. */
+    public CompletionStage<QqMessageSendResult> sendMedia(QqMediaMessageRequest request, byte[] mediaBytes) {
+        Objects.requireNonNull(request, "request must not be null");
+        Objects.requireNonNull(mediaBytes, "mediaBytes must not be null");
+        if (mediaBytes.length == 0) {
+            return java.util.concurrent.CompletableFuture.failedFuture(
+                    new IllegalArgumentException("media bytes must not be empty"));
+        }
+        if (mediaBytes.length > options.maxMediaBytes()) {
+            return java.util.concurrent.CompletableFuture.failedFuture(
+                    new IllegalArgumentException("media bytes exceed configured limit"));
+        }
+        if (request.targetType() == QqMessageTargetType.CHANNEL
+                || request.targetType() == QqMessageTargetType.DIRECT) {
+            if (request.mediaKind() != QqMediaKind.IMAGE) {
+                return java.util.concurrent.CompletableFuture.failedFuture(
+                        new IllegalArgumentException("Channel and direct messages only support image media"));
+            }
+            Map<String, String> fields = new HashMap<>();
+            request.content().ifPresent(value -> fields.put("content", value));
+            request.replyMessageId().ifPresent(value -> fields.put("msg_id", value));
+            request.replyEventId().ifPresent(value -> fields.put("event_id", value));
+            fields.put("msg_seq", Integer.toString(request.messageSequence()));
+            URI endpoint = messageEndpoint(request.targetType(), request.targetId());
+            return tokenProvider.getAccessToken().thenCompose(token ->
+                    transport.postAuthorizedMultipart(endpoint, token, fields, "file_image",
+                            "qqbot-image.bin", "application/octet-stream", mediaBytes,
+                            QqMessageSendResult.class));
+        }
+        if (request.targetType() != QqMessageTargetType.C2C
+                && request.targetType() != QqMessageTargetType.GROUP) {
+            return java.util.concurrent.CompletableFuture.failedFuture(
+                    new IllegalArgumentException("Unsupported media target"));
+        }
+        URI uploadEndpoint = mediaUploadEndpoint(request.targetType(), request.targetId());
+        MediaUploadPayload upload = new MediaUploadPayload(
+                request.mediaKind().fileType(), null,
+                Base64.getEncoder().encodeToString(mediaBytes), false);
+        return tokenProvider.getAccessToken().thenCompose(token ->
+                transport.postAuthorizedJson(uploadEndpoint, token, upload, QqMediaUploadResult.class)
+                        .thenCompose(result -> sendUploadedMedia(request, token, uploadEndpoint, result)));
+    }
+
+    public CompletionStage<QqMessageSendResult> sendMarkdown(QqMarkdownMessageRequest request) {
+        Objects.requireNonNull(request, "request must not be null");
+        Map<String, Object> markdown = new HashMap<>();
+        markdown.put("content", request.content());
+        request.customTemplateId().ifPresent(value -> markdown.put("custom_template_id", value));
+        if (!request.params().isEmpty()) {
+            markdown.put("params", request.params().entrySet().stream()
+                    .map(entry -> Map.of("key", entry.getKey(), "values", List.of(entry.getValue())))
+                    .toList());
+        }
+        return sendRich(new QqRichMessageRequest(request.targetType(), request.targetId(),
+                QqRichMessageKind.MARKDOWN, markdown, request.replyMessageId(), request.replyEventId(),
+                request.messageSequence()));
+    }
+
+    public CompletionStage<QqMessageSendResult> sendKeyboard(QqKeyboardMessageRequest request) {
+        Objects.requireNonNull(request, "request must not be null");
+        Map<String, Object> keyboard = new HashMap<>();
+        request.keyboardId().ifPresent(value -> keyboard.put("id", value));
+        if (!request.rows().isEmpty()) keyboard.put("content", Map.of("rows", request.rows()));
+        Map<String, Object> composite = Map.of(
+                "markdown", Map.of("content", request.markdownContent()),
+                "keyboard", keyboard);
+        return sendRich(new QqRichMessageRequest(request.targetType(), request.targetId(),
+                QqRichMessageKind.KEYBOARD, composite, request.replyMessageId(), request.replyEventId(),
+                request.messageSequence()));
+    }
+
+    public CompletionStage<QqMessageSendResult> sendArk(QqArkMessageRequest request) {
+        Objects.requireNonNull(request, "request must not be null");
+        Map<String, Object> ark = Map.of("template_id", request.templateId(), "kv", request.values());
+        return sendRich(new QqRichMessageRequest(request.targetType(), request.targetId(),
+                QqRichMessageKind.ARK, ark, request.replyMessageId(), request.replyEventId(),
+                request.messageSequence()));
+    }
+
+    public CompletionStage<QqMessageSendResult> sendEmbed(QqEmbedMessageRequest request) {
+        Objects.requireNonNull(request, "request must not be null");
+        Map<String, Object> embed = new HashMap<>();
+        embed.put("title", request.title());
+        if (request.prompt() != null) embed.put("prompt", request.prompt());
+        if (!request.fields().isEmpty()) embed.put("fields", request.fields());
+        return sendRich(new QqRichMessageRequest(request.targetType(), request.targetId(),
+                QqRichMessageKind.EMBED, embed, request.replyMessageId(), request.replyEventId(),
+                request.messageSequence()));
+    }
+
+    public CompletionStage<QqMessageSendResult> sendRich(QqRichMessageRequest request) {
+        Objects.requireNonNull(request, "request must not be null");
+        String key = request.kind().name().toLowerCase(java.util.Locale.ROOT);
+        Map<String, Object> body = new HashMap<>();
+        if (request.kind() == QqRichMessageKind.KEYBOARD) body.putAll(request.payload());
+        else body.put(key, request.payload());
+        body.put("msg_id", request.replyMessageId().orElse(null));
+        body.put("event_id", request.replyEventId().orElse(null));
+        body.put("msg_seq", request.messageSequence());
+        if (request.targetType() == QqMessageTargetType.C2C
+                || request.targetType() == QqMessageTargetType.GROUP) {
+            body.put("msg_type", switch (request.kind()) {
+                case MARKDOWN -> 2;
+                case ARK -> 3;
+                case EMBED -> 4;
+                case KEYBOARD -> 2;
+            });
+        }
+        URI endpoint = messageEndpoint(request.targetType(), request.targetId());
+        return tokenProvider.getAccessToken().thenCompose(token ->
+                transport.postAuthorizedJson(endpoint, token, body, QqMessageSendResult.class));
+    }
+
+    private CompletionStage<QqMessageSendResult> sendUploadedMedia(
+            QqMediaMessageRequest request, AccessToken token, URI uploadEndpoint,
+            QqMediaUploadResult result) {
+        if (result.fileInfo() == null || result.fileInfo().isBlank()) {
+            return java.util.concurrent.CompletableFuture.failedFuture(
+                    QqClientException.protocol(uploadEndpoint,
+                            new IllegalArgumentException("file_info is missing")));
+        }
+        MediaMessagePayload message = new MediaMessagePayload(
+                request.content().orElse(null), new MediaReference(result.fileInfo()),
+                request.replyMessageId().orElse(null), request.replyEventId().orElse(null),
+                request.messageSequence(), 7);
+        return transport.postAuthorizedJson(messageEndpoint(request.targetType(), request.targetId()), token,
+                message, QqMessageSendResult.class);
     }
 
     private <T> CompletionStage<T> authorizedGet(URI endpoint, Class<T> responseType) {
@@ -170,6 +318,7 @@ public final class QqOpenApiClient {
     private record MediaUploadPayload(
             @com.fasterxml.jackson.annotation.JsonProperty("file_type") int fileType,
             String url,
+            @com.fasterxml.jackson.annotation.JsonProperty("file_data") String fileData,
             @com.fasterxml.jackson.annotation.JsonProperty("srv_send_msg") boolean serverSendMessage) {}
 
     private record MediaReference(

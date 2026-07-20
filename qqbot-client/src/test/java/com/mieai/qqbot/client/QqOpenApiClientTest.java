@@ -9,6 +9,7 @@ import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.CompletionException;
@@ -22,6 +23,17 @@ class QqOpenApiClientTest {
                 .isEqualTo(QqClientOptions.DEFAULT_OPEN_API_BASE_URI);
         assertThat(QqClientOptions.defaults(BotEnvironment.SANDBOX).openApiBaseUri())
                 .isEqualTo(QqClientOptions.DEFAULT_SANDBOX_OPEN_API_BASE_URI);
+    }
+
+    @Test
+    void rejectsMediaLimitsOutsideTheSupportedBotConfigurationRange() {
+        assertThatThrownBy(() -> QqClientOptions.builder().maxMediaBytes(1024L).build())
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("1 and 256 MiB");
+        assertThatThrownBy(() -> QqClientOptions.builder()
+                .maxMediaBytes(257L * 1024L * 1024L).build())
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("1 and 256 MiB");
     }
 
     private static final String ACCESS_TOKEN = "access-token-secret";
@@ -130,6 +142,40 @@ class QqOpenApiClientTest {
     }
 
     @Test
+    void sendsKeyboardAsAnOfficialMarkdownAttachment() throws Exception {
+        AtomicReference<String> body = new AtomicReference<>();
+        try (TestHttpServer server = new TestHttpServer()) {
+            server.handle("/v2/users/user-1/messages", exchange -> {
+                body.set(TestHttpServer.readBody(exchange));
+                TestHttpServer.respond(exchange, 200, "{\"id\":\"keyboard-1\",\"msg_seq\":1}");
+            });
+            QqOpenApiClient client = client(server, Duration.ofSeconds(2));
+            Map<String, Object> payload = Map.of(
+                    "markdown", Map.of("content", "Choose an action"),
+                    "keyboard", Map.of("id", "keyboard-template"));
+
+            client.sendRich(new QqRichMessageRequest(QqMessageTargetType.C2C, "user-1",
+                    QqRichMessageKind.KEYBOARD, payload, Optional.empty(), Optional.empty(), 1))
+                    .toCompletableFuture().join();
+
+            assertThat(body.get()).contains("\"msg_type\":2")
+                    .contains("\"markdown\"")
+                    .contains("Choose an action")
+                    .contains("\"keyboard\"")
+                    .doesNotContain("\"msg_type\":8");
+        }
+    }
+
+    @Test
+    void rejectsAStandaloneKeyboardWithoutMarkdown() {
+        assertThatThrownBy(() -> new QqRichMessageRequest(QqMessageTargetType.C2C, "user-1",
+                QqRichMessageKind.KEYBOARD, Map.of("keyboard", Map.of("id", "template")),
+                Optional.empty(), Optional.empty(), 1))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("markdown and keyboard");
+    }
+
+    @Test
     void uploadsAndSendsC2cMediaWithOfficialFileInfoEnvelope() throws Exception {
         AtomicReference<String> uploadBody = new AtomicReference<>();
         AtomicReference<String> messageBody = new AtomicReference<>();
@@ -159,6 +205,38 @@ class QqOpenApiClientTest {
                     .contains("\"msg_seq\":3")
                     .contains("caption"));
             assertThat(result.id()).isEqualTo("media-1");
+        }
+    }
+
+    @Test
+    void uploadsLocalChannelImageAsMultipartFileImage() throws Exception {
+        AtomicReference<String> contentType = new AtomicReference<>();
+        AtomicReference<byte[]> body = new AtomicReference<>();
+        try (TestHttpServer server = new TestHttpServer()) {
+            server.handle("/channels/channel-1/messages", exchange -> {
+                contentType.set(exchange.getRequestHeaders().getFirst("Content-Type"));
+                body.set(exchange.getRequestBody().readAllBytes());
+                TestHttpServer.respond(exchange, 200, "{\"id\":\"channel-media-1\",\"msg_seq\":4}");
+            });
+            QqOpenApiClient client = client(server, Duration.ofSeconds(2));
+
+            QqMessageSendResult result = client.sendMedia(new QqMediaMessageRequest(
+                    QqMessageTargetType.CHANNEL, "channel-1", QqMediaKind.IMAGE,
+                    URI.create("https://cdn.example/image.png"), Optional.of("caption"),
+                    Optional.of("reply-1"), Optional.empty(), 4), new byte[] {1, 2, 3, 4})
+                    .toCompletableFuture().join();
+
+            assertThat(result.id()).isEqualTo("channel-media-1");
+            assertThat(contentType).hasValueSatisfying(value ->
+                    assertThat(value).startsWith("multipart/form-data; boundary="));
+            assertThat(new String(body.get(), java.nio.charset.StandardCharsets.UTF_8))
+                    .contains("name=\"file_image\"")
+                    .contains("filename=\"qqbot-image.bin\"")
+                    .contains("name=\"content\"")
+                    .contains("name=\"msg_id\"")
+                    .contains("reply-1")
+                    .contains("name=\"msg_seq\"");
+            assertThat(body.get()).containsSequence((byte) 1, (byte) 2, (byte) 3, (byte) 4);
         }
     }
 

@@ -16,7 +16,7 @@ public final class JdbcBotRepository implements BotRepository {
     private static final String SELECT_COLUMNS = """
             id, display_name, app_id, environment,
             app_secret_ciphertext, app_secret_key_id,
-            intents, shard_index, shard_count, enabled, revision,
+            intents, shard_index, shard_count, max_media_upload_bytes, enabled, revision,
             created_at, updated_at
             """;
     private static final StoredBotRowMapper ROW_MAPPER = new StoredBotRowMapper();
@@ -63,9 +63,9 @@ public final class JdbcBotRepository implements BotRepository {
                         INSERT INTO bots (
                             id, display_name, app_id, environment,
                             app_secret_ciphertext, app_secret_key_id,
-                            intents, shard_index, shard_count, enabled, revision,
+                            intents, shard_index, shard_count, max_media_upload_bytes, enabled, revision,
                             created_at, updated_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                 definition.id().toString(),
                 definition.displayName(),
@@ -76,6 +76,7 @@ public final class JdbcBotRepository implements BotRepository {
                 definition.intents().bits(),
                 definition.shardSpec().index(),
                 definition.shardSpec().count(),
+                definition.maxMediaUploadBytes(),
                 definition.enabled() ? 1 : 0,
                 definition.revision().value(),
                 definition.createdAt().toString(),
@@ -104,6 +105,7 @@ public final class JdbcBotRepository implements BotRepository {
                             intents = ?,
                             shard_index = ?,
                             shard_count = ?,
+                            max_media_upload_bytes = ?,
                             enabled = ?,
                             revision = ?,
                             updated_at = ?
@@ -117,6 +119,7 @@ public final class JdbcBotRepository implements BotRepository {
                 definition.intents().bits(),
                 definition.shardSpec().index(),
                 definition.shardSpec().count(),
+                definition.maxMediaUploadBytes(),
                 definition.enabled() ? 1 : 0,
                 nextRevision.value(),
                 definition.updatedAt().toString(),

@@ -15,6 +15,7 @@ qqbot-admin-web/dist/
 qqbot-admin-web/.angular/
 
 data/
+media-staging/
 plugins/*.jar
 *.db
 *.db-shm

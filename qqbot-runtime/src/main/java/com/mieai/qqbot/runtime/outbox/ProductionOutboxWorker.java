@@ -10,7 +10,10 @@ import com.mieai.qqbot.client.QqMessageTargetType;
 import com.mieai.qqbot.client.QqMediaKind;
 import com.mieai.qqbot.client.QqMediaMessageRequest;
 import com.mieai.qqbot.client.QqOpenApiClient;
+import com.mieai.qqbot.client.QqMessageSendResult;
 import com.mieai.qqbot.client.QqTextMessageRequest;
+import com.mieai.qqbot.client.QqRichMessageRequest;
+import com.mieai.qqbot.client.QqRichMessageKind;
 import com.mieai.qqbot.client.SingleFlightTokenProvider;
 import com.mieai.qqbot.domain.bot.BotEnvironment;
 import com.mieai.qqbot.domain.bot.BotId;
@@ -18,8 +21,13 @@ import com.mieai.qqbot.persistence.bot.BotRepository;
 import com.mieai.qqbot.persistence.bot.StoredBot;
 import com.mieai.qqbot.persistence.outbox.OutboxJob;
 import com.mieai.qqbot.persistence.outbox.OutboxRepository;
+import com.mieai.qqbot.persistence.outbox.OutboxStatus;
+import com.mieai.qqbot.persistence.lease.BotLeaseRepository;
+import com.mieai.qqbot.client.MediaAssetStore;
+import com.mieai.qqbot.client.MediaAsset;
 import com.mieai.qqbot.plugin.host.OutboundTextPayload;
 import com.mieai.qqbot.plugin.host.OutboundMediaPayload;
+import com.mieai.qqbot.plugin.host.OutboundRichPayload;
 import com.mieai.qqbot.runtime.security.AppSecretCipher;
 import com.mieai.qqbot.runtime.security.BotCredentialDecryptor;
 import java.time.Clock;
@@ -31,6 +39,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -57,6 +66,9 @@ public final class ProductionOutboxWorker implements AutoCloseable {
     private final Duration requestWait;
     private final int maxAttempts;
     private final int batchSize;
+    private final BotLeaseRepository botLeases;
+    private final String instanceId;
+    private final MediaAssetStore mediaStore;
     private final String workerId = "outbox-worker-" + UUID.randomUUID();
     private final AtomicBoolean running = new AtomicBoolean();
     private final Object transitionMonitor = new Object();
@@ -68,6 +80,24 @@ public final class ProductionOutboxWorker implements AutoCloseable {
             Function<BotEnvironment, QqClientOptions> optionsResolver, ObjectMapper mapper,
             ScheduledExecutorService scheduler, Clock clock, Duration pollInterval,
             Duration leaseDuration, Duration requestWait, int maxAttempts, int batchSize) {
+        this(outbox, bots, secretCipher, optionsResolver, mapper, scheduler, clock, pollInterval,
+                leaseDuration, requestWait, maxAttempts, batchSize, null, null, null);
+    }
+
+    public ProductionOutboxWorker(OutboxRepository outbox, BotRepository bots, AppSecretCipher secretCipher,
+            Function<BotEnvironment, QqClientOptions> optionsResolver, ObjectMapper mapper,
+            ScheduledExecutorService scheduler, Clock clock, Duration pollInterval,
+            Duration leaseDuration, Duration requestWait, int maxAttempts, int batchSize,
+            BotLeaseRepository botLeases, String instanceId) {
+        this(outbox, bots, secretCipher, optionsResolver, mapper, scheduler, clock, pollInterval,
+                leaseDuration, requestWait, maxAttempts, batchSize, botLeases, instanceId, null);
+    }
+
+    public ProductionOutboxWorker(OutboxRepository outbox, BotRepository bots, AppSecretCipher secretCipher,
+            Function<BotEnvironment, QqClientOptions> optionsResolver, ObjectMapper mapper,
+            ScheduledExecutorService scheduler, Clock clock, Duration pollInterval,
+            Duration leaseDuration, Duration requestWait, int maxAttempts, int batchSize,
+            BotLeaseRepository botLeases, String instanceId, MediaAssetStore mediaStore) {
         this.outbox = Objects.requireNonNull(outbox, "outbox must not be null");
         this.bots = Objects.requireNonNull(bots, "bots must not be null");
         credentials = new BotCredentialDecryptor(secretCipher);
@@ -83,6 +113,9 @@ public final class ProductionOutboxWorker implements AutoCloseable {
         if (batchSize < 1 || batchSize > 1000) throw new IllegalArgumentException("batchSize is invalid");
         this.maxAttempts = maxAttempts;
         this.batchSize = batchSize;
+        this.botLeases = botLeases;
+        this.instanceId = botLeases == null ? null : Objects.requireNonNull(instanceId, "instanceId must not be null");
+        this.mediaStore = mediaStore;
     }
 
     public void start() {
@@ -121,16 +154,23 @@ public final class ProductionOutboxWorker implements AutoCloseable {
 
     private boolean processOne() {
         Instant now = clock.instant();
-        Optional<OutboxJob> claimed = outbox.claimNext(workerId, now, leaseDuration);
+        Optional<OutboxJob> claimed = botLeases == null
+                ? outbox.claimNext(workerId, now, leaseDuration)
+                : outbox.claimNextOwned(workerId, instanceId, now, leaseDuration);
         if (claimed.isEmpty()) return false;
         OutboxJob job = claimed.get();
+        MediaAsset stagedAsset = null;
         try {
             if (!OutboundTextPayload.JOB_TYPE.equals(job.jobType())
-                    && !OutboundMediaPayload.JOB_TYPE.equals(job.jobType())) {
+                    && !OutboundMediaPayload.JOB_TYPE.equals(job.jobType())
+                    && !OutboundRichPayload.JOB_TYPE.equals(job.jobType())) {
                 outbox.markDeadLetter(job.id(), job.fencingToken(), clock.instant(), "Unsupported Outbox job type");
                 return true;
             }
             StoredBot bot = bots.findById(job.botId()).orElseThrow(() -> new PermanentFailure("Bot no longer exists"));
+            if (botLeases != null && !botLeases.isOwned(bot.id(), bot.definition().shardSpec().index(), instanceId, clock.instant())) {
+                throw new RetryableFailure("Bot lease is no longer owned by this instance");
+            }
             if (!bot.definition().enabled()) throw new RetryableFailure("Bot is disabled");
             if (bot.definition().environment() != job.environment()) {
                 throw new PermanentFailure("Outbox environment does not match bot environment");
@@ -143,14 +183,47 @@ public final class ProductionOutboxWorker implements AutoCloseable {
                         payload.messageSequence());
                 client(bot).sendText(request).toCompletableFuture()
                         .get(requestWait.toMillis(), TimeUnit.MILLISECONDS);
-            } else {
+            } else if (OutboundMediaPayload.JOB_TYPE.equals(job.jobType())) {
                 OutboundMediaPayload payload = mapper.readValue(job.payload(), OutboundMediaPayload.class);
                 QqMediaMessageRequest request = new QqMediaMessageRequest(
                         QqMessageTargetType.valueOf(payload.targetType().name()), payload.targetId(),
                         QqMediaKind.valueOf(payload.mediaKind().name()), java.net.URI.create(payload.mediaUrl()),
                         Optional.ofNullable(payload.content()), Optional.ofNullable(payload.replyMessageId()),
                         Optional.ofNullable(payload.replyEventId()), payload.messageSequence());
-                client(bot).sendMedia(request).toCompletableFuture()
+                if (payload.mediaAssetId() == null) {
+                    CompletionStage<QqMessageSendResult> sending = mediaStore == null
+                            ? client(bot).sendMedia(request)
+                            : client(bot).sendMediaBounded(request);
+                    sending.toCompletableFuture()
+                            .get(requestWait.toMillis(), TimeUnit.MILLISECONDS);
+                } else {
+                    if (mediaStore == null) throw new PermanentFailure("Local media staging is not configured");
+                    stagedAsset = mediaStore.find(bot.id(), payload.mediaAssetId()).orElseThrow(
+                            () -> new PermanentFailure("Staged media asset is no longer available"));
+                    if (stagedAsset.kind() != request.mediaKind()) {
+                        throw new PermanentFailure("Staged media kind does not match the Outbox payload");
+                    }
+                    if (stagedAsset.sizeBytes() > bot.definition().maxMediaUploadBytes()) {
+                        throw new PermanentFailure("Staged media exceeds the bot upload limit");
+                    }
+                    byte[] bytes;
+                    try (var input = mediaStore.open(stagedAsset)) {
+                        bytes = input.readNBytes(Math.toIntExact(bot.definition().maxMediaUploadBytes() + 1L));
+                    }
+                    if (bytes.length > bot.definition().maxMediaUploadBytes()) {
+                        throw new PermanentFailure("Staged media exceeds the bot upload limit");
+                    }
+                    client(bot).sendMedia(request, bytes).toCompletableFuture()
+                            .get(requestWait.toMillis(), TimeUnit.MILLISECONDS);
+                }
+            } else {
+                OutboundRichPayload payload = mapper.readValue(job.payload(), OutboundRichPayload.class);
+                QqRichMessageRequest request = new QqRichMessageRequest(
+                        QqMessageTargetType.valueOf(payload.targetType().name()), payload.targetId(),
+                        QqRichMessageKind.valueOf(payload.kind().name()), payload.payload(),
+                        Optional.ofNullable(payload.replyMessageId()), Optional.ofNullable(payload.replyEventId()),
+                        payload.messageSequence());
+                client(bot).sendRich(request).toCompletableFuture()
                         .get(requestWait.toMillis(), TimeUnit.MILLISECONDS);
             }
             outbox.markSucceeded(job.id(), job.fencingToken(), clock.instant());
@@ -167,6 +240,16 @@ public final class ProductionOutboxWorker implements AutoCloseable {
             retry(job, exception);
         } catch (RuntimeException exception) {
             retry(job, exception);
+        } finally {
+            if (stagedAsset != null) {
+                try {
+                    OutboxStatus status = outbox.findById(job.id()).map(OutboxJob::status).orElse(null);
+                    if (status != null && status.isTerminal()) mediaStore.delete(stagedAsset);
+                } catch (RuntimeException cleanupFailure) {
+                    LOGGER.warn("Could not clean staged media asset for job {} ({})",
+                            job.id(), cleanupFailure.getClass().getSimpleName());
+                }
+            }
         }
         return true;
     }
@@ -180,8 +263,17 @@ public final class ProductionOutboxWorker implements AutoCloseable {
         if (current != null) current.close();
         BotCredentials decrypted = credentials.decrypt(bot);
         try {
-            QqClientOptions options = Objects.requireNonNull(optionsResolver.apply(bot.definition().environment()),
+            QqClientOptions baseOptions = Objects.requireNonNull(optionsResolver.apply(bot.definition().environment()),
                     "optionsResolver returned null");
+            QqClientOptions options = QqClientOptions.builder()
+                    .tokenEndpoint(baseOptions.tokenEndpoint())
+                    .openApiBaseUri(baseOptions.openApiBaseUri())
+                    .requestTimeout(baseOptions.requestTimeout())
+                    .tokenRefreshSkew(baseOptions.tokenRefreshSkew())
+                    .maxMediaBytes(bot.definition().maxMediaUploadBytes())
+                    .mediaDownloadTimeout(baseOptions.mediaDownloadTimeout())
+                    .maxMediaRedirects(baseOptions.maxMediaRedirects())
+                    .build();
             SingleFlightTokenProvider provider = new SingleFlightTokenProvider(decrypted,
                     new QqAccessTokenClient(options), options);
             QqOpenApiClient client = new QqOpenApiClient(options, provider);
@@ -194,6 +286,10 @@ public final class ProductionOutboxWorker implements AutoCloseable {
     }
 
     private void classify(OutboxJob job, Throwable failure) {
+        if (failure instanceof IllegalArgumentException) {
+            deadLetter(job, safeError(failure));
+            return;
+        }
         if (!(failure instanceof QqClientException qq)) {
             retry(job, failure);
             return;

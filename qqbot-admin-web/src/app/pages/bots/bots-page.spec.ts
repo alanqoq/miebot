@@ -27,6 +27,7 @@ describe('BotsPage', () => {
     createdAt: '2026-07-16T12:00:00Z',
     updatedAt: '2026-07-16T12:05:00Z',
     secretConfigured: true,
+    maxMediaUploadBytes: 16 * 1024 * 1024,
   };
 
   const revisionConflict = new HttpErrorResponse({
@@ -86,6 +87,52 @@ describe('BotsPage', () => {
 
     const request = api.update.mock.calls[0]?.[1] as UpdateBotRequest;
     expect(request.intents).toBe(unknownBit + DEFAULT_GATEWAY_INTENTS + 2 ** 26);
+  });
+
+  it('saves the configured per-bot media upload limit in bytes', async () => {
+    const { fixture, api } = await configure();
+
+    click(fixture, element(fixture, 'button[aria-label="编辑机器人"]'));
+    fill(fixture, 'input[formControlName="maxMediaUploadMiB"]', '24');
+    click(fixture, buttonByText(fixture, '保存更改'));
+
+    const request = api.update.mock.calls[0]?.[1] as UpdateBotRequest;
+    expect(request.maxMediaUploadBytes).toBe(24 * 1024 * 1024);
+  });
+
+  it('rejects a selected web media file before upload when it exceeds the bot limit', async () => {
+    const configured = { ...bot, maxMediaUploadBytes: 1024 * 1024 };
+    const { fixture, api } = await configure({ configuredBot: configured });
+
+    click(fixture, element(fixture, 'button[aria-label="发送测试消息"]'));
+    const kind = element<HTMLSelectElement>(fixture, 'select[formControlName="kind"]');
+    kind.value = 'MEDIA';
+    kind.dispatchEvent(new Event('change', { bubbles: true }));
+    fixture.detectChanges();
+    const input = element<HTMLInputElement>(fixture, 'input[type="file"]');
+    const oversized = new File([new Uint8Array(1024 * 1024 + 1)], 'large.png', { type: 'image/png' });
+    Object.defineProperty(input, 'files', { configurable: true, value: [oversized] });
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent).toContain('文件超过该机器人配置的上限');
+    expect(api.uploadMedia).not.toHaveBeenCalled();
+  });
+
+  it('fills a markdown-backed keyboard payload when the rich message kind changes', async () => {
+    const { fixture } = await configure();
+
+    click(fixture, element(fixture, 'button[aria-label="发送测试消息"]'));
+    const kind = element<HTMLSelectElement>(fixture, 'select[formControlName="kind"]');
+    kind.value = 'KEYBOARD';
+    kind.dispatchEvent(new Event('change', { bubbles: true }));
+    fixture.detectChanges();
+
+    const payload = JSON.parse(
+      element<HTMLTextAreaElement>(fixture, 'textarea[formControlName="payloadJson"]').value,
+    ) as { markdown: { content: string }; keyboard: { content: { rows: unknown[] } } };
+    expect(payload.markdown.content).toBeTruthy();
+    expect(payload.keyboard.content.rows).toHaveLength(1);
   });
 
   it('keeps AppSecret empty and offers reload when an edit conflicts', async () => {
@@ -154,6 +201,8 @@ async function configure(options: ConfigureOptions = {}) {
       : vi.fn((_id: string, _request: UpdateBotRequest) => of(configuredBot)),
     setEnabled: vi.fn(() => of(options.enabledResult ?? configuredBot)),
     delete: vi.fn(() => of(undefined)),
+    uploadMedia: vi.fn(),
+    sendMessage: vi.fn(),
   };
   await TestBed.configureTestingModule({
     imports: [BotsPage],
@@ -178,6 +227,7 @@ function botFixture(): BotConfiguration {
     createdAt: '2026-07-16T12:00:00Z',
     updatedAt: '2026-07-16T12:05:00Z',
     secretConfigured: true,
+    maxMediaUploadBytes: 16 * 1024 * 1024,
   };
 }
 

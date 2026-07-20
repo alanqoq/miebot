@@ -400,6 +400,31 @@ export class PluginsPage implements OnInit {
       });
   }
 
+  protected resetBinding(binding: PluginBinding): void {
+    if (this.isMutating(binding.id)) return;
+    this.setMutating(binding.id, true);
+    this.api.resetBinding(binding.id)
+      .pipe(finalize(() => this.setMutating(binding.id, false)), takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (saved) => this.replaceBinding(saved),
+        error: (error: unknown) => this.warning.set(this.errorMessage(error, '恢复插件绑定失败。')),
+      });
+  }
+
+  protected bindingRuntimeLabel(binding: PluginBinding): string {
+    switch (binding.runtimeState) {
+      case 'QUARANTINED': return '已隔离';
+      case 'PAUSED': return '已暂停';
+      default: return binding.enabled ? '运行中' : '已停用';
+    }
+  }
+
+  protected bindingRuntimeClass(binding: PluginBinding): string {
+    if (binding.runtimeState === 'QUARANTINED') return 'delivery-failed';
+    if (binding.runtimeState === 'PAUSED' || !binding.enabled) return 'delivery-pending';
+    return 'delivery-success';
+  }
+
   protected bindingsFor(pluginId: string): PluginBinding[] {
     return this.bindings().filter((binding) => binding.pluginId === pluginId);
   }

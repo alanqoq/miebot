@@ -6,6 +6,8 @@ import com.mieai.qqbot.persistence.plugin.BotPluginBinding;
 import com.mieai.qqbot.persistence.plugin.BotPluginBindingRepository;
 import com.mieai.qqbot.persistence.plugin.PluginDelivery;
 import com.mieai.qqbot.persistence.plugin.PluginDeliveryRepository;
+import com.mieai.qqbot.persistence.plugin.PluginBindingRuntimeState;
+import com.mieai.qqbot.persistence.lease.BotLeaseRepository;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Duration;
@@ -37,8 +39,11 @@ public final class PluginRuntimeService implements AutoCloseable {
     private final Duration pollInterval;
     private final Duration leaseDuration;
     private final Duration executionTimeout;
+    private final Duration cancellationGrace;
     private final int maxAttempts;
     private final int batchSize;
+    private final BotLeaseRepository botLeases;
+    private final String instanceId;
     private final String workerId = "plugin-worker-" + UUID.randomUUID();
     private final AtomicBoolean running = new AtomicBoolean();
     private final Object transitionMonitor = new Object();
@@ -49,6 +54,15 @@ public final class PluginRuntimeService implements AutoCloseable {
             BotPluginBindingRepository bindings, PluginDeliveryRepository deliveries,
             ScheduledExecutorService scheduler, Clock clock, Duration pollInterval,
             Duration leaseDuration, Duration executionTimeout, int maxAttempts, int batchSize) {
+        this(host, inbox, bindings, deliveries, scheduler, clock, pollInterval, leaseDuration,
+                executionTimeout, Duration.ofSeconds(5), maxAttempts, batchSize, null, null);
+    }
+
+    public PluginRuntimeService(Pf4jPluginHost host, EventInboxRepository inbox,
+            BotPluginBindingRepository bindings, PluginDeliveryRepository deliveries,
+            ScheduledExecutorService scheduler, Clock clock, Duration pollInterval,
+            Duration leaseDuration, Duration executionTimeout, Duration cancellationGrace,
+            int maxAttempts, int batchSize, BotLeaseRepository botLeases, String instanceId) {
         this.host = Objects.requireNonNull(host, "host must not be null");
         this.inbox = Objects.requireNonNull(inbox, "inbox must not be null");
         this.bindings = Objects.requireNonNull(bindings, "bindings must not be null");
@@ -58,10 +72,13 @@ public final class PluginRuntimeService implements AutoCloseable {
         this.pollInterval = positive(pollInterval, "pollInterval");
         this.leaseDuration = positive(leaseDuration, "leaseDuration");
         this.executionTimeout = positive(executionTimeout, "executionTimeout");
+        this.cancellationGrace = positive(cancellationGrace, "cancellationGrace");
         if (maxAttempts < 1) throw new IllegalArgumentException("maxAttempts must be positive");
         if (batchSize < 1 || batchSize > 1000) throw new IllegalArgumentException("batchSize is invalid");
         this.maxAttempts = maxAttempts;
         this.batchSize = batchSize;
+        this.botLeases = botLeases;
+        this.instanceId = botLeases == null ? null : Objects.requireNonNull(instanceId, "instanceId must not be null");
     }
 
     public void start() {
@@ -94,6 +111,26 @@ public final class PluginRuntimeService implements AutoCloseable {
 
     public void bindingChanged(UUID bindingId) {
         host.invalidate(bindingId);
+        Instant now = clock.instant();
+        bindings.findById(bindingId).ifPresent(binding -> {
+            if (binding.enabled() && binding.runtimeState().runnable()) {
+                deliveries.resumeForBinding(bindingId, now);
+            } else {
+                deliveries.pauseForBinding(bindingId, now,
+                        binding.runtimeError().orElse("Plugin binding is paused"));
+            }
+        });
+    }
+
+    public void resetQuarantinedBinding(UUID bindingId) {
+        Objects.requireNonNull(bindingId, "bindingId must not be null");
+        BotPluginBinding binding = bindings.findById(bindingId).orElseThrow(
+                () -> new IllegalArgumentException("Plugin binding does not exist"));
+        if (!binding.enabled()) throw new IllegalStateException("Plugin binding is disabled");
+        Instant now = clock.instant();
+        bindings.setRuntimeState(bindingId, PluginBindingRuntimeState.ACTIVE, null, now);
+        host.invalidate(bindingId);
+        deliveries.resumeForBinding(bindingId, now);
     }
 
     public void reloadPlugins() {
@@ -123,12 +160,16 @@ public final class PluginRuntimeService implements AutoCloseable {
 
     private boolean materializeOne() {
         Instant now = clock.instant();
-        Optional<InboxEvent> claimed = inbox.claimNext(workerId, now, leaseDuration);
+        Optional<InboxEvent> claimed = botLeases == null
+                ? inbox.claimNext(workerId, now, leaseDuration)
+                : inbox.claimNextOwned(workerId, instanceId, now, leaseDuration);
         if (claimed.isEmpty()) return false;
         InboxEvent event = claimed.get();
         try {
             List<BotPluginBinding> eventBindings = bindings.findByBotId(event.botId()).stream()
-                    .filter(BotPluginBinding::enabled).toList();
+                    .filter(BotPluginBinding::enabled)
+                    .filter(binding -> binding.runtimeState().runnable())
+                    .toList();
             for (BotPluginBinding binding : eventBindings) {
                 for (String handlerId : host.handlerIds(binding, event.eventType())) {
                     UUID deliveryId = UUID.nameUUIDFromBytes(
@@ -146,16 +187,36 @@ public final class PluginRuntimeService implements AutoCloseable {
 
     private boolean deliverOne() {
         Instant now = clock.instant();
-        Optional<PluginDelivery> claimed = deliveries.claimNext(workerId, now, leaseDuration);
+        Optional<PluginDelivery> claimed = botLeases == null
+                ? deliveries.claimNext(workerId, now, leaseDuration)
+                : deliveries.claimNextOwned(workerId, instanceId, now, leaseDuration);
         if (claimed.isEmpty()) return false;
         PluginDelivery delivery = claimed.get();
         try {
             BotPluginBinding binding = bindings.findById(delivery.bindingId()).orElseThrow(
                     () -> new IllegalStateException("Plugin binding no longer exists"));
+            if (botLeases != null && !botLeases.isOwned(binding.botId(), instanceId, clock.instant())) {
+                throw new IllegalStateException("Bot lease is no longer owned by this instance");
+            }
             InboxEvent event = inbox.findById(delivery.eventId()).orElseThrow(
                     () -> new IllegalStateException("Inbox event no longer exists"));
-            host.execute(binding, event, delivery.handlerId()).toCompletableFuture()
-                    .get(executionTimeout.toMillis(), TimeUnit.MILLISECONDS);
+            if (!binding.enabled() || !binding.runtimeState().runnable()) {
+                deliveries.pauseForBinding(binding.id(), clock.instant(),
+                        binding.runtimeError().orElse("Plugin binding is paused"));
+                return true;
+            }
+            PluginExecution execution = host.executeCancellable(binding, event, delivery.handlerId());
+            try {
+                execution.stage().toCompletableFuture()
+                        .get(executionTimeout.toMillis(), TimeUnit.MILLISECONDS);
+            } catch (TimeoutException timeout) {
+                execution.cancel();
+                if (!execution.await(cancellationGrace)) {
+                    quarantine(binding, delivery, timeout);
+                    return true;
+                }
+                throw timeout;
+            }
             deliveries.markSucceeded(delivery.id(), delivery.fencingToken(), clock.instant());
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
@@ -164,6 +225,20 @@ public final class PluginRuntimeService implements AutoCloseable {
             retryDelivery(delivery, unwrap(exception));
         }
         return true;
+    }
+
+    private void quarantine(BotPluginBinding binding, PluginDelivery delivery, Throwable failure) {
+        String error = "Plugin execution timed out and did not stop within "
+                + cancellationGrace.toMillis() + " ms: " + safeError(failure);
+        Instant now = clock.instant();
+        host.quarantine(binding.id());
+        try {
+            bindings.setRuntimeState(binding.id(), PluginBindingRuntimeState.QUARANTINED, error, now);
+            deliveries.pauseForBinding(binding.id(), now, error);
+        } catch (RuntimeException transitionFailure) {
+            LOGGER.error("Could not quarantine plugin binding {} after delivery {} timed out",
+                    binding.id(), delivery.id(), transitionFailure);
+        }
     }
 
     private void retryOrDeadLetter(InboxEvent event, Throwable failure) {

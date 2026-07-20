@@ -32,6 +32,8 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.Map;
+import java.util.function.Supplier;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
@@ -74,6 +76,7 @@ public final class BotSupervisor implements BotConfigurationChangeListener, Auto
     private final BotLeaseRepository leaseRepository;
     private final String leaseOwnerId;
     private final Duration leaseDuration;
+    private final Supplier<Map<String, String>> pluginHashes;
     private final ConcurrentMap<BotId, BotLease> leases = new ConcurrentHashMap<>();
     private final Duration reconciliationInterval;
     private final Duration shutdownTimeout;
@@ -100,7 +103,8 @@ public final class BotSupervisor implements BotConfigurationChangeListener, Auto
                 null,
                 null,
                 null,
-                null);
+                null,
+                Map::of);
     }
 
     public BotSupervisor(
@@ -118,7 +122,8 @@ public final class BotSupervisor implements BotConfigurationChangeListener, Auto
                 null,
                 null,
                 null,
-                null);
+                null,
+                Map::of);
     }
 
     /** Production constructor with the durable Gateway Inbox integration. */
@@ -130,7 +135,7 @@ public final class BotSupervisor implements BotConfigurationChangeListener, Auto
             Clock clock,
             EventInboxRepository inboxRepository) {
         this(repository, runtimeFactory, reconciliationInterval, shutdownTimeout, clock,
-                inboxRepository, null, null, null);
+                inboxRepository, null, null, null, Map::of);
     }
 
     /** Production constructor with durable Inbox and SQL bot lease fencing. */
@@ -144,6 +149,22 @@ public final class BotSupervisor implements BotConfigurationChangeListener, Auto
             BotLeaseRepository leaseRepository,
             String leaseOwnerId,
             Duration leaseDuration) {
+        this(repository, runtimeFactory, reconciliationInterval, shutdownTimeout, clock,
+                inboxRepository, leaseRepository, leaseOwnerId, leaseDuration, Map::of);
+    }
+
+    /** Production constructor with local plugin hashes used as a lease admission fence. */
+    public BotSupervisor(
+            BotRepository repository,
+            BotRuntimeFactory runtimeFactory,
+            Duration reconciliationInterval,
+            Duration shutdownTimeout,
+            Clock clock,
+            EventInboxRepository inboxRepository,
+            BotLeaseRepository leaseRepository,
+            String leaseOwnerId,
+            Duration leaseDuration,
+            Supplier<Map<String, String>> pluginHashes) {
         this.repository = Objects.requireNonNull(repository, "repository must not be null");
         this.runtimeFactory =
                 Objects.requireNonNull(runtimeFactory, "runtimeFactory must not be null");
@@ -151,6 +172,8 @@ public final class BotSupervisor implements BotConfigurationChangeListener, Auto
         this.leaseRepository = leaseRepository;
         this.leaseOwnerId = leaseRepository == null ? null : requireLeaseOwner(leaseOwnerId);
         this.leaseDuration = leaseRepository == null ? null : requirePositive(leaseDuration, "leaseDuration");
+        this.pluginHashes = leaseRepository == null
+                ? Map::of : Objects.requireNonNull(pluginHashes, "pluginHashes must not be null");
         this.reconciliationInterval =
                 requirePositive(reconciliationInterval, "reconciliationInterval");
         if (leaseRepository != null && this.leaseDuration.compareTo(this.reconciliationInterval) <= 0) {
@@ -620,18 +643,25 @@ public final class BotSupervisor implements BotConfigurationChangeListener, Auto
         BotLease current = leases.get(botId);
         try {
             int desiredShard = stored.definition().shardSpec().index();
+            Map<String, String> localPluginHashes = Map.copyOf(
+                    Objects.requireNonNull(pluginHashes.get(), "plugin hashes must not be null"));
             if (current != null && current.shardIndex() != desiredShard) {
                 releaseLease(botId);
                 current = null;
             }
-            if (current != null && leaseRepository.renew(current, now, leaseDuration)) {
+            if (current != null
+                    && leaseRepository.renew(current, now, leaseDuration, localPluginHashes)) {
                 return true;
             }
             Optional<BotLease> acquired = leaseRepository.acquire(
-                    botId, desiredShard, leaseOwnerId, now, leaseDuration);
+                    botId, desiredShard, leaseOwnerId, now, leaseDuration,
+                    localPluginHashes);
             if (acquired.isPresent()) {
                 leases.put(botId, acquired.orElseThrow());
                 return true;
+            }
+            if (current != null) {
+                leaseRepository.release(current);
             }
             leases.remove(botId);
             return false;
@@ -659,6 +689,8 @@ public final class BotSupervisor implements BotConfigurationChangeListener, Auto
         if (leaseRepository == null) return;
         List<BotId> ids = new ArrayList<>(leases.keySet());
         ids.forEach(this::releaseLease);
+        try { leaseRepository.unregisterPluginHashes(leaseOwnerId); }
+        catch (RuntimeException exception) { LOGGER.debug("Unable to unregister plugin hashes", exception); }
     }
 
     private static String requireLeaseOwner(String value) {

@@ -1,5 +1,7 @@
 package com.mieai.qqbot.plugin.host;
 
+import com.mieai.qqbot.plugin.api.CancellationToken;
+import com.mieai.qqbot.plugin.api.CancellationTokenSource;
 import com.mieai.qqbot.plugin.api.EventService;
 import com.mieai.qqbot.plugin.api.EventSubscription;
 import com.mieai.qqbot.plugin.api.PluginEvent;
@@ -22,11 +24,15 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.CancellationException;
 
 /** All executable resources owned by one plugin binding. */
 final class BindingRuntimeResources implements AutoCloseable {
     private final ThreadPoolExecutor executor;
     private final ScheduledExecutorService scheduler;
+    private final BindingCapabilityGuard capabilityGuard = new BindingCapabilityGuard();
     private final Map<String, Registration> handlers = new LinkedHashMap<>();
     private final List<ScheduledFuture<?>> scheduled = new ArrayList<>();
     private final AtomicInteger inFlight = new AtomicInteger();
@@ -45,6 +51,10 @@ final class BindingRuntimeResources implements AutoCloseable {
 
     EventService eventService() {
         return this::subscribe;
+    }
+
+    BindingCapabilityGuard capabilityGuard() {
+        return capabilityGuard;
     }
 
     PluginScheduler pluginScheduler() {
@@ -79,43 +89,43 @@ final class BindingRuntimeResources implements AutoCloseable {
     }
 
     CompletionStage<Void> execute(String handlerId, PluginEvent event, PluginEventHandler fallback) {
+        return executeCancellable(handlerId, event, fallback).stage();
+    }
+
+    PluginExecution executeCancellable(String handlerId, PluginEvent event, PluginEventHandler fallback) {
         PluginEventHandler selected;
         synchronized (this) {
-            if (closed) return CompletableFuture.failedFuture(new IllegalStateException("Plugin binding is stopped"));
+            if (closed) return completedExecution(new IllegalStateException("Plugin binding is stopped"));
             Registration registration = handlers.get(handlerId);
             if (!handlers.isEmpty() && registration == null) {
                 // A stale delivery for a removed subscription must not invoke
                 // the legacy fallback handler by accident.
-                return CompletableFuture.completedFuture(null);
+                return completedExecution(null);
             }
             if (registration != null && !registration.matches(event.eventType())) {
-                return CompletableFuture.completedFuture(null);
+                return completedExecution(null);
             }
             selected = registration == null ? fallback : registration.handler;
         }
-        CompletableFuture<Void> result = new CompletableFuture<>();
         inFlight.incrementAndGet();
+        Invocation invocation = new Invocation(selected, event);
         try {
-            executor.execute(() -> {
-                try {
-                    CompletionStage<Void> stage = Objects.requireNonNull(selected.handle(event),
-                            "plugin returned a null CompletionStage");
-                    stage.whenComplete((ignored, failure) -> {
-                        try {
-                            if (failure == null) result.complete(null); else result.completeExceptionally(failure);
-                        } finally {
-                            completed();
-                        }
-                    });
-                } catch (Throwable failure) {
-                    try { result.completeExceptionally(failure); } finally { completed(); }
-                }
-            });
+            invocation.submit();
         } catch (RuntimeException exception) {
-            completed();
-            result.completeExceptionally(new IllegalStateException("Plugin binding queue is full", exception));
+            invocation.finish(new IllegalStateException("Plugin binding queue is full", exception));
         }
-        return result.minimalCompletionStage();
+        return invocation;
+    }
+
+    private PluginExecution completedExecution(Throwable failure) {
+        CompletableFuture<Void> result = new CompletableFuture<>();
+        if (failure == null) result.complete(null); else result.completeExceptionally(failure);
+        return new PluginExecution() {
+            @Override public CompletionStage<Void> stage() { return result.minimalCompletionStage(); }
+            @Override public void cancel() { }
+            @Override public boolean isDone() { return true; }
+            @Override public boolean await(Duration timeout) { return true; }
+        };
     }
 
     boolean awaitIdle(Duration timeout) {
@@ -143,6 +153,7 @@ final class BindingRuntimeResources implements AutoCloseable {
 
     /** Stop accepting new callbacks before the host waits for in-flight work. */
     void beginShutdown() {
+        capabilityGuard.close();
         synchronized (this) {
             if (closed) return;
             closed = true;
@@ -198,6 +209,81 @@ final class BindingRuntimeResources implements AutoCloseable {
     private void completed() {
         if (inFlight.decrementAndGet() == 0) {
             synchronized (idleMonitor) { idleMonitor.notifyAll(); }
+        }
+    }
+
+    private final class Invocation implements PluginExecution {
+        private final PluginEventHandler handler;
+        private final PluginEvent event;
+        private final CompletableFuture<Void> result = new CompletableFuture<>();
+        private final CancellationTokenSource cancellation = new CancellationTokenSource();
+        private final AtomicBoolean started = new AtomicBoolean();
+        private final AtomicBoolean finished = new AtomicBoolean();
+        private final AtomicReference<Thread> callbackThread = new AtomicReference<>();
+        private volatile Runnable task;
+
+        private Invocation(PluginEventHandler handler, PluginEvent event) {
+            this.handler = handler;
+            this.event = event;
+        }
+
+        private void submit() {
+            task = this::run;
+            executor.execute(task);
+        }
+
+        private void run() {
+            if (!started.compareAndSet(false, true)) return;
+            if (cancellation.token().isCancellationRequested()) {
+                finish(new CancellationException("Plugin invocation was cancelled before start"));
+                return;
+            }
+            callbackThread.set(Thread.currentThread());
+            try (CancellationToken.Scope ignored = CancellationToken.activate(cancellation.token())) {
+                CompletionStage<Void> stage = Objects.requireNonNull(handler.handle(event),
+                        "plugin returned a null CompletionStage");
+                stage.whenComplete((value, failure) -> finish(failure));
+            } catch (Throwable failure) {
+                finish(failure);
+            } finally {
+                callbackThread.set(null);
+            }
+        }
+
+        @Override public CompletionStage<Void> stage() { return result.minimalCompletionStage(); }
+
+        @Override public void cancel() {
+            cancellation.cancel();
+            Thread thread = callbackThread.get();
+            if (thread != null) thread.interrupt();
+            if (!started.get() && task != null && executor.remove(task)) {
+                finish(new CancellationException("Plugin invocation was cancelled"));
+            }
+        }
+
+        @Override public boolean isDone() { return result.isDone(); }
+
+        @Override public boolean await(Duration timeout) {
+            long deadline = System.nanoTime() + requireDelay(timeout, true).toNanos();
+            synchronized (result) {
+                while (!result.isDone()) {
+                    long remaining = deadline - System.nanoTime();
+                    if (remaining <= 0L) return false;
+                    try { TimeUnit.NANOSECONDS.timedWait(result, remaining); }
+                    catch (InterruptedException exception) {
+                        Thread.currentThread().interrupt();
+                        return false;
+                    }
+                }
+                return true;
+            }
+        }
+
+        private void finish(Throwable failure) {
+            if (!finished.compareAndSet(false, true)) return;
+            if (failure == null) result.complete(null); else result.completeExceptionally(failure);
+            completed();
+            synchronized (result) { result.notifyAll(); }
         }
     }
 

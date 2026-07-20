@@ -60,7 +60,8 @@ public class BotController {
                     GatewayIntents.of(request.intents()),
                     new ShardSpec(request.shardIndex(), request.shardCount()),
                     request.enabled(),
-                    secret));
+                    secret,
+                    request.maxMediaUploadBytes()));
         }
         return ResponseEntity.created(URI.create("/api/bots/" + view.id()))
                 .eTag(etag(view))
@@ -71,18 +72,20 @@ public class BotController {
     public ResponseEntity<BotConfigurationResponse> update(
             @PathVariable String botId,
             @Valid @RequestBody UpdateBotRequest request) {
+        BotId id = BotId.parse(botId);
         AppSecret secret = request.appSecret() == null ? null : AppSecret.of(request.appSecret());
         BotConfigurationView view;
         try (secret) {
             view = service.update(new UpdateBotCommand(
-                    BotId.parse(botId),
+                    id,
                     BotRevision.of(request.expectedRevision()),
                     request.displayName(),
                     QqAppId.of(request.appId()),
                     request.environment(),
                     GatewayIntents.of(request.intents()),
                     new ShardSpec(request.shardIndex(), request.shardCount()),
-                    Optional.ofNullable(secret)));
+                    Optional.ofNullable(secret),
+                    request.maxMediaUploadBytes()));
         }
         return response(view);
     }

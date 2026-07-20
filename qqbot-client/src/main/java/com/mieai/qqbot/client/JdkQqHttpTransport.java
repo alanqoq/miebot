@@ -9,8 +9,10 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.net.http.HttpTimeoutException;
+import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
@@ -70,6 +72,40 @@ final class JdkQqHttpTransport {
         return send(request, responseType);
     }
 
+    /** Sends a bounded multipart request used by QQ's channel/direct image endpoint. */
+    <T> CompletionStage<T> postAuthorizedMultipart(
+            URI endpoint,
+            AccessToken accessToken,
+            Map<String, String> fields,
+            String fileField,
+            String fileName,
+            String contentType,
+            byte[] fileBytes,
+            Class<T> responseType) {
+        Objects.requireNonNull(accessToken, "accessToken must not be null");
+        Objects.requireNonNull(fields, "fields must not be null");
+        Objects.requireNonNull(fileField, "fileField must not be null");
+        Objects.requireNonNull(fileName, "fileName must not be null");
+        Objects.requireNonNull(contentType, "contentType must not be null");
+        Objects.requireNonNull(fileBytes, "fileBytes must not be null");
+        String boundary = "----qqbot-" + java.util.UUID.randomUUID();
+        byte[] body;
+        try {
+            body = multipartBody(boundary, fields, fileField, fileName, contentType, fileBytes);
+        } catch (IOException exception) {
+            return java.util.concurrent.CompletableFuture.failedFuture(
+                    QqClientException.protocol(endpoint, exception));
+        }
+        HttpRequest request = HttpRequest.newBuilder(endpoint)
+                .timeout(requestTimeout)
+                .header("Accept", JSON)
+                .header("Content-Type", "multipart/form-data; boundary=" + boundary)
+                .header("Authorization", accessToken.authorizationHeaderValue())
+                .POST(HttpRequest.BodyPublishers.ofByteArray(body))
+                .build();
+        return send(request, responseType);
+    }
+
     <T> CompletionStage<T> getJson(URI endpoint, AccessToken accessToken, Class<T> responseType) {
         Objects.requireNonNull(accessToken, "accessToken must not be null");
         HttpRequest request = HttpRequest.newBuilder(endpoint)
@@ -99,6 +135,45 @@ final class JdkQqHttpTransport {
                         throw QqClientException.protocol(endpoint, exception);
                     }
                 });
+    }
+
+    private static byte[] multipartBody(
+            String boundary,
+            Map<String, String> fields,
+            String fileField,
+            String fileName,
+            String contentType,
+            byte[] fileBytes) throws IOException {
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        for (Map.Entry<String, String> entry : fields.entrySet()) {
+            writeAscii(output, "--" + boundary + "\r\n");
+            writeAscii(output, "Content-Disposition: form-data; name=\""
+                    + escapeHeader(entry.getKey()) + "\"\r\n\r\n");
+            output.write(entry.getValue() == null ? new byte[0]
+                    : entry.getValue().getBytes(StandardCharsets.UTF_8));
+            writeAscii(output, "\r\n");
+        }
+        writeAscii(output, "--" + boundary + "\r\n");
+        writeAscii(output, "Content-Disposition: form-data; name=\""
+                + escapeHeader(fileField) + "\"; filename=\""
+                + escapeHeader(fileName) + "\"\r\n");
+        writeAscii(output, "Content-Type: " + escapeHeader(contentType) + "\r\n\r\n");
+        output.write(fileBytes);
+        writeAscii(output, "\r\n--" + boundary + "--\r\n");
+        return output.toByteArray();
+    }
+
+    private static void writeAscii(ByteArrayOutputStream output, String value) throws IOException {
+        output.write(value.getBytes(StandardCharsets.US_ASCII));
+    }
+
+    private static String escapeHeader(String value) {
+        if (value.indexOf('\r') >= 0 || value.indexOf('\n') >= 0
+                || value.indexOf('"') >= 0 || value.indexOf('\\') >= 0) {
+            return value.replace("\\", "_").replace("\"", "_")
+                    .replace('\r', '_').replace('\n', '_');
+        }
+        return value;
     }
 
     private QqApiError decodeError(String body) {

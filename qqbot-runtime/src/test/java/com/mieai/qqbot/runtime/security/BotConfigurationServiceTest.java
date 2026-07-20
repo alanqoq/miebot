@@ -106,6 +106,25 @@ class BotConfigurationServiceTest {
     }
 
     @Test
+    void omittedMediaLimitRetainsTheCurrentBotSpecificValue() {
+        BotConfigurationView created;
+        try (AppSecret secret = AppSecret.of(ORIGINAL_SECRET)) {
+            created = service.create(new CreateBotCommand(
+                    "Example Bot", QqAppId.of("102012345"), BotEnvironment.SANDBOX,
+                    GatewayIntents.of(512L), ShardSpec.single(), false, secret,
+                    32L * 1024L * 1024L));
+        }
+
+        BotConfigurationView updated = service.update(new UpdateBotCommand(
+                created.id(), created.revision(), "Renamed Bot", created.appId(),
+                created.environment(), created.intents(), created.shardSpec(), Optional.empty()));
+
+        assertThat(updated.maxMediaUploadBytes()).isEqualTo(32L * 1024L * 1024L);
+        assertThat(repository.required(created.id()).definition().maxMediaUploadBytes())
+                .isEqualTo(32L * 1024L * 1024L);
+    }
+
+    @Test
     void omittedSecretIsReencryptedWhenAadBoundConfigurationChanges() {
         BotConfigurationView created = create("102012345", false, ORIGINAL_SECRET);
         StoredBot before = repository.required(created.id());
@@ -392,7 +411,8 @@ class BotConfigurationServiceTest {
                     desired.enabled(),
                     next,
                     desired.createdAt(),
-                    desired.updatedAt());
+                    desired.updatedAt(),
+                    desired.maxMediaUploadBytes());
             bots.put(bot.id(), new StoredBot(persisted, bot.appSecret()));
             return next;
         }

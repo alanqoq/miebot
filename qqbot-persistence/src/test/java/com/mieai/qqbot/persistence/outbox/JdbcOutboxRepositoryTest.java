@@ -9,6 +9,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.mieai.qqbot.domain.bot.BotEnvironment;
 import com.mieai.qqbot.domain.bot.BotId;
+import com.mieai.qqbot.persistence.lease.JdbcBotLeaseRepository;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.Statement;
@@ -28,6 +29,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.dao.DataAccessException;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 class JdbcOutboxRepositoryTest {
     private static final String BOT_ID = "550e8400-e29b-41d4-a716-446655440001";
@@ -64,6 +66,42 @@ class JdbcOutboxRepositoryTest {
         assertThatThrownBy(() -> repository.create(
                         job("30000000-0000-0000-0000-000000000002", BASE_TIME, "reply:event-1")))
                 .isInstanceOf(DataAccessException.class);
+    }
+
+    @Test
+    void ownedClaimSkipsJobsForBotsLeasedByAnotherInstance() {
+        String secondBot = "550e8400-e29b-41d4-a716-446655440002";
+        insertBot(dataSource, secondBot, "10002", BotEnvironment.SANDBOX);
+        repository.create(job("30100000-0000-0000-0000-000000000001", BOT_ID,
+                BASE_TIME, "other-owner"));
+        NewOutboxJob owned = job("30100000-0000-0000-0000-000000000002", secondBot,
+                BASE_TIME, "owned");
+        repository.create(owned);
+        new JdbcBotLeaseRepository(dataSource).acquire(BotId.parse(secondBot), 0, "instance-b",
+                BASE_TIME, Duration.ofSeconds(30)).orElseThrow();
+
+        OutboxJob claimed = repository.claimNextOwned("outbox-worker", "instance-b", BASE_TIME,
+                Duration.ofSeconds(10)).orElseThrow();
+
+        assertThat(claimed.id()).isEqualTo(owned.id());
+        assertThat(repository.findById(UUID.fromString("30100000-0000-0000-0000-000000000001"))
+                .orElseThrow().status()).isEqualTo(OutboxStatus.PENDING);
+    }
+
+    @Test
+    void ownedClaimIgnoresALeaseForTheBotsPreviousShard() {
+        NewOutboxJob job = job("30100000-0000-0000-0000-000000000003", BASE_TIME,
+                "stale-shard");
+        repository.create(job);
+        new JdbcBotLeaseRepository(dataSource).acquire(BotId.parse(BOT_ID), 0, "instance-b",
+                BASE_TIME, Duration.ofSeconds(30)).orElseThrow();
+        new JdbcTemplate(dataSource).update(
+                "UPDATE bots SET shard_index=1, shard_count=2 WHERE id=?", BOT_ID);
+
+        assertThat(repository.claimNextOwned("outbox-worker", "instance-b", BASE_TIME,
+                Duration.ofSeconds(10))).isEmpty();
+        assertThat(repository.findById(job.id()).orElseThrow().status())
+                .isEqualTo(OutboxStatus.PENDING);
     }
 
     @Test
@@ -340,10 +378,14 @@ class JdbcOutboxRepositoryTest {
     }
 
     private static NewOutboxJob job(String id, Instant availableAt, String dedupKey) {
+        return job(id, BOT_ID, availableAt, dedupKey);
+    }
+
+    private static NewOutboxJob job(String id, String botId, Instant availableAt, String dedupKey) {
         return new NewOutboxJob(
                 UUID.fromString(id),
                 BotEnvironment.SANDBOX,
-                BotId.parse(BOT_ID),
+                BotId.parse(botId),
                 Optional.empty(),
                 "SEND_MESSAGE",
                 Optional.of(dedupKey),
