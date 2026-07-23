@@ -46,13 +46,88 @@ describe('PluginApiService', () => {
     expect(create.request.method).toBe('POST');
     create.flush({ id: 'binding-1' });
 
-    api.updateBinding('binding-1', { expectedRevision: 0, configJson: '{}', enabled: false }).subscribe();
+    api.updateBinding('binding-1', { expectedRevision: 0, enabled: false }).subscribe();
     const update = http.expectOne('/api/plugin-bindings/binding-1');
     expect(update.request.method).toBe('PUT');
     update.flush({ id: 'binding-1' });
 
     api.deleteBinding('binding-1').subscribe();
     const remove = http.expectOne('/api/plugin-bindings/binding-1');
+    expect(remove.request.method).toBe('DELETE');
+    remove.flush(null);
+  });
+
+  it('manages files inside a plugin binding directory', () => {
+    api.listBindingFiles('binding 1').subscribe();
+    const root = http.expectOne('/api/plugin-bindings/binding%201/files?path=');
+    expect(root.request.method).toBe('GET');
+    root.flush({ path: '', entries: [] });
+
+    api.listBindingFiles('binding 1', 'images/cache').subscribe();
+    const list = http.expectOne('/api/plugin-bindings/binding%201/files?path=images/cache');
+    expect(list.request.method).toBe('GET');
+    list.flush({ path: 'images/cache', entries: [] });
+
+    api.getBindingFileContent('binding 1', 'config.json').subscribe();
+    const content = http.expectOne('/api/plugin-bindings/binding%201/files/content?path=config.json');
+    expect(content.request.method).toBe('GET');
+    content.flush({ path: 'config.json', content: '{}', sha256: 'abc', modifiedAt: '' });
+
+    api.saveBindingFileContent('binding 1', {
+      path: 'config.json', content: '{"enabled":true}', expectedSha256: 'abc',
+    }).subscribe();
+    const save = http.expectOne('/api/plugin-bindings/binding%201/files/content');
+    expect(save.request.method).toBe('PUT');
+    expect(save.request.body).toEqual({
+      path: 'config.json', content: '{"enabled":true}', expectedSha256: 'abc',
+    });
+    save.flush({});
+
+    api.createBindingFileEntry('binding 1', { path: 'images', directory: true }).subscribe();
+    const create = http.expectOne('/api/plugin-bindings/binding%201/files/entries');
+    expect(create.request.method).toBe('POST');
+    expect(create.request.body).toEqual({ path: 'images', directory: true });
+    create.flush({
+      name: 'images', path: 'images', directory: true, sizeBytes: 0,
+      modifiedAt: '2026-07-18T12:00:00Z', contentType: null,
+    });
+
+    const file = new File([new Uint8Array([1, 2, 3])], 'avatar.png', { type: 'image/png' });
+    api.uploadBindingFile('binding 1', 'images/cache', file).subscribe();
+    const upload = http.expectOne(
+      '/api/plugin-bindings/binding%201/files/upload?directory=images/cache&overwrite=false',
+    );
+    expect(upload.request.method).toBe('POST');
+    expect(upload.request.body).toBeInstanceOf(FormData);
+    const uploaded = (upload.request.body as FormData).get('file') as File;
+    expect(uploaded.name).toBe(file.name);
+    expect(uploaded.size).toBe(file.size);
+    expect(uploaded.type).toBe(file.type);
+    upload.flush({
+      name: file.name, path: `images/cache/${file.name}`, directory: false,
+      sizeBytes: file.size, modifiedAt: '2026-07-18T12:00:00Z', contentType: file.type,
+    });
+
+    api.uploadBindingFile('binding 1', 'images/cache', file, true, 'old-sha').subscribe();
+    const overwrite = http.expectOne(
+      '/api/plugin-bindings/binding%201/files/upload?directory=images/cache&overwrite=true&expectedSha256=old-sha',
+    );
+    expect(overwrite.request.method).toBe('POST');
+    overwrite.flush({
+      name: file.name, path: `images/cache/${file.name}`, directory: false,
+      sizeBytes: file.size, modifiedAt: '2026-07-18T12:00:00Z', contentType: file.type,
+    });
+
+    api.downloadBindingFile('binding 1', 'images/report 1.pdf').subscribe();
+    const download = http.expectOne(
+      '/api/plugin-bindings/binding%201/files/download?path=images/report%201.pdf',
+    );
+    expect(download.request.method).toBe('GET');
+    expect(download.request.responseType).toBe('blob');
+    download.flush(new Blob(['report'], { type: 'application/pdf' }));
+
+    api.deleteBindingFile('binding 1', 'images/old.png').subscribe();
+    const remove = http.expectOne('/api/plugin-bindings/binding%201/files?path=images/old.png');
     expect(remove.request.method).toBe('DELETE');
     remove.flush(null);
   });

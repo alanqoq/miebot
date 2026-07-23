@@ -1,5 +1,10 @@
 description = "Robot plugin SDK, loading, binding, delivery, upload, and administration module"
 
+plugins {
+    kotlin("jvm")
+    kotlin("plugin.spring")
+}
+
 val moduleWebDist = layout.projectDirectory.dir(
     "../qqbot-admin-web/dist/modules/plugin-support/browser")
 
@@ -19,7 +24,9 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-validation")
     implementation("org.springframework.boot:spring-boot-starter-web")
     implementation("org.springframework:spring-context")
+    implementation("org.springframework:spring-jdbc")
     implementation("org.slf4j:slf4j-api")
+    implementation("org.jetbrains.kotlin:kotlin-reflect")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation(project(":qqbot-module-platform-admin"))

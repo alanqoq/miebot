@@ -34,7 +34,7 @@ class JdbcPluginStorageRepositoryTest {
                 "echo", "Echo Reply", "1.0.0", "1.0.0", "echo.jar", "sha256", "factory",
                 "LOADED", true, BASE_TIME, BASE_TIME));
         new JdbcBotPluginBindingRepository(dataSource).insert(new BotPluginBinding(
-                BINDING, "echo", BotId.parse(BOT), "{}", true, 0, BASE_TIME, BASE_TIME));
+                BINDING, "echo", BotId.parse(BOT), true, 0, BASE_TIME, BASE_TIME));
         storage = new JdbcPluginStorageRepository(dataSource);
     }
 
@@ -60,7 +60,7 @@ class JdbcPluginStorageRepositoryTest {
         String secondBot = "550e8400-e29b-41d4-a716-446655440002";
         insertBot(dataSource, secondBot, "10002", BotEnvironment.SANDBOX);
         new JdbcBotPluginBindingRepository(dataSource).insert(new BotPluginBinding(
-                secondBinding, "echo", BotId.parse(secondBot), "{}", true, 0, BASE_TIME, BASE_TIME));
+                secondBinding, "echo", BotId.parse(secondBot), true, 0, BASE_TIME, BASE_TIME));
 
         storage.put(BINDING, "state", "value", "first", BASE_TIME);
         storage.put(secondBinding, "state", "value", "second", BASE_TIME);

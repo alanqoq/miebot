@@ -25,7 +25,7 @@ class SQLiteMigrationTest {
         Path databaseFile = temporaryDirectory.resolve("database with space.db");
         DataSource dataSource = SQLiteDataSourceFactory.create(databaseFile);
 
-        assertThat(SQLiteDatabaseInitializer.migrate(dataSource)).isEqualTo(13);
+        assertThat(SQLiteDatabaseInitializer.migrate(dataSource)).isEqualTo(14);
         assertThat(SQLiteDatabaseInitializer.migrate(dataSource)).isZero();
 
         assertThat(databaseFile).isRegularFile();
@@ -44,6 +44,11 @@ class SQLiteMigrationTest {
                     .contains("app_secret_key_id")
                     .contains("max_media_upload_bytes")
                     .contains("revision");
+            assertThat(queryInt(connection, """
+                    SELECT count(*)
+                    FROM pragma_table_info('bot_plugins')
+                    WHERE name = 'config_json'
+                    """)).isZero();
         }
     }
 
@@ -83,7 +88,7 @@ class SQLiteMigrationTest {
     }
 
     @Test
-    void createsOnlyTheExpectedApplicationTablesThroughV013() throws SQLException {
+    void createsOnlyTheExpectedApplicationTablesThroughV014() throws SQLException {
         DataSource dataSource = SQLiteDataSourceFactory.create(temporaryDirectory.resolve("schema.db"));
         SQLiteDatabaseInitializer.migrate(dataSource);
 
@@ -129,6 +134,34 @@ class SQLiteMigrationTest {
     }
 
     @Test
+    void dropsTheLegacyDatabaseBackedPluginConfigurationInV014() throws SQLException {
+        DataSource dataSource = SQLiteDataSourceFactory.create(temporaryDirectory.resolve("legacy-plugin-config.db"));
+        Flyway.configure()
+                .dataSource(dataSource)
+                .locations("classpath:db/migration/sqlite")
+                .target("13")
+                .load()
+                .migrate();
+        try (Connection connection = dataSource.getConnection()) {
+            assertThat(queryInt(connection, """
+                    SELECT count(*)
+                    FROM pragma_table_info('bot_plugins')
+                    WHERE name = 'config_json'
+                    """)).isEqualTo(1);
+        }
+
+        assertThat(SQLiteDatabaseInitializer.migrate(dataSource)).isEqualTo(1);
+
+        try (Connection connection = dataSource.getConnection()) {
+            assertThat(queryInt(connection, """
+                    SELECT count(*)
+                    FROM pragma_table_info('bot_plugins')
+                    WHERE name = 'config_json'
+                    """)).isZero();
+        }
+    }
+
+    @Test
     void upgradesLegacyZeroIntentsToTheCurrentGroupAndC2cDefault() throws SQLException {
         DataSource dataSource = SQLiteDataSourceFactory.create(temporaryDirectory.resolve("legacy.db"));
         Flyway.configure()
@@ -153,7 +186,7 @@ class SQLiteMigrationTest {
                     """);
         }
 
-        assertThat(SQLiteDatabaseInitializer.migrate(dataSource)).isEqualTo(10);
+        assertThat(SQLiteDatabaseInitializer.migrate(dataSource)).isEqualTo(11);
 
         try (Connection connection = dataSource.getConnection()) {
             assertThat(queryInt(connection, "SELECT intents FROM bots"))

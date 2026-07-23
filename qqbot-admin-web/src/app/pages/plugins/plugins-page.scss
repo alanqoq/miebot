@@ -261,43 +261,6 @@ td {
   white-space: nowrap;
 }
 
-.switch-control {
-  position: relative;
-  width: 34px;
-  height: 20px;
-  padding: 0;
-  border: 1px solid #b9c1c5;
-  border-radius: 12px;
-  background: #e8ecee;
-  cursor: pointer;
-}
-
-.switch-control span {
-  position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 1px 2px rgb(0 0 0 / 18%);
-  transition: transform 120ms ease;
-}
-
-.switch-control.active {
-  border-color: #2f856f;
-  background: #3c9b82;
-}
-
-.switch-control.active span {
-  transform: translateX(14px);
-}
-
-.switch-control:disabled {
-  cursor: wait;
-  opacity: 0.55;
-}
-
 .dialog-backdrop {
   position: fixed;
   z-index: 20;
@@ -489,6 +452,12 @@ td {
 
 .field-error {
   color: #8b3030;
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.field-hint {
+  color: var(--muted);
   font-size: 11px;
   font-weight: 400;
 }

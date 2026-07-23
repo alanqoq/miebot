@@ -9,6 +9,7 @@ import java.nio.file.Path;
 import java.util.jar.Attributes;
 import java.util.jar.JarOutputStream;
 import java.util.jar.Manifest;
+import java.util.zip.ZipEntry;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -26,6 +27,7 @@ class PluginAdministrationServiceTest {
         manifest.getMainAttributes().putValue("Plugin-Api-Version", "1");
         manifest.getMainAttributes().putValue("Plugin-Class", "example.SupportPlugin");
         manifest.getMainAttributes().putValue("Plugin-Config-Schema", "plugin-schema.json");
+        manifest.getMainAttributes().putValue("Plugin-Default-Config", "plugin-default.json");
         writeManifestJar(directory.resolve("support.jar"), manifest);
 
         PluginInventoryResponse response = new PluginAdministrationService(directory.toString()).scan(null);
@@ -65,6 +67,12 @@ class PluginAdministrationServiceTest {
 
     private static void writeManifestJar(Path target, Manifest manifest) throws IOException {
         JarOutputStream output = new JarOutputStream(Files.newOutputStream(target), manifest);
+        output.putNextEntry(new ZipEntry("plugin-schema.json"));
+        output.write("{\"type\":\"object\"}".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        output.closeEntry();
+        output.putNextEntry(new ZipEntry("plugin-default.json"));
+        output.write("{}".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        output.closeEntry();
         output.finish();
         output.close();
     }

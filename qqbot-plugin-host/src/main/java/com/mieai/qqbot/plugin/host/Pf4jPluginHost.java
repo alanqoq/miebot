@@ -2,6 +2,7 @@ package com.mieai.qqbot.plugin.host;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.mieai.qqbot.domain.bot.BotId;
 import com.mieai.qqbot.persistence.bot.BotRepository;
 import com.mieai.qqbot.persistence.inbox.InboxEvent;
 import com.mieai.qqbot.persistence.outbox.OutboxRepository;
@@ -21,15 +22,19 @@ import com.mieai.qqbot.plugin.api.PluginLogger;
 import com.mieai.qqbot.plugin.api.PluginRuntimeContext;
 import com.mieai.qqbot.plugin.api.PluginScheduler;
 import com.mieai.qqbot.plugin.api.PluginStorage;
-import com.mieai.qqbot.plugin.api.RestrictedHttpClient;
 import com.mieai.qqbot.plugin.api.TextMessage;
 import com.mieai.qqbot.plugin.spi.BotPlugin;
 import com.mieai.qqbot.plugin.spi.BotPluginFactory;
 import com.mieai.qqbot.plugin.spi.PluginApiVersion;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.CodingErrorAction;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
@@ -52,8 +57,10 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.Executor;
+import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 import java.util.jar.Manifest;
+import java.util.regex.Pattern;
 import org.pf4j.DefaultPluginManager;
 import org.pf4j.PluginState;
 import org.pf4j.PluginWrapper;
@@ -67,8 +74,17 @@ public final class Pf4jPluginHost implements AutoCloseable {
             "event.read", "event.subscribe", "message.send", "media.send", "storage", "scheduler", "http");
     private static final int DEFAULT_QUEUE_CAPACITY = 256;
     private static final Duration DEFAULT_SHUTDOWN_TIMEOUT = Duration.ofSeconds(20);
+    private static final String CONFIGURATION_FILE_NAME = "config.json";
+    private static final int MAX_CONFIGURATION_BYTES = 64 * 1024;
+    private static final Pattern PLUGIN_ID_PATTERN = Pattern.compile(
+            "[a-z0-9](?:[a-z0-9._-]{0,126}[a-z0-9])?");
+    private static final Set<String> WINDOWS_RESERVED_PLUGIN_ID_STEMS = Set.of(
+            "con", "prn", "aux", "nul",
+            "com1", "com2", "com3", "com4", "com5", "com6", "com7", "com8", "com9",
+            "lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6", "lpt7", "lpt8", "lpt9");
 
     private final Path pluginDirectory;
+    private final Path pluginDataRoot;
     private final PluginArtifactRepository artifacts;
     private final BotRepository bots;
     private final OutboxRepository outbox;
@@ -84,42 +100,49 @@ public final class Pf4jPluginHost implements AutoCloseable {
     private DefaultPluginManager manager;
     private boolean started;
 
-    public Pf4jPluginHost(Path pluginDirectory, PluginArtifactRepository artifacts, BotRepository bots,
+    public Pf4jPluginHost(Path pluginDirectory, Path pluginDataRoot,
+            PluginArtifactRepository artifacts, BotRepository bots,
             OutboxRepository outbox, ObjectMapper mapper, Clock clock, Executor ignoredExecutor) {
-        this(pluginDirectory, artifacts, bots, outbox, Optional.empty(), mapper, clock,
+        this(pluginDirectory, pluginDataRoot, artifacts, bots, outbox, Optional.empty(), mapper, clock,
                 DEFAULT_QUEUE_CAPACITY, DEFAULT_SHUTDOWN_TIMEOUT, Optional.empty());
     }
 
-    public Pf4jPluginHost(Path pluginDirectory, PluginArtifactRepository artifacts, BotRepository bots,
+    public Pf4jPluginHost(Path pluginDirectory, Path pluginDataRoot,
+            PluginArtifactRepository artifacts, BotRepository bots,
             OutboxRepository outbox, PluginStorageRepository storage, ObjectMapper mapper,
             Clock clock, Executor ignoredExecutor) {
-        this(pluginDirectory, artifacts, bots, outbox,
+        this(pluginDirectory, pluginDataRoot, artifacts, bots, outbox,
                 Optional.of(Objects.requireNonNull(storage, "storage must not be null")), mapper, clock,
                 DEFAULT_QUEUE_CAPACITY, DEFAULT_SHUTDOWN_TIMEOUT, Optional.empty());
     }
 
-    public Pf4jPluginHost(Path pluginDirectory, PluginArtifactRepository artifacts, BotRepository bots,
+    public Pf4jPluginHost(Path pluginDirectory, Path pluginDataRoot,
+            PluginArtifactRepository artifacts, BotRepository bots,
             OutboxRepository outbox, PluginStorageRepository storage, ObjectMapper mapper,
             Clock clock, int queueCapacity, Duration shutdownTimeout) {
-        this(pluginDirectory, artifacts, bots, outbox,
+        this(pluginDirectory, pluginDataRoot, artifacts, bots, outbox,
                 Optional.of(Objects.requireNonNull(storage, "storage must not be null")), mapper, clock,
                 queueCapacity, shutdownTimeout, Optional.empty());
     }
 
-    public Pf4jPluginHost(Path pluginDirectory, PluginArtifactRepository artifacts, BotRepository bots,
+    public Pf4jPluginHost(Path pluginDirectory, Path pluginDataRoot,
+            PluginArtifactRepository artifacts, BotRepository bots,
             OutboxRepository outbox, PluginStorageRepository storage, MediaAssetStore mediaStore,
             ObjectMapper mapper, Clock clock, int queueCapacity, Duration shutdownTimeout) {
-        this(pluginDirectory, artifacts, bots, outbox,
+        this(pluginDirectory, pluginDataRoot, artifacts, bots, outbox,
                 Optional.of(Objects.requireNonNull(storage, "storage must not be null")), mapper, clock,
                 queueCapacity, shutdownTimeout,
                 Optional.of(Objects.requireNonNull(mediaStore, "mediaStore must not be null")));
     }
 
-    private Pf4jPluginHost(Path pluginDirectory, PluginArtifactRepository artifacts, BotRepository bots,
+    private Pf4jPluginHost(Path pluginDirectory, Path pluginDataRoot,
+            PluginArtifactRepository artifacts, BotRepository bots,
             OutboxRepository outbox, Optional<PluginStorageRepository> storage, ObjectMapper mapper,
             Clock clock, int queueCapacity, Duration shutdownTimeout,
             Optional<MediaAssetStore> mediaStore) {
         this.pluginDirectory = Objects.requireNonNull(pluginDirectory, "pluginDirectory must not be null")
+                .toAbsolutePath().normalize();
+        this.pluginDataRoot = Objects.requireNonNull(pluginDataRoot, "pluginDataRoot must not be null")
                 .toAbsolutePath().normalize();
         this.artifacts = Objects.requireNonNull(artifacts, "artifacts must not be null");
         this.bots = Objects.requireNonNull(bots, "bots must not be null");
@@ -169,7 +192,7 @@ public final class Pf4jPluginHost implements AutoCloseable {
         String pluginId = null;
         try {
             pluginId = verifier.loadPlugin(path);
-            if (pluginId == null) throw new IllegalStateException("PF4J did not return a plugin id");
+            requirePluginId(pluginId);
             verifier.startPlugin(pluginId);
             LoadedPluginDetails details = details(verifier.getPlugin(pluginId));
             LoadedPluginMetadata metadata = details.metadata();
@@ -252,6 +275,40 @@ public final class Pf4jPluginHost implements AutoCloseable {
                 .sorted(Comparator.comparing(LoadedPluginMetadata::id)).toList();
     }
 
+    /** Returns the normalized JSON object declared by the plugin artifact as its binding default. */
+    public synchronized String defaultConfiguration(String pluginId) {
+        LoadedPlugin plugin = loaded.get(requirePluginId(pluginId));
+        if (plugin == null) throw new IllegalStateException("Plugin is not loaded: " + pluginId);
+        return plugin.metadata().defaultConfiguration();
+    }
+
+    /** Resolves the private data directory owned by exactly one bot/plugin binding. */
+    public Path bindingDataDirectory(BotPluginBinding binding) {
+        Objects.requireNonNull(binding, "binding must not be null");
+        Path botDirectory = pluginDataRoot.resolve(binding.botId().toString()).normalize();
+        Path bindingDirectory = botDirectory.resolve(requirePluginId(binding.pluginId())).normalize();
+        if (!bindingDirectory.startsWith(pluginDataRoot)
+                || !Objects.equals(bindingDirectory.getParent(), botDirectory)) {
+            throw new IllegalArgumentException("Plugin id does not resolve to one binding directory");
+        }
+        return bindingDirectory;
+    }
+
+    /** Returns the configured boundary containing every bot/plugin binding data directory. */
+    public Path pluginDataRoot() {
+        return pluginDataRoot;
+    }
+
+    /** Resolves the configuration file stored inside one bot/plugin binding directory. */
+    public Path configurationFile(BotPluginBinding binding) {
+        Path directory = bindingDataDirectory(binding);
+        Path configuration = directory.resolve(CONFIGURATION_FILE_NAME).normalize();
+        if (!Objects.equals(configuration.getParent(), directory)) {
+            throw new IllegalStateException("Plugin configuration path escaped its binding directory");
+        }
+        return configuration;
+    }
+
     public synchronized List<String> validateConfiguration(String pluginId, String configurationJson) {
         LoadedPlugin plugin = loaded.get(pluginId);
         if (plugin == null) return List.of("Plugin is not loaded");
@@ -272,6 +329,34 @@ public final class Pf4jPluginHost implements AutoCloseable {
     public synchronized List<String> handlerIds(BotPluginBinding binding, String eventType) {
         InstanceHandle handle = instance(binding);
         return handle.resources().handlerIds(eventType);
+    }
+
+    /**
+     * Stops local instances whose authoritative binding no longer permits the same runtime.
+     * Bindings without a local instance are deliberately left untouched and are materialized lazily.
+     */
+    public synchronized void reconcileBindings(List<BotPluginBinding> currentBindings) {
+        Objects.requireNonNull(currentBindings, "currentBindings must not be null");
+        Map<UUID, BotPluginBinding> authoritative = new HashMap<>();
+        for (BotPluginBinding binding : currentBindings) {
+            BotPluginBinding value = Objects.requireNonNull(binding, "currentBindings must not contain null");
+            if (authoritative.put(value.id(), value) != null) {
+                throw new IllegalArgumentException("currentBindings contains a duplicate binding id: " + value.id());
+            }
+        }
+
+        List<InstanceHandle> stale = instances.values().stream()
+                .filter(handle -> {
+                    BotPluginBinding binding = authoritative.get(handle.bindingId());
+                    return binding == null
+                            || !binding.enabled()
+                            || !binding.runtimeState().runnable()
+                            || !handle.pluginId().equals(binding.pluginId())
+                            || handle.revision() != binding.revision();
+                })
+                .toList();
+        stale.forEach(handle -> instances.remove(handle.bindingId()));
+        stopInstances(stale);
     }
 
     public CompletionStage<Void> execute(BotPluginBinding binding, InboxEvent inboxEvent) {
@@ -306,6 +391,58 @@ public final class Pf4jPluginHost implements AutoCloseable {
         if (handle != null) stop(handle);
     }
 
+    /**
+     * Fences one binding and requires every accepted callback to become idle before returning.
+     *
+     * <p>On timeout the handle remains registered but fenced, so no replacement instance can be
+     * materialized until the caller retries or explicitly applies another lifecycle transition.
+     */
+    public synchronized void quiesceBindingStrict(UUID bindingId) {
+        Objects.requireNonNull(bindingId, "bindingId must not be null");
+        InstanceHandle handle = instances.get(bindingId);
+        if (handle == null) return;
+        handle.resources().beginShutdown();
+        if (!handle.resources().awaitIdle(shutdownTimeout)) {
+            LOGGER.warn("Plugin {} binding {} did not become idle before strict quiescence",
+                    handle.pluginId(), handle.bindingId());
+            throw new IllegalStateException("Plugin callbacks are still running for binding " + bindingId);
+        }
+        instances.remove(bindingId, handle);
+        finishStop(handle);
+    }
+
+    /**
+     * Fences every local binding for one bot and waits for all accepted callbacks to finish.
+     *
+     * <p>If the bounded wait expires, the instances remain fenced and registered so a later
+     * deletion attempt can continue waiting. Callers must not delete the bot data directory when
+     * this method throws.
+     */
+    public synchronized void invalidateBot(BotId botId) {
+        Objects.requireNonNull(botId, "botId must not be null");
+        List<InstanceHandle> handles = instances.values().stream()
+                .filter(handle -> handle.botId().equals(botId))
+                .toList();
+        handles.forEach(handle -> handle.resources().beginShutdown());
+
+        long deadline = System.nanoTime() + shutdownTimeout.toNanos();
+        List<InstanceHandle> busy = new ArrayList<>();
+        for (InstanceHandle handle : handles) {
+            long remaining = Math.max(0L, deadline - System.nanoTime());
+            if (!handle.resources().awaitIdle(Duration.ofNanos(remaining))) {
+                busy.add(handle);
+            }
+        }
+        if (!busy.isEmpty()) {
+            LOGGER.warn("{} plugin binding(s) for bot {} did not become idle before deletion",
+                    busy.size(), botId);
+            throw new IllegalStateException("Plugin callbacks are still running for bot " + botId);
+        }
+
+        handles.forEach(handle -> instances.remove(handle.bindingId(), handle));
+        handles.forEach(this::finishStop);
+    }
+
     /** Immediately fences a timed-out binding before its durable state is quarantined. */
     synchronized void quarantine(UUID bindingId) {
         InstanceHandle handle = instances.remove(bindingId);
@@ -334,6 +471,8 @@ public final class Pf4jPluginHost implements AutoCloseable {
         if (current != null) { instances.remove(binding.id()); stop(current); }
         LoadedPlugin plugin = loaded.get(binding.pluginId());
         if (plugin == null) throw new IllegalStateException("Plugin is not loaded: " + binding.pluginId());
+        Path dataDirectory = requireBindingDataDirectory(binding);
+        String configurationJson = readBindingConfiguration(binding, plugin, dataDirectory);
         var bot = bots.findById(binding.botId()).orElseThrow(
                 () -> new IllegalStateException("Bot does not exist for plugin binding"));
         var environment = bot.definition().environment();
@@ -346,24 +485,23 @@ public final class Pf4jPluginHost implements AutoCloseable {
         MessageSender sender = plugin.metadata().capabilities().contains("message.send") ? durable : new DeniedMessageSender();
         PluginStorage pluginStorage = plugin.metadata().capabilities().contains("storage") && storage.isPresent()
                 ? new DurablePluginStorage(binding.id(), storage.orElseThrow(), clock) : PluginStorage.denied();
-        RestrictedPluginHttpClient http = plugin.metadata().capabilities().contains("http")
-                ? new RestrictedPluginHttpClient() : null;
-        PluginContext base = new PluginContext(binding.botId(), environment, binding.pluginId(),
-                binding.configJson(), sender, logger, pluginStorage);
+        RestrictedPluginHttpClient http = new RestrictedPluginHttpClient();
+        PluginContext base = new PluginContext(binding.botId(), environment, binding.pluginId(), dataDirectory,
+                configurationJson, sender, logger, pluginStorage);
         PluginRuntimeContext extended = new PluginRuntimeContext(base,
-                new ConfigSnapshot(binding.configJson(), binding.revision(), clock.instant()),
+                new ConfigSnapshot(configurationJson, binding.revision(), clock.instant()),
                 plugin.metadata().capabilities().contains("event.subscribe")
                         ? resources.eventService() : EventService.denied(),
                 plugin.metadata().capabilities().contains("scheduler")
                         ? resources.pluginScheduler() : PluginScheduler.denied(),
-                http == null ? RestrictedHttpClient.denied() : http,
+                http,
                 plugin.metadata().capabilities().contains("media.send")
                         ? durable : MediaService.denied());
         try {
             BotPlugin created = plugin.factory().create(extended);
             BotPlugin botPlugin = Objects.requireNonNull(created, "plugin factory returned null");
             botPlugin.start();
-            InstanceHandle handle = new InstanceHandle(binding.id(), binding.pluginId(), binding.revision(),
+            InstanceHandle handle = new InstanceHandle(binding.id(), binding.botId(), binding.pluginId(), binding.revision(),
                     botPlugin, resources, http);
             instances.put(binding.id(), handle);
             return handle;
@@ -374,11 +512,94 @@ public final class Pf4jPluginHost implements AutoCloseable {
         }
     }
 
+    private Path requireBindingDataDirectory(BotPluginBinding binding) {
+        Path directory = bindingDataDirectory(binding);
+        if (!Files.isDirectory(pluginDataRoot)) {
+            throw new IllegalStateException("Plugin data root does not exist or is not a directory: "
+                    + pluginDataRoot);
+        }
+        if (!Files.isDirectory(directory, LinkOption.NOFOLLOW_LINKS)) {
+            throw new IllegalStateException("Plugin binding data directory does not exist or is not a directory: "
+                    + directory);
+        }
+        try {
+            Path realRoot = pluginDataRoot.toRealPath();
+            Path realDirectory = directory.toRealPath();
+            if (!realDirectory.startsWith(realRoot)) {
+                throw new IllegalStateException("Plugin binding data directory escapes the configured data root: "
+                        + directory);
+            }
+        } catch (IOException exception) {
+            throw new IllegalStateException("Unable to resolve plugin binding data directory: " + directory,
+                    exception);
+        }
+        return directory;
+    }
+
+    private String readBindingConfiguration(
+            BotPluginBinding binding, LoadedPlugin plugin, Path dataDirectory) {
+        Path configuration = configurationFile(binding);
+        if (!Files.isRegularFile(configuration, LinkOption.NOFOLLOW_LINKS)) {
+            throw new IllegalStateException("Plugin binding configuration file does not exist or is not a regular file: "
+                    + configuration);
+        }
+        try {
+            Path realDirectory = dataDirectory.toRealPath();
+            Path realConfiguration = configuration.toRealPath();
+            if (!Objects.equals(realConfiguration.getParent(), realDirectory)) {
+                throw new IllegalStateException("Plugin binding configuration file escapes its data directory: "
+                        + configuration);
+            }
+            String json = readBindingConfigurationUtf8(configuration);
+            JsonNode value;
+            try {
+                value = mapper.readTree(json);
+            } catch (IOException | RuntimeException exception) {
+                throw new IllegalStateException("Plugin binding configuration is not valid JSON: "
+                        + configuration, exception);
+            }
+            if (value == null || !value.isObject()) {
+                throw new IllegalStateException("Plugin binding configuration must be a JSON object: "
+                        + configuration);
+            }
+            List<String> errors = new PluginConfigurationValidator().validate(plugin.schema(), value);
+            if (!errors.isEmpty()) {
+                throw new IllegalStateException("Plugin binding configuration failed schema validation: "
+                        + String.join("; ", errors));
+            }
+            return json;
+        } catch (IOException exception) {
+            throw new IllegalStateException("Unable to read plugin binding configuration: " + configuration,
+                    exception);
+        }
+    }
+
+    private static String readBindingConfigurationUtf8(Path configuration) throws IOException {
+        byte[] bytes;
+        try (InputStream input = Files.newInputStream(configuration)) {
+            bytes = input.readNBytes(MAX_CONFIGURATION_BYTES + 1);
+        }
+        if (bytes.length > MAX_CONFIGURATION_BYTES) {
+            throw new IllegalStateException("Plugin binding configuration cannot exceed 64 KiB: "
+                    + configuration);
+        }
+        try {
+            return StandardCharsets.UTF_8.newDecoder()
+                    .onMalformedInput(CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(CodingErrorAction.REPORT)
+                    .decode(ByteBuffer.wrap(bytes))
+                    .toString();
+        } catch (CharacterCodingException exception) {
+            throw new IllegalStateException("Plugin binding configuration must be valid UTF-8: "
+                    + configuration, exception);
+        }
+    }
+
     private LoadedPlugin loadIntoHost(Path path, boolean authoritative) {
         ensureManager();
         String pluginId = manager.loadPlugin(path);
-        if (pluginId == null) throw new IllegalStateException("PF4J did not return a plugin id");
         try {
+            requirePluginId(pluginId);
             manager.startPlugin(pluginId);
             LoadedPluginDetails details = details(manager.getPlugin(pluginId));
             LoadedPlugin plugin = new LoadedPlugin(details.metadata(), details.factory(), details.schema());
@@ -386,9 +607,11 @@ public final class Pf4jPluginHost implements AutoCloseable {
             persist(plugin.metadata(), authoritative);
             return plugin;
         } catch (RuntimeException exception) {
-            try { manager.stopPlugin(pluginId); } catch (RuntimeException ignored) {}
-            try { manager.unloadPlugin(pluginId); } catch (RuntimeException ignored) {}
-            loaded.remove(pluginId);
+            if (pluginId != null) {
+                try { manager.stopPlugin(pluginId); } catch (RuntimeException ignored) {}
+                try { manager.unloadPlugin(pluginId); } catch (RuntimeException ignored) {}
+                loaded.remove(pluginId);
+            }
             throw exception;
         }
     }
@@ -397,15 +620,17 @@ public final class Pf4jPluginHost implements AutoCloseable {
         if (wrapper == null || !(wrapper.getPlugin() instanceof Pf4jPluginBridge bridge)) {
             throw new IllegalStateException("Plugin does not use the QQBot PF4J bridge");
         }
+        String pluginId = requirePluginId(wrapper.getPluginId());
         BotPluginFactory factory = bridge.factory();
-        if (!wrapper.getPluginId().equals(factory.pluginId())) {
+        if (!pluginId.equals(factory.pluginId())) {
             throw new IllegalStateException("Plugin descriptor id does not match factory id");
         }
         Path path = wrapper.getPluginPath().toAbsolutePath().normalize();
-        String name = wrapper.getPluginId();
+        String name = pluginId;
         String api = wrapper.getDescriptor().getRequires();
         if (api == null || api.isBlank()) api = PluginApiVersion.CURRENT;
         String schemaPath = null;
+        String defaultConfigurationPath = null;
         Set<String> capabilities = new HashSet<>();
         try (JarFile jar = new JarFile(path.toFile(), false)) {
             Manifest manifest = jar.getManifest();
@@ -413,6 +638,7 @@ public final class Pf4jPluginHost implements AutoCloseable {
                 String declared = manifest.getMainAttributes().getValue("Plugin-Name");
                 if (declared != null && !declared.isBlank()) name = declared.strip();
                 schemaPath = manifest.getMainAttributes().getValue("Plugin-Config-Schema");
+                defaultConfigurationPath = manifest.getMainAttributes().getValue("Plugin-Default-Config");
                 String declaredCapabilities = manifest.getMainAttributes().getValue("Plugin-Capabilities");
                 if (declaredCapabilities != null) {
                     Arrays.stream(declaredCapabilities.split(","))
@@ -425,26 +651,75 @@ public final class Pf4jPluginHost implements AutoCloseable {
         if (schemaPath == null || schemaPath.isBlank()) {
             throw new IllegalStateException("Plugin manifest must declare Plugin-Config-Schema");
         }
+        if (defaultConfigurationPath == null || defaultConfigurationPath.isBlank()) {
+            throw new IllegalStateException("Plugin manifest must declare Plugin-Default-Config");
+        }
+        schemaPath = requireResourcePath(schemaPath, "Plugin-Config-Schema");
+        defaultConfigurationPath = requireResourcePath(defaultConfigurationPath, "Plugin-Default-Config");
         capabilities.add("event.read");
+        capabilities.add("http");
         for (String capability : capabilities) {
             if (!SUPPORTED_CAPABILITIES.contains(capability)) {
                 throw new IllegalStateException("Unsupported plugin capability: " + capability);
             }
         }
-        JsonNode schema;
-        try (InputStream input = wrapper.getPluginClassLoader().getResourceAsStream(schemaPath)) {
-            if (input == null) throw new IllegalStateException("Plugin configuration schema resource is missing");
-            schema = mapper.readTree(input);
-        } catch (IOException exception) {
-            throw new IllegalStateException("Unable to read plugin configuration schema", exception);
-        }
+        JsonNode schema = readPluginSchema(path, schemaPath);
         if (schema == null || !schema.isObject()) {
             throw new IllegalStateException("Plugin configuration schema must be an object");
         }
-        LoadedPluginMetadata metadata = new LoadedPluginMetadata(wrapper.getPluginId(), name,
+        JsonNode defaultConfiguration = readPluginDefaultConfiguration(path, defaultConfigurationPath);
+        if (defaultConfiguration == null || !defaultConfiguration.isObject()) {
+            throw new IllegalStateException("Plugin default configuration must be a JSON object");
+        }
+        List<String> defaultErrors = new PluginConfigurationValidator().validate(schema, defaultConfiguration);
+        if (!defaultErrors.isEmpty()) {
+            throw new IllegalStateException("Plugin default configuration failed schema validation: "
+                    + String.join("; ", defaultErrors));
+        }
+        String normalizedDefault;
+        try {
+            normalizedDefault = mapper.writeValueAsString(defaultConfiguration);
+        } catch (IOException exception) {
+            throw new IllegalStateException("Unable to normalize plugin default configuration", exception);
+        }
+        LoadedPluginMetadata metadata = new LoadedPluginMetadata(pluginId, name,
                 wrapper.getDescriptor().getVersion(), api, path, sha256(path), factory.getClass().getName(),
-                schemaPath, capabilities);
+                schemaPath, defaultConfigurationPath, normalizedDefault, capabilities);
         return new LoadedPluginDetails(metadata, factory, schema);
+    }
+
+    private JsonNode readPluginSchema(Path pluginPath, String resourcePath) {
+        try (JarFile jar = new JarFile(pluginPath.toFile(), false)) {
+            JarEntry entry = requirePluginResource(jar, resourcePath,
+                    "Plugin configuration schema resource is missing");
+            try (InputStream input = jar.getInputStream(entry)) {
+                return mapper.readTree(input);
+            }
+        } catch (IOException exception) {
+            throw new IllegalStateException("Unable to read plugin configuration schema", exception);
+        }
+    }
+
+    private JsonNode readPluginDefaultConfiguration(Path pluginPath, String resourcePath) {
+        try (JarFile jar = new JarFile(pluginPath.toFile(), false)) {
+            JarEntry entry = requirePluginResource(jar, resourcePath,
+                    "Plugin default configuration resource is missing");
+            try (InputStream input = jar.getInputStream(entry)) {
+                byte[] bytes = input.readNBytes(MAX_CONFIGURATION_BYTES + 1);
+                if (bytes.length > MAX_CONFIGURATION_BYTES) {
+                    throw new IllegalStateException("Plugin default configuration cannot exceed 64 KiB");
+                }
+                return mapper.readTree(bytes);
+            }
+        } catch (IOException exception) {
+            throw new IllegalStateException("Unable to read plugin default configuration", exception);
+        }
+    }
+
+    private static JarEntry requirePluginResource(JarFile jar, String resourcePath, String missingMessage) {
+        JarEntry entry = jar.getJarEntry(resourcePath);
+        if (entry == null || entry.isDirectory()) throw new IllegalStateException(missingMessage);
+        return entry;
     }
 
     private void persist(LoadedPluginMetadata metadata, boolean authoritative) {
@@ -492,6 +767,10 @@ public final class Pf4jPluginHost implements AutoCloseable {
             LOGGER.warn("Plugin {} binding {} did not become idle before shutdown",
                     handle.pluginId(), handle.bindingId());
         }
+        finishStop(handle);
+    }
+
+    private void finishStop(InstanceHandle handle) {
         try { handle.plugin().stop(); }
         catch (RuntimeException exception) {
             LOGGER.warn("Plugin {} failed while stopping binding {}", handle.pluginId(), handle.bindingId());
@@ -594,9 +873,36 @@ public final class Pf4jPluginHost implements AutoCloseable {
         return value;
     }
 
+    private static String requirePluginId(String pluginId) {
+        if (pluginId == null || !PLUGIN_ID_PATTERN.matcher(pluginId).matches()) {
+            throw new IllegalArgumentException(
+                    "Plugin id must be 1-128 lowercase ASCII letters, digits, dots, underscores or hyphens, "
+                            + "and must start and end with a letter or digit");
+        }
+        int dot = pluginId.indexOf('.');
+        String windowsStem = dot < 0 ? pluginId : pluginId.substring(0, dot);
+        if (WINDOWS_RESERVED_PLUGIN_ID_STEMS.contains(windowsStem)) {
+            throw new IllegalArgumentException("Plugin id uses a reserved Windows directory name: " + pluginId);
+        }
+        return pluginId;
+    }
+
+    private static String requireResourcePath(String value, String attribute) {
+        String path = value.strip();
+        if (path.isEmpty() || path.startsWith("/") || path.contains("\\")) {
+            throw new IllegalStateException(attribute + " must name a relative JAR resource");
+        }
+        for (String segment : path.split("/", -1)) {
+            if (segment.isBlank() || ".".equals(segment) || "..".equals(segment)) {
+                throw new IllegalStateException(attribute + " must name a normalized JAR resource");
+            }
+        }
+        return path;
+    }
+
     private record LoadedPlugin(LoadedPluginMetadata metadata, BotPluginFactory factory, JsonNode schema) {}
     private record LoadedPluginDetails(LoadedPluginMetadata metadata, BotPluginFactory factory, JsonNode schema) {}
-    private record InstanceHandle(UUID bindingId, String pluginId, long revision, BotPlugin plugin,
+    private record InstanceHandle(UUID bindingId, BotId botId, String pluginId, long revision, BotPlugin plugin,
             BindingRuntimeResources resources, RestrictedPluginHttpClient httpClient) {}
 
     private static final class BindingLogger implements PluginLogger {

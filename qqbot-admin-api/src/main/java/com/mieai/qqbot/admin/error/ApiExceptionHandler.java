@@ -28,6 +28,7 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
 @RestControllerAdvice
@@ -49,6 +50,12 @@ public class ApiExceptionHandler {
         return response(HttpStatus.BAD_REQUEST, "INVALID_REQUEST", exception.getMessage(), Map.of());
     }
 
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    ResponseEntity<ApiErrorResponse> typeMismatch(MethodArgumentTypeMismatchException exception) {
+        return response(HttpStatus.BAD_REQUEST, "INVALID_REQUEST",
+                "Invalid value for parameter '" + exception.getName() + "'", Map.of());
+    }
+
     @ExceptionHandler(HttpMessageNotReadableException.class)
     ResponseEntity<ApiErrorResponse> unreadableBody() {
         return response(HttpStatus.BAD_REQUEST, "INVALID_JSON", "Malformed JSON request", Map.of());
@@ -60,8 +67,8 @@ public class ApiExceptionHandler {
             return response(HttpStatus.PAYLOAD_TOO_LARGE, "MEDIA_FILE_TOO_LARGE",
                     "媒体上传请求不能超过平台上限 256 MiB，机器人配置的上限可能更低", Map.of());
         }
-        return response(HttpStatus.PAYLOAD_TOO_LARGE, "PLUGIN_FILE_TOO_LARGE",
-                "插件 JAR 不能超过 64 MiB", Map.of());
+        return response(HttpStatus.PAYLOAD_TOO_LARGE, "UPLOAD_TOO_LARGE",
+                "上传请求不能超过平台上限 256 MiB", Map.of());
     }
 
     @ExceptionHandler(MediaUploadTooLargeException.class)

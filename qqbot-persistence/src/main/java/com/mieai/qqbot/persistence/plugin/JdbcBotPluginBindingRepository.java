@@ -2,6 +2,7 @@ package com.mieai.qqbot.persistence.plugin;
 
 import com.mieai.qqbot.domain.bot.BotId;
 import com.mieai.qqbot.persistence.internal.UtcTimestampCodec;
+import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -10,7 +11,7 @@ import javax.sql.DataSource;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 public final class JdbcBotPluginBindingRepository implements BotPluginBindingRepository {
-    private static final String COLUMNS = "id, plugin_id, bot_id, config_json, enabled, revision, runtime_state, runtime_error, created_at, updated_at";
+    private static final String COLUMNS = "id, plugin_id, bot_id, enabled, revision, runtime_state, runtime_error, created_at, updated_at";
     private final JdbcTemplate jdbc;
 
     public JdbcBotPluginBindingRepository(DataSource dataSource) {
@@ -52,9 +53,9 @@ public final class JdbcBotPluginBindingRepository implements BotPluginBindingRep
     public void insert(BotPluginBinding binding) {
         Objects.requireNonNull(binding, "binding must not be null");
         jdbc.update("""
-                INSERT INTO bot_plugins (id, plugin_id, bot_id, config_json, enabled, revision, runtime_state, runtime_error, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, binding.id().toString(), binding.pluginId(), binding.botId().toString(), binding.configJson(),
+                INSERT INTO bot_plugins (id, plugin_id, bot_id, enabled, revision, runtime_state, runtime_error, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, binding.id().toString(), binding.pluginId(), binding.botId().toString(),
                 binding.enabled() ? 1 : 0, binding.revision(), binding.runtimeState().name(),
                 binding.runtimeError().orElse(null), UtcTimestampCodec.format(binding.createdAt()),
                 UtcTimestampCodec.format(binding.updatedAt()));
@@ -66,19 +67,33 @@ public final class JdbcBotPluginBindingRepository implements BotPluginBindingRep
         if (binding.revision() != expectedRevision) throw new IllegalArgumentException("binding revision mismatch");
         long next = Math.addExact(expectedRevision, 1L);
         int updated = jdbc.update("""
-                UPDATE bot_plugins SET config_json=?, enabled=?, revision=?, runtime_state=?, runtime_error=?, updated_at=?
+                UPDATE bot_plugins SET enabled=?, revision=?, runtime_state=?, runtime_error=?, updated_at=?
                 WHERE id=? AND revision=?
-                """, binding.configJson(), binding.enabled() ? 1 : 0, next, binding.runtimeState().name(),
+                """, binding.enabled() ? 1 : 0, next, binding.runtimeState().name(),
                 binding.runtimeError().orElse(null),
                 UtcTimestampCodec.format(binding.updatedAt()), binding.id().toString(), expectedRevision);
         if (updated == 0) throw new PluginBindingOptimisticLockException(binding.id(), expectedRevision);
-        return new BotPluginBinding(binding.id(), binding.pluginId(), binding.botId(), binding.configJson(),
-                binding.enabled(), next, binding.createdAt(), binding.updatedAt(), binding.runtimeState(),
+        return new BotPluginBinding(binding.id(), binding.pluginId(), binding.botId(), binding.enabled(),
+                next, binding.createdAt(), binding.updatedAt(), binding.runtimeState(),
                 binding.runtimeError());
     }
 
     @Override
-    public void setRuntimeState(UUID id, PluginBindingRuntimeState state, String error, java.time.Instant now) {
+    public BotPluginBinding touch(UUID id, long expectedRevision, Instant now) {
+        Objects.requireNonNull(id, "id must not be null");
+        Objects.requireNonNull(now, "now must not be null");
+        if (expectedRevision < 0L) throw new IllegalArgumentException("expectedRevision must not be negative");
+        long next = Math.addExact(expectedRevision, 1L);
+        int updated = jdbc.update("""
+                UPDATE bot_plugins SET revision=?, updated_at=?
+                WHERE id=? AND revision=?
+                """, next, UtcTimestampCodec.format(now), id.toString(), expectedRevision);
+        if (updated == 0) throw new PluginBindingOptimisticLockException(id, expectedRevision);
+        return findById(id).orElseThrow(() -> new PluginBindingOptimisticLockException(id, expectedRevision));
+    }
+
+    @Override
+    public void setRuntimeState(UUID id, PluginBindingRuntimeState state, String error, Instant now) {
         Objects.requireNonNull(id, "id must not be null");
         Objects.requireNonNull(state, "state must not be null");
         Objects.requireNonNull(now, "now must not be null");

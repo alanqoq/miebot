@@ -1,5 +1,7 @@
 package com.mieai.qqbot.admin.plugins;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mieai.qqbot.persistence.plugin.BotPluginBindingRepository;
 import com.mieai.qqbot.plugin.host.Pf4jPluginHost;
 import com.mieai.qqbot.plugin.host.PluginRuntimeService;
@@ -11,6 +13,7 @@ import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.FileTime;
+import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
@@ -39,6 +42,8 @@ public class PluginAdministrationService {
     private static final int MAX_ARTIFACTS = 500;
     private static final long MAX_HASH_BYTES = 512L * 1024L * 1024L;
     private static final long MAX_UPLOAD_BYTES = 64L * 1024L * 1024L;
+    private static final int MAX_DEFAULT_CONFIG_BYTES = 64 * 1024;
+    private static final ObjectMapper JSON = new ObjectMapper();
     private static final String STATUS_DISCOVERED = "DISCOVERED";
     private static final String STATUS_INVALID = "INVALID";
     private static final String STATUS_UNSUPPORTED = "UNSUPPORTED";
@@ -197,7 +202,8 @@ public class PluginAdministrationService {
         boolean loaded = host != null && host.isLoaded(artifact.id(), artifact.sha256());
         return new PluginArtifactResponse(artifact.id(), artifact.name(), artifact.version(),
                 artifact.apiCompatibility(), artifact.fileName(), artifact.sizeBytes(), artifact.modifiedAt(),
-                artifact.sha256(), loaded ? "LOADED" : artifact.status(), loaded ? null : artifact.error(), loaded,
+                artifact.sha256(), loaded ? "LOADED" : artifact.status(), loaded ? null : artifact.error(),
+                artifact.defaultConfigJson(), loaded,
                 bindingCounts.getOrDefault(artifact.id(), 0), enabledBindingCounts.getOrDefault(artifact.id(), 0));
     }
 
@@ -234,6 +240,7 @@ public class PluginAdministrationService {
                         hash,
                         STATUS_INVALID,
                         "JAR 缺少 MANIFEST.MF",
+                        null,
                         false,
                         0,
                         0);
@@ -260,14 +267,53 @@ public class PluginAdministrationService {
                     attributes.getValue("Plugin-Entry"),
                     null);
             String configurationSchema = attributes.getValue("Plugin-Config-Schema");
+            String defaultConfiguration = attributes.getValue("Plugin-Default-Config");
             boolean supported = entrypoint != null
-                    && configurationSchema != null && !configurationSchema.isBlank();
+                    && configurationSchema != null && !configurationSchema.isBlank()
+                    && defaultConfiguration != null && !defaultConfiguration.isBlank();
             String status = supported ? STATUS_DISCOVERED : STATUS_UNSUPPORTED;
             String error = entrypoint == null
                     ? "Manifest 未声明插件入口"
                     : configurationSchema == null || configurationSchema.isBlank()
                             ? "Manifest 未声明配置 Schema"
-                            : null;
+                            : defaultConfiguration == null || defaultConfiguration.isBlank()
+                                    ? "Manifest 未声明默认配置"
+                                    : null;
+            String defaultConfigJson = null;
+            if (supported && jarFile.getJarEntry(configurationSchema) == null) {
+                supported = false;
+                status = STATUS_UNSUPPORTED;
+                error = "JAR 缺少配置 Schema 资源";
+            }
+            var defaultEntry = supported ? jarFile.getJarEntry(defaultConfiguration) : null;
+            if (supported && defaultEntry == null) {
+                supported = false;
+                status = STATUS_UNSUPPORTED;
+                error = "JAR 缺少默认配置资源";
+            }
+            if (supported) {
+                try (InputStream input = jarFile.getInputStream(defaultEntry)) {
+                    byte[] bytes = input.readNBytes(MAX_DEFAULT_CONFIG_BYTES + 1);
+                    if (bytes.length > MAX_DEFAULT_CONFIG_BYTES) {
+                        supported = false;
+                        status = STATUS_UNSUPPORTED;
+                        error = "插件默认配置超过 64 KiB";
+                    } else {
+                        JsonNode parsed = JSON.readTree(new String(bytes, StandardCharsets.UTF_8));
+                        if (parsed == null || !parsed.isObject()) {
+                            supported = false;
+                            status = STATUS_UNSUPPORTED;
+                            error = "插件默认配置必须是 JSON 对象";
+                        } else {
+                            defaultConfigJson = JSON.writerWithDefaultPrettyPrinter().writeValueAsString(parsed);
+                        }
+                    }
+                } catch (IOException exception) {
+                    supported = false;
+                    status = STATUS_UNSUPPORTED;
+                    error = "无法读取插件默认配置";
+                }
+            }
             return new PluginArtifactResponse(
                     id,
                     name,
@@ -279,6 +325,7 @@ public class PluginAdministrationService {
                     hash,
                     status,
                     error,
+                    defaultConfigJson,
                     false,
                     0,
                     0);
@@ -324,6 +371,7 @@ public class PluginAdministrationService {
                 "",
                 STATUS_INVALID,
                 error,
+                null,
                 false,
                 0,
                 0);

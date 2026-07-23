@@ -2,9 +2,9 @@
 
 ## 部署结论
 
-项目可以部署到 Debian 的 Docker Compose 中，当前 Compose 镜像为 `mirai-qqbot:0.3.0`。Compose 只运行 QQ Bot 应用，默认使用容器数据卷中的 SQLite；MySQL/PostgreSQL 由外部系统提供，通过 Web 后台或候选配置文件填写连接信息。Spring Boot 直接在 `8080` 端口提供管理 API 和 Angular 页面，不强制依赖 Caddy/Nginx。真实 QQ Gateway 运行时默认启用，应用启动后会自动调和当前数据库内所有已启用机器人。
+项目可以部署到 Debian 的 Docker Compose 中，当前 Compose 镜像为 `mirai-qqbot:0.4.0`。Compose 只运行 QQ Bot 应用，默认使用容器数据卷中的 SQLite；MySQL/PostgreSQL 由外部系统提供，通过 Web 后台或候选配置文件填写连接信息。Spring Boot 直接在 `8080` 端口提供管理 API 和 Angular 页面，不强制依赖 Caddy/Nginx。真实 QQ Gateway 运行时默认启用，应用启动后会自动调和当前数据库内所有已启用机器人。
 
-镜像携带 `database-support`、`qqbot-runtime`、`platform-admin`、`plugin-support`、`operations`、`cluster-support` 和 `onebot11` 七个默认框架模块 JAR。Compose 将宿主机 `./modules` 只读挂载到 `/modules`，Spring Boot 使用 `PropertiesLauncher` 在启动前把其中的 JAR 加入类路径；宿主随后校验描述符、SHA-256、框架版本、必需依赖、版本下限、重复项和依赖环。`GET /api/modules` 可查看制品和运行状态。替换模块后只需重启应用，不需要重新编译核心；模块不能从 Web 上传或热卸载。`/plugins` 只存放由 `plugin-support` 加载并绑定机器人的业务插件。
+镜像携带 `database-support`、`qqbot-runtime`、`platform-admin`、`plugin-support`、`operations`、`cluster-support` 和 `onebot11` 七个默认框架模块 JAR。Compose 将宿主机 `./modules` 只读挂载到 `/modules`，Spring Boot 使用 `PropertiesLauncher` 在启动前把其中的 JAR 加入类路径；宿主随后校验描述符、SHA-256、框架版本、必需依赖、版本下限、重复项和依赖环。`GET /api/modules` 可查看制品和运行状态。替换模块后只需重启应用，不需要重新编译核心；模块不能从 Web 上传或热卸载。`/plugins` 只存放由 `plugin-support` 加载并绑定机器人的业务插件，绑定配置和插件自有数据则持久化在 `/data/plugin-data`。
 
 当前实现已通过本地单元、集成、模拟 HTTP 端点以及 WebSocket transport/协议测试，但本开发环境没有使用真实 QQ AppID/AppSecret 完成线上连接验收。能成功构建和启动容器只表示部署结构可用，不表示真实账号的凭据、Intents、Gateway 配额或外网策略已经通过 QQ 侧验证。
 
@@ -163,9 +163,26 @@ Outbox/DLQ 管理接口为：
 
 - `GET /api/events/plugin-deliveries`、`/stats`、`/{id}`：插件投递列表、统计和详情。
 - `GET /api/events/plugin-dlq`、`/{id}`：仅返回 `DEAD_LETTER` 插件投递。
-- `GET/POST/PUT/DELETE /api/plugin-bindings`：按机器人绑定、配置和启停插件。
+- `GET/POST/PUT/DELETE /api/plugin-bindings`：按机器人创建、查询、启停和删除插件绑定；新建请求中的 `configJson` 只用于初始化文件，绑定响应不返回配置正文。
+- `POST /api/plugin-bindings/{bindingId}/reset`：恢复已启用且配置有效的隔离绑定。
 
-插件后台通过 `GET /api/plugins` 扫描 `/plugins` 目录中的 JAR manifest 和 SHA-256；PF4J 宿主会加载声明 `Plugin-Config-Schema`、API 版本和能力的可信 JAR。插件页可以选择并上传 `.jar`，通过 `POST /api/plugins/upload` 完成校验和同进程无重启热升级，失败会尝试恢复旧插件；请求必须是已认证管理员并带 CSRF 和 `X-Plugin-Upload-Confirm: trusted-jar`。停用绑定会暂停未完成投递，重新启用后继续；超时执行先合作取消，未在宽限期停止则进入 `QUARANTINED`，页面显示原因并提供恢复操作。声明 capability 的插件可使用按绑定 UUID 隔离的存储、调度器、受限 HTTP、富消息、本地/远程媒体和多 handler 事件订阅。
+绑定文件管理接口全部以绑定目录为根，`path`/`directory` 使用正斜杠相对路径：
+
+- `GET /api/plugin-bindings/{bindingId}/files?path=`：列出根目录或指定子目录，目录优先、名称不区分大小写排序。
+- `GET /api/plugin-bindings/{bindingId}/files/content?path=...`：以 UTF-8 读取不超过 `2 MiB` 的文本，并返回 SHA-256 和修改时间。
+- `PUT /api/plugin-bindings/{bindingId}/files/content`：保存文本；请求包含 `path`、`content` 和可选 `expectedSha256`，哈希不匹配返回冲突。
+- `POST /api/plugin-bindings/{bindingId}/files/entries`：按请求中的 `path` 和 `directory` 创建文件或目录；创建根目录 `config.json` 时自动写入插件默认配置。
+- `POST /api/plugin-bindings/{bindingId}/files/upload?directory=...&overwrite=false`：上传文件到指定目录；默认拒绝替换同名文件并返回 `409`，管理员确认后才可改为 `overwrite=true`，还可传 `expectedSha256` 做覆盖前校验。普通文件受当前全局 multipart `256 MiB` 上限约束，`config.json` 另限 `64 KiB`。
+- `GET /api/plugin-bindings/{bindingId}/files/download?path=...`：以附件下载任意普通文件。
+- `DELETE /api/plugin-bindings/{bindingId}/files?path=...`：永久删除指定文件或整个子目录；不能用空路径删除绑定根目录。
+
+插件后台通过 `GET /api/plugins` 扫描 `/plugins` 目录中的 JAR manifest 和 SHA-256；PF4J 宿主只加载同时声明 `Plugin-Config-Schema`、`Plugin-Default-Config`、API 版本和有效能力的可信 JAR，默认配置必须是符合 Schema 的 JSON 对象。后台制品清单只接受不超过 `64 KiB` 的默认配置资源，绑定 `config.json` 也限制为 `64 KiB`。插件页可以选择并上传 `.jar`，通过 `POST /api/plugins/upload` 完成校验和同进程无重启热升级，失败会尝试恢复旧插件；请求必须是已认证管理员并带 CSRF 和 `X-Plugin-Upload-Confirm: trusted-jar`。
+
+“机器人绑定”列表显示机器人信息、Gateway 状态、绑定插件数和更新时间；机器人详情按插件分区，只显示插件名、右侧删除操作和目录文件管理器，并可继续新增插件。文件管理器支持目录浏览、新建、上传、下载和递归删除；点击 `.json` 文件会打开编辑器，并以读取时的 SHA-256 防止静默覆盖并发修改。同名上传默认拒绝覆盖，Web 会要求管理员确认后再显式重试。新建绑定对话框从 `GET /api/plugins` 返回的 `defaultConfigJson` 预填默认配置，管理员确认后才创建 `/data/plugin-data/<botId>/<pluginId>/config.json`。一个插件可绑定多个机器人，每个机器人/插件组合的目录完全分开，JSON 配置不写入主数据库；插件可在自己的目录保存 SQLite、图片、音频、视频及任意其他文件。删除绑定会永久删除该绑定的整个目录，无法从数据库记录恢复。
+
+停用绑定会暂停未完成投递，重新启用后继续；超时执行先合作取消，未在宽限期停止则进入 `QUARANTINED`，页面显示原因并提供恢复操作。声明 capability 的插件可使用按绑定 UUID 隔离的 `PluginStorage`、调度器、富消息、本地/远程媒体和多 handler 事件订阅；兼容类型 `RestrictedHttpClient` 始终提供，宿主不再限制目标 URL、网络地址、请求头、重定向、正文、响应或最长超时。
+
+PF4J 插件与宿主运行在同一 JVM，是运维人员显式信任的进程内代码，不是安全沙箱。绑定目录隔离和 Web 文件接口的路径校验用于防止管理员误操作串目录，不能阻止恶意插件直接访问容器进程身份有权访问的其他文件、网络或资源；不得安装来源不可信的 JAR。
 
 镜像携带 `echo` 示例插件，`stage-compose-extensions.sh` 会把它提取到 `./plugins/qqbot-plugin-echo.jar`。在 Web 插件页把它绑定到机器人后，发送 `/ping` 可验证回复 `pong` 的完整闭环，发送 `/remember` 可验证绑定级存储隔离。已有插件不会因镜像升级自动替换，只有再次显式执行制品提取或手动替换 JAR 才会更新。
 
@@ -173,9 +190,11 @@ Outbox/DLQ 管理接口为：
 
 多实例部署时每个机器人 Shard 使用 `bot_leases` SQL 租约。实例通过唯一的 `QQBOT_INSTANCE_ID` 标识自己，只有持有未过期租约的实例才建立 Gateway，Inbox、插件投递和 Outbox 也只领取属于该实例机器人的任务；处理前会再次核对租约归属。启用插件的机器人在获取和续租时还会对比活动数据库中的插件 SHA-256，不匹配实例会释放租约。管理员 Session 和登录失败限流同样存入活动数据库。SQLite 通过数据库旁的 `.instance.lock` 文件拒绝第二个进程，并在数据库热切换时转移锁；真正多实例必须使用共享 MySQL/PostgreSQL。
 
-所有实例必须使用不同且稳定于单次进程生命周期的 `QQBOT_INSTANCE_ID`，共享同一个活动数据库和相同插件制品。网页插件上传只更新收到请求的实例，不是集群制品分发方案。若多实例可能处理网页上传的本地媒体，`QQBOT_MEDIA_STAGING_DIRECTORY` 必须挂载为所有实例可读写的同一共享文件系统；默认本地 Docker Volume 只适合作为单主机部署基线。
+所有实例必须使用不同且稳定于单次进程生命周期的 `QQBOT_INSTANCE_ID`，共享同一个活动数据库和相同插件制品。网页插件上传只更新收到请求的实例，不是集群制品分发方案。多实例还必须把 `QQBOT_PLUGINS_DATA_DIR` 挂载为所有实例可读写的同一共享文件系统，否则绑定配置、插件 SQLite 和媒体文件会因请求或机器人租约落到不同实例而分裂。若多实例可能处理网页上传的本地媒体，`QQBOT_MEDIA_STAGING_DIRECTORY` 也必须共享。默认本地 Docker Volume 只适合作为单主机部署基线；共享文件系统上的并发、文件锁和 SQLite 兼容性由插件及部署者验证。
 
-当前配置项如下。Compose 已直接映射常用模块、Gateway、OneBot 和插件配置，并固定把模块目录设为 `/modules`、session 目录设为 `/data/config/gateway-sessions`、OneBot 缓存设为 `/data/onebot-cache`、插件目录设为 `/plugins`、媒体目录设为 `/data/media-staging`；要覆盖表中其他项，需要在 `compose.yaml` 的 `environment` 下显式传入。
+Web 文件管理、删除插件绑定和删除机器人只会同步停止处理该请求实例内的插件执行，不能确认其他实例上的回调已经结束。HA 部署执行这些维护操作前，必须先把目标机器人租约及管理请求收敛到一个实例，或暂时停掉其他应用副本，并确认远端插件已释放 SQLite 和文件句柄；否则不得对共享插件目录执行写入或删除。默认单实例 Compose 不需要额外步骤。
+
+当前配置项如下。Compose 已直接映射常用模块、Gateway、OneBot 和插件配置，并固定把模块目录设为 `/modules`、session 目录设为 `/data/config/gateway-sessions`、OneBot 缓存设为 `/data/onebot-cache`、插件制品目录设为 `/plugins`、插件绑定数据目录设为 `/data/plugin-data`、媒体目录设为 `/data/media-staging`；要覆盖表中其他项，需要在 `compose.yaml` 的 `environment` 下显式传入。
 
 | 环境变量 | 应用默认值 | 作用 |
 | --- | --- | --- |
@@ -189,6 +208,7 @@ Outbox/DLQ 管理接口为：
 | `QQBOT_GATEWAY_MAX_TEXT_CHARACTERS` | `2097152` | 单个 Gateway 文本帧允许的最大字符数 |
 | `QQBOT_ONEBOT11_CACHE_DIRECTORY` | `onebot-cache`；Compose 为 `/data/onebot-cache` | `get_image/get_record` 的受控下载缓存；必须位于可写目录 |
 | `QQBOT_PLUGINS_DIR` | `/plugins` | 可信插件扫描、上传和版本制品目录；启用网页上传时必须可写 |
+| `QQBOT_PLUGINS_DATA_DIR` | `/data/plugin-data` | 每个机器人/插件绑定的 `config.json` 和插件自有文件根目录；必须持久化，多实例时必须共享 |
 | `QQBOT_MODULES_DIR` | `/modules` | 启动时严格扫描的框架模块 JAR 目录；容器内只读 |
 | `LOADER_PATH` | `/modules` | `PropertiesLauncher` 启动类路径；必须与模块目录一致 |
 | `QQBOT_PLUGINS_LEASE_DURATION` | `30s` | 插件投递领取租约，必须覆盖一次正常执行 |
@@ -214,12 +234,15 @@ Compose 使用以下持久化位置：
 | Gateway Resume 状态 | `/data/config/gateway-sessions` | `./config/gateway-sessions`，应用自动维护 |
 | 媒体暂存 | `/data/media-staging` | `qqbot-data` 命名卷；终态任务自动删除对应文件 |
 | OneBot 媒体缓存 | `/data/onebot-cache` | `qqbot-data` 命名卷；由 `clean_cache` 按机器人清理 |
+| 插件绑定配置与数据 | `/data/plugin-data/<botId>/<pluginId>/` | `qqbot-data` 命名卷；每个绑定包含 `config.json` 和插件自有文件 |
 | 框架模块 | `/modules` | 宿主机 `./modules` 只读绑定目录 |
 | 机器人插件 | `/plugins` | 宿主机 `./plugins` 可写绑定目录 |
 | 主密钥 | `/data/config/app-secret.key` | `./config/app-secret.key`，首次启动自动生成 |
 | 临时文件 | `/tmp/qqbot` | 内存 tmpfs |
 
-容器以 UID/GID `10001` 非 root 身份运行，根文件系统只读。`config` 权限不正确时，服务会无法生成主密钥或提交数据库配置。
+容器以 UID/GID `10001` 非 root 身份运行，根文件系统只读。`config` 权限不正确时，服务会无法生成主密钥或提交数据库配置；`/data/plugin-data` 不可写时，插件绑定无法初始化或通过 Web 管理文件。
+
+插件绑定目录不存入数据库，也没有回收站。删除绑定会先停止并失效化绑定实例，再递归永久删除对应 `<botId>/<pluginId>/` 目录；删除单个文件或目录同样立即生效。删除或破坏根目录的 `config.json` 会使绑定进入隔离状态，重新创建有效配置后才可恢复。插件自行创建的 SQLite 连接、文件格式、迁移、备份和关闭流程由插件负责。
 
 每个机器人分片的 Resume snapshot 文件名为 `<botId>-shard-<index>.json`，内容包含 session id、最后事件序号和配置指纹，不包含 AppSecret 或 Access Token。文件通过临时文件原子替换，在 POSIX 文件系统上临时文件使用 `0600`。机器人 revision、AppID、环境、Intents 或分片配置变化导致指纹不匹配时，旧 snapshot 会被删除并重新 Identify；有效 snapshot 可用于重连或重启后的 Resume。该目录应随 `config` 一起备份和恢复，但不能替代数据库与主密钥备份。
 
@@ -231,7 +254,7 @@ Compose 使用以下持久化位置：
 4. 确认后执行切换。切换期间新数据库会再次完整验证，失败时保持原 DataSource 和活动配置不变。
 5. 若目标库完全为空，应用会执行 Flyway 初始化并复制当前唯一管理员，因此切换后当前会话和后续登录可继续使用。
 
-数据库之间不会复制机器人、Inbox 或 Outbox 业务数据。非空目标库如果没有当前管理员用户名，切换会被拒绝，以免切换后失去后台访问能力。
+数据库之间不会复制机器人、Inbox 或 Outbox 业务数据。非空目标库如果没有当前管理员用户名，切换会被拒绝，以免切换后失去后台访问能力。`/data/plugin-data` 独立于活动数据库，数据库切换不会复制、删除或重命名其中的配置和插件文件；新数据库中 `botId`/`pluginId` 组合相同的绑定会继续使用对应目录，不存在于新库的目录会作为未引用数据保留，必须由运维人员在完整备份后人工处理。
 
 数据库切换提交后，Supervisor 会先同步隔离旧数据库对应的全部运行时和会话代际，使旧连接的迟到回调不能再修改当前状态，并对旧 WSS 会话发起停止；随后只从新活动数据库重新读取机器人并创建运行时。新库没有的机器人不会继续运行，新库内 `enabled=true` 的机器人会重新建立运行时。配置指纹完全相同的持久化 snapshot 仍可能用于协议 Resume，但这不会让旧数据库的运行时对象继续存活。
 
@@ -324,18 +347,20 @@ curl -b cookies.txt 'http://127.0.0.1:8080/api/events/inbox?limit=50'
 
 ## 备份与升级
 
+本次插件配置改造是不兼容升级：Flyway `V014` 会直接删除绑定表中的 `config_json`，不会把旧数据库配置迁移到文件。升级后，已有绑定缺少 `/data/plugin-data/<botId>/<pluginId>/config.json` 时会从该插件的 `Plugin-Default-Config` 创建默认配置；没有声明有效默认配置的旧插件 JAR 不会加载。若仍需旧配置值，必须在升级前自行导出并在升级后通过 Web 文件管理器写入 `config.json`。
+
 SQLite 部署在备份前先停止写入：
 
 ```bash
 mkdir -p backup
 docker compose stop qqbot
-docker compose cp qqbot:/data/qqbot.db ./backup/qqbot.db
+docker compose cp qqbot:/data ./backup/data
 sudo cp -a config ./backup/config
 sudo cp -a modules plugins ./backup/
 docker compose start qqbot
 ```
 
-MySQL/PostgreSQL 使用对应数据库的原生备份工具；同时备份 `config/database.json`、`config/onboarding.json`、主密钥、`modules/` 和 `plugins/`。停止应用后备份 `/data` 会同时保留仍在 Outbox 中等待发送的本地媒体；不要只复制 SQLite 文件而遗漏 `media-staging`。
+MySQL/PostgreSQL 使用对应数据库的原生备份工具；同时备份完整 `/data`、`config/database.json`、`config/onboarding.json`、主密钥、`modules/` 和 `plugins/`。停止应用后备份 `/data` 会同时保留 `/data/plugin-data` 中不入数据库的绑定配置、插件 SQLite/媒体文件，以及仍在 Outbox 中等待发送的本地媒体。只备份业务数据库无法恢复插件配置和插件自有文件。
 
 升级流程：
 
@@ -351,7 +376,7 @@ docker compose ps
 docker compose logs --tail=200 qqbot
 ```
 
-核心、Gateway/Inbox、Outbox/DLQ 或后台壳更新时，已有容器只执行 `restart` 不会加载新核心代码，必须重新构建镜像并执行 `up -d`。单独更新框架模块时，把包含后端类和 Web Component 的新 JAR 原子替换到 `./modules`，保留一套完整可回滚副本，然后执行 `docker compose restart qqbot`。启动校验失败会阻止应用进入可用状态，应从日志确认具体模块并恢复旧 JAR。`qqbot-data` 卷、`./config`、`./modules`、`./plugins` 和外部 MySQL/PostgreSQL 不会因容器重建而删除。
+核心、Gateway/Inbox、Outbox/DLQ 或后台壳更新时，已有容器只执行 `restart` 不会加载新核心代码，必须重新构建镜像并执行 `up -d`。单独更新框架模块时，把包含后端类和 Web Component 的新 JAR 原子替换到 `./modules`，保留一套完整可回滚副本，然后执行 `docker compose restart qqbot`。启动校验失败会阻止应用进入可用状态，应从日志确认具体模块并恢复旧 JAR。`qqbot-data` 卷中的 `/data/plugin-data`、`./config`、`./modules`、`./plugins` 和外部 MySQL/PostgreSQL 不会因容器重建而删除；这不等于备份，删除绑定仍会永久删除其目录。
 
 模块开发、依赖声明、模块间服务和 Web Component 接入见 [MODULE_DEVELOPMENT.md](./MODULE_DEVELOPMENT.md)；机器人插件开发和上传见 [PLUGIN_DEVELOPMENT.md](./PLUGIN_DEVELOPMENT.md)。
 

@@ -6,7 +6,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
 
-/** Bounded HTTP response returned without exposing the host HTTP client implementation. */
+/** HTTP response returned without exposing the host HTTP client implementation. */
 public record PluginHttpResponse(int statusCode, Map<String, List<String>> headers, byte[] body) {
     public PluginHttpResponse {
         if (statusCode < 100 || statusCode > 599) throw new IllegalArgumentException("statusCode is invalid");

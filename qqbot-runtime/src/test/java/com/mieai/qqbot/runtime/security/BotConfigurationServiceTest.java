@@ -20,6 +20,7 @@ import com.mieai.qqbot.runtime.configuration.BotConfigurationService;
 import com.mieai.qqbot.runtime.configuration.BotConfigurationView;
 import com.mieai.qqbot.runtime.configuration.BotConfigurationChange;
 import com.mieai.qqbot.runtime.configuration.BotConfigurationChangeKind;
+import com.mieai.qqbot.runtime.configuration.BotConfigurationChangeListener;
 import com.mieai.qqbot.runtime.configuration.BotNotFoundException;
 import com.mieai.qqbot.runtime.configuration.CreateBotCommand;
 import com.mieai.qqbot.runtime.configuration.UpdateBotCommand;
@@ -33,6 +34,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -263,6 +265,137 @@ class BotConfigurationServiceTest {
     }
 
     @Test
+    void preparesRuntimeBeforeDeletingAndNotifiesOnlyAfterTheDeleteCommits() {
+        List<String> phases = new ArrayList<>();
+        AtomicBoolean prepared = new AtomicBoolean();
+        BotConfigurationChangeListener listener = new BotConfigurationChangeListener() {
+            @Override
+            public void beforeDelete(BotId botId) {
+                assertThat(repository.findById(botId)).isPresent();
+                prepared.set(true);
+                phases.add("prepared");
+            }
+
+            @Override
+            public void onCommitted(BotConfigurationChange change) {
+                if (change.kind() != BotConfigurationChangeKind.DELETED) return;
+                assertThat(prepared).isTrue();
+                assertThat(repository.findById(change.botId())).isEmpty();
+                phases.add("committed");
+            }
+        };
+        BotConfigurationService notifying = new BotConfigurationService(
+                repository, cipher, Clock.fixed(NOW, ZoneOffset.UTC), UUID::randomUUID, listener);
+        BotConfigurationView created;
+        try (AppSecret secret = AppSecret.of(ORIGINAL_SECRET)) {
+            created = notifying.create(command("102012345", true, secret));
+        }
+
+        notifying.delete(created.id());
+
+        assertThat(repository.findById(created.id())).isEmpty();
+        assertThat(phases).containsExactly("prepared", "committed");
+    }
+
+    @Test
+    void failedDeletionPreparationKeepsTheBotAndInvokesAbortCleanup() {
+        AtomicBoolean aborted = new AtomicBoolean();
+        BotConfigurationChangeListener listener = new BotConfigurationChangeListener() {
+            @Override
+            public void beforeDelete(BotId botId) {
+                throw new IllegalStateException("plugin callback is still running");
+            }
+
+            @Override
+            public void onDeleteAborted(BotId botId) {
+                aborted.set(true);
+            }
+
+            @Override
+            public void onCommitted(BotConfigurationChange change) {}
+        };
+        BotConfigurationService notifying = new BotConfigurationService(
+                repository, cipher, Clock.fixed(NOW, ZoneOffset.UTC), UUID::randomUUID, listener);
+        BotConfigurationView created;
+        try (AppSecret secret = AppSecret.of(ORIGINAL_SECRET)) {
+            created = notifying.create(command("102012345", true, secret));
+        }
+
+        assertThatThrownBy(() -> notifying.delete(created.id()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("plugin callback is still running");
+
+        assertThat(aborted).isTrue();
+        assertThat(repository.deleteCalls).isZero();
+        assertThat(repository.findById(created.id())).isPresent();
+    }
+
+    @Test
+    void durableDeleteFailureReleasesSuccessfulPreparationAndKeepsTheBot() {
+        List<String> phases = new ArrayList<>();
+        BotConfigurationChangeListener listener = new BotConfigurationChangeListener() {
+            @Override
+            public void beforeDelete(BotId botId) {
+                phases.add("prepared");
+            }
+
+            @Override
+            public void onDeleteAborted(BotId botId) {
+                phases.add("aborted");
+            }
+
+            @Override
+            public void onCommitted(BotConfigurationChange change) {}
+        };
+        BotConfigurationService notifying = new BotConfigurationService(
+                repository, cipher, Clock.fixed(NOW, ZoneOffset.UTC), UUID::randomUUID, listener);
+        BotConfigurationView created;
+        try (AppSecret secret = AppSecret.of(ORIGINAL_SECRET)) {
+            created = notifying.create(command("102012345", true, secret));
+        }
+        repository.deleteFailure = new IllegalStateException("database unavailable");
+
+        assertThatThrownBy(() -> notifying.delete(created.id()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("database unavailable");
+
+        assertThat(phases).containsExactly("prepared", "aborted");
+        assertThat(repository.findById(created.id())).isPresent();
+    }
+
+    @Test
+    void failedPostDeleteCleanupIsReportedAfterTheDurableDeleteAndCommitNotification() {
+        AtomicBoolean committed = new AtomicBoolean();
+        BotConfigurationChangeListener listener = new BotConfigurationChangeListener() {
+            @Override
+            public void afterDelete(BotId botId) {
+                assertThat(repository.findById(botId)).isEmpty();
+                throw new IllegalStateException("plugin tombstone is still in use");
+            }
+
+            @Override
+            public void onCommitted(BotConfigurationChange change) {
+                if (change.kind() == BotConfigurationChangeKind.DELETED) {
+                    committed.set(true);
+                }
+            }
+        };
+        BotConfigurationService notifying = new BotConfigurationService(
+                repository, cipher, Clock.fixed(NOW, ZoneOffset.UTC), UUID::randomUUID, listener);
+        BotConfigurationView created;
+        try (AppSecret secret = AppSecret.of(ORIGINAL_SECRET)) {
+            created = notifying.create(command("102012345", true, secret));
+        }
+
+        assertThatThrownBy(() -> notifying.delete(created.id()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("plugin tombstone is still in use");
+
+        assertThat(repository.findById(created.id())).isEmpty();
+        assertThat(committed).isTrue();
+    }
+
+    @Test
     void missingMasterKeyAllowsQueriesButRejectsCreationAndRotation() {
         BotConfigurationView created = create("102012345", false, ORIGINAL_SECRET);
         BotConfigurationService unavailable = new BotConfigurationService(
@@ -364,6 +497,8 @@ class BotConfigurationServiceTest {
 
     private static final class InMemoryBotRepository implements BotRepository {
         private final Map<BotId, StoredBot> bots = new LinkedHashMap<>();
+        private RuntimeException deleteFailure;
+        private int deleteCalls;
 
         @Override
         public Optional<StoredBot> findById(BotId id) {
@@ -415,6 +550,13 @@ class BotConfigurationServiceTest {
                     desired.maxMediaUploadBytes());
             bots.put(bot.id(), new StoredBot(persisted, bot.appSecret()));
             return next;
+        }
+
+        @Override
+        public boolean delete(BotId id) {
+            deleteCalls++;
+            if (deleteFailure != null) throw deleteFailure;
+            return bots.remove(id) != null;
         }
 
         StoredBot required(BotId id) {

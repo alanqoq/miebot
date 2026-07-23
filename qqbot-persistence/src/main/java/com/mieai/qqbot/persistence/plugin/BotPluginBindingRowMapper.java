@@ -11,7 +11,7 @@ final class BotPluginBindingRowMapper implements RowMapper<BotPluginBinding> {
     @Override
     public BotPluginBinding mapRow(ResultSet rs, int rowNum) throws SQLException {
         return new BotPluginBinding(UUID.fromString(rs.getString("id")), rs.getString("plugin_id"),
-                BotId.parse(rs.getString("bot_id")), rs.getString("config_json"), rs.getInt("enabled") != 0,
+                BotId.parse(rs.getString("bot_id")), rs.getInt("enabled") != 0,
                 rs.getLong("revision"), UtcTimestampCodec.parse(rs.getString("created_at")),
                 UtcTimestampCodec.parse(rs.getString("updated_at")),
                 PluginBindingRuntimeState.valueOf(rs.getString("runtime_state")),

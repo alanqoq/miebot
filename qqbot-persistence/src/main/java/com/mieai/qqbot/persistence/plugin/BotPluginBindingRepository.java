@@ -14,6 +14,7 @@ public interface BotPluginBindingRepository {
     Optional<BotPluginBinding> findByPluginAndBot(String pluginId, BotId botId);
     void insert(BotPluginBinding binding);
     BotPluginBinding update(BotPluginBinding binding, long expectedRevision);
+    BotPluginBinding touch(UUID id, long expectedRevision, Instant now);
     void setRuntimeState(UUID id, PluginBindingRuntimeState state, String error, Instant now);
     void delete(UUID id);
 }

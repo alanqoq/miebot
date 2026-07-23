@@ -23,6 +23,7 @@ import com.mieai.qqbot.persistence.bot.SecretCiphertext;
 import com.mieai.qqbot.persistence.bot.StoredBot;
 import com.mieai.qqbot.runtime.configuration.BotConfigurationChange;
 import com.mieai.qqbot.runtime.configuration.BotConfigurationChangeKind;
+import com.mieai.qqbot.runtime.configuration.BotConfigurationChangeListener;
 import com.mieai.qqbot.runtime.configuration.BotConfigurationService;
 import com.mieai.qqbot.runtime.configuration.BotConfigurationView;
 import com.mieai.qqbot.runtime.configuration.CreateBotCommand;
@@ -218,8 +219,9 @@ class BotRuntimeConfigurationTest {
         AppSecretCipher cipher = new AesGcmAppSecretCipher(
                 StaticKeyProvider.configured("test-key", new byte[32]));
         BotSupervisor supervisor = mock(BotSupervisor.class);
+        BotConfigurationChangeListener pluginListener = mock(BotConfigurationChangeListener.class);
         BotConfigurationService service =
-                configuration.botConfigurationService(repository, cipher, supervisor);
+                configuration.botConfigurationService(repository, cipher, List.of(supervisor, pluginListener));
 
         BotConfigurationView created;
         try (AppSecret secret = AppSecret.of("runtime-listener-secret")) {
@@ -238,6 +240,7 @@ class BotRuntimeConfigurationTest {
         ArgumentCaptor<BotConfigurationChange> changes =
                 ArgumentCaptor.forClass(BotConfigurationChange.class);
         verify(supervisor, times(3)).onCommitted(changes.capture());
+        verify(pluginListener, times(3)).onCommitted(any(BotConfigurationChange.class));
         assertThat(changes.getAllValues())
                 .extracting(BotConfigurationChange::kind)
                 .containsExactly(

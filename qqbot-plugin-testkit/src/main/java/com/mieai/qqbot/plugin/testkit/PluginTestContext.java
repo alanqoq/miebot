@@ -6,7 +6,10 @@ import com.mieai.qqbot.plugin.api.ConfigSnapshot;
 import com.mieai.qqbot.plugin.api.PluginContext;
 import com.mieai.qqbot.plugin.api.PluginRuntimeContext;
 import com.mieai.qqbot.plugin.api.PluginHttpResponse;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
@@ -34,9 +37,17 @@ public final class PluginTestContext implements AutoCloseable {
         http = new FakeRestrictedHttpClient(new PluginHttpResponse(200, Map.of(),
                 "{}".getBytes(StandardCharsets.UTF_8)));
         media = new FakeMediaService(clock);
+        BotId botId = BotId.of(UUID.fromString("550e8400-e29b-41d4-a716-446655440000"));
+        Path dataDirectory = Path.of("build", "plugin-test-data", botId.toString(), pluginId)
+                .toAbsolutePath().normalize();
+        try {
+            Files.createDirectories(dataDirectory);
+        } catch (IOException exception) {
+            throw new IllegalStateException("Unable to create plugin test data directory", exception);
+        }
         PluginContext base = new PluginContext(
-                BotId.of(UUID.fromString("550e8400-e29b-41d4-a716-446655440000")),
-                BotEnvironment.SANDBOX, pluginId, configurationJson, messages, logger, storage);
+                botId, BotEnvironment.SANDBOX, pluginId, dataDirectory,
+                configurationJson, messages, logger, storage);
         context = new PluginRuntimeContext(base, new ConfigSnapshot(configurationJson, 0L, clock.instant()),
                 events, scheduler, http, media);
     }

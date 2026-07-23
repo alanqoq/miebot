@@ -1,5 +1,6 @@
 package com.mieai.qqbot.plugin.host;
 
+import com.mieai.qqbot.domain.bot.BotId;
 import com.mieai.qqbot.persistence.inbox.EventInboxRepository;
 import com.mieai.qqbot.persistence.inbox.InboxEvent;
 import com.mieai.qqbot.persistence.plugin.BotPluginBinding;
@@ -13,9 +14,13 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.nio.file.Path;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
@@ -47,6 +52,10 @@ public final class PluginRuntimeService implements AutoCloseable {
     private final String workerId = "plugin-worker-" + UUID.randomUUID();
     private final AtomicBoolean running = new AtomicBoolean();
     private final Object transitionMonitor = new Object();
+    private final Set<BotId> deletingBots = new HashSet<>();
+    private final Set<BotId> deletionQuiescenceFailures = new HashSet<>();
+    private final Set<UUID> mutatingBindings = new HashSet<>();
+    private final Set<UUID> mutationQuiescenceFailures = new HashSet<>();
     private volatile boolean databaseTransitionActive;
     private ScheduledFuture<?> polling;
 
@@ -122,6 +131,74 @@ public final class PluginRuntimeService implements AutoCloseable {
         });
     }
 
+    /** Fences one binding locally and requires every accepted callback to become idle. */
+    public void beforeBindingMutation(UUID bindingId) {
+        Objects.requireNonNull(bindingId, "bindingId must not be null");
+        synchronized (transitionMonitor) {
+            mutatingBindings.add(bindingId);
+            try {
+                host.quiesceBindingStrict(bindingId);
+                mutationQuiescenceFailures.remove(bindingId);
+            } catch (RuntimeException failure) {
+                mutationQuiescenceFailures.add(bindingId);
+                throw failure;
+            }
+        }
+    }
+
+    /** Re-enables a binding when a file or durable mutation failed after local quiescence. */
+    public void bindingMutationAborted(UUID bindingId) {
+        Objects.requireNonNull(bindingId, "bindingId must not be null");
+        synchronized (transitionMonitor) {
+            if (!mutationQuiescenceFailures.remove(bindingId)) {
+                mutatingBindings.remove(bindingId);
+            }
+        }
+    }
+
+    /** Releases transient mutation state after the binding and its files reached one revision. */
+    public void bindingMutationCompleted(UUID bindingId) {
+        Objects.requireNonNull(bindingId, "bindingId must not be null");
+        synchronized (transitionMonitor) {
+            mutationQuiescenceFailures.remove(bindingId);
+            mutatingBindings.remove(bindingId);
+        }
+    }
+
+    /** Fences one bot locally and requires every accepted plugin callback to become idle. */
+    public void beforeBotDeletion(BotId botId) {
+        Objects.requireNonNull(botId, "botId must not be null");
+        synchronized (transitionMonitor) {
+            deletingBots.add(botId);
+            try {
+                host.invalidateBot(botId);
+                deletionQuiescenceFailures.remove(botId);
+            } catch (RuntimeException failure) {
+                deletionQuiescenceFailures.add(botId);
+                throw failure;
+            }
+        }
+    }
+
+    /** Re-enables a bot when its durable deletion failed after local quiescence completed. */
+    public void botDeletionAborted(BotId botId) {
+        Objects.requireNonNull(botId, "botId must not be null");
+        synchronized (transitionMonitor) {
+            if (!deletionQuiescenceFailures.remove(botId)) {
+                deletingBots.remove(botId);
+            }
+        }
+    }
+
+    /** Releases transient deletion state after the durable bot and its files were handled. */
+    public void botDeletionCompleted(BotId botId) {
+        Objects.requireNonNull(botId, "botId must not be null");
+        synchronized (transitionMonitor) {
+            deletionQuiescenceFailures.remove(botId);
+            deletingBots.remove(botId);
+        }
+    }
+
     public void resetQuarantinedBinding(UUID bindingId) {
         Objects.requireNonNull(bindingId, "bindingId must not be null");
         BotPluginBinding binding = bindings.findById(bindingId).orElseThrow(
@@ -149,12 +226,43 @@ public final class PluginRuntimeService implements AutoCloseable {
         if (!running.get() || databaseTransitionActive) return;
         synchronized (transitionMonitor) {
             if (!running.get() || databaseTransitionActive) return;
+            if (!reconcileBindingsSafely()) return;
             try {
                 for (int index = 0; index < batchSize && materializeOne(); index++) {}
                 for (int index = 0; index < batchSize && deliverOne(); index++) {}
             } catch (RuntimeException exception) {
                 LOGGER.warn("Plugin pipeline poll failed ({})", exception.getClass().getSimpleName());
             }
+        }
+    }
+
+    private boolean reconcileBindingsSafely() {
+        try {
+            List<BotPluginBinding> authoritative = List.copyOf(bindings.findAll());
+            authoritative = authoritative.stream()
+                    .filter(binding -> !deletingBots.contains(binding.botId()))
+                    .filter(binding -> !mutatingBindings.contains(binding.id()))
+                    .toList();
+            if (botLeases != null) {
+                Instant now = clock.instant();
+                Map<BotId, Boolean> ownership = new HashMap<>();
+                authoritative = authoritative.stream()
+                        .filter(binding -> ownership.computeIfAbsent(binding.botId(),
+                                botId -> botLeases.isOwned(botId, instanceId, now)))
+                        .toList();
+            }
+            host.reconcileBindings(authoritative);
+            return true;
+        } catch (RuntimeException exception) {
+            try {
+                host.invalidateAll();
+                LOGGER.warn("Plugin binding reconciliation failed; local instances were invalidated ({})",
+                        exception.getClass().getSimpleName());
+            } catch (RuntimeException invalidationFailure) {
+                LOGGER.error("Plugin binding reconciliation failed and local instances could not be invalidated",
+                        invalidationFailure);
+            }
+            return false;
         }
     }
 
@@ -165,10 +273,16 @@ public final class PluginRuntimeService implements AutoCloseable {
                 : inbox.claimNextOwned(workerId, instanceId, now, leaseDuration);
         if (claimed.isEmpty()) return false;
         InboxEvent event = claimed.get();
+        if (deletingBots.contains(event.botId())) {
+            inbox.markRetry(event.id(), event.fencingToken(), now, now.plus(pollInterval),
+                    "Bot deletion is in progress on this instance");
+            return true;
+        }
         try {
             List<BotPluginBinding> eventBindings = bindings.findByBotId(event.botId()).stream()
                     .filter(BotPluginBinding::enabled)
                     .filter(binding -> binding.runtimeState().runnable())
+                    .filter(binding -> !mutatingBindings.contains(binding.id()))
                     .toList();
             for (BotPluginBinding binding : eventBindings) {
                 for (String handlerId : host.handlerIds(binding, event.eventType())) {
@@ -195,6 +309,12 @@ public final class PluginRuntimeService implements AutoCloseable {
         try {
             BotPluginBinding binding = bindings.findById(delivery.bindingId()).orElseThrow(
                     () -> new IllegalStateException("Plugin binding no longer exists"));
+            if (mutatingBindings.contains(binding.id())) {
+                throw new IllegalStateException("Plugin binding mutation is in progress on this instance");
+            }
+            if (deletingBots.contains(binding.botId())) {
+                throw new IllegalStateException("Bot deletion is in progress on this instance");
+            }
             if (botLeases != null && !botLeases.isOwned(binding.botId(), instanceId, clock.instant())) {
                 throw new IllegalStateException("Bot lease is no longer owned by this instance");
             }

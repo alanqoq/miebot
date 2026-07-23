@@ -155,16 +155,34 @@ public final class BotConfigurationService {
     public void delete(BotId botId) {
         Objects.requireNonNull(botId, "botId must not be null");
         StoredBot current = required(botId);
-        if (!repository.delete(botId)) {
-            throw new BotNotFoundException(botId);
-        }
         try {
-            changeListener.onCommitted(new BotConfigurationChange(
-                    botId, current.definition().revision(), false,
-                    BotConfigurationChangeKind.DELETED));
-        } catch (RuntimeException exception) {
-            LOGGER.warn("Bot {} was deleted but runtime notification failed ({})",
-                    botId, exception.getClass().getSimpleName());
+            changeListener.beforeDelete(botId);
+            if (!repository.delete(botId)) {
+                throw new BotNotFoundException(botId);
+            }
+        } catch (RuntimeException failure) {
+            try {
+                changeListener.onDeleteAborted(botId);
+            } catch (RuntimeException abortFailure) {
+                failure.addSuppressed(abortFailure);
+            }
+            throw failure;
+        }
+
+        RuntimeException finalizationFailure = null;
+        try {
+            changeListener.afterDelete(botId);
+        } catch (RuntimeException failure) {
+            finalizationFailure = failure;
+        }
+        notifyCommitted(
+                new BotConfigurationChange(
+                        botId,
+                        current.definition().revision(),
+                        false,
+                        BotConfigurationChangeKind.DELETED));
+        if (finalizationFailure != null) {
+            throw finalizationFailure;
         }
     }
 
@@ -273,15 +291,19 @@ public final class BotConfigurationService {
 
     private void notifyCommitted(
             BotConfigurationView view, BotConfigurationChangeKind kind) {
+        notifyCommitted(new BotConfigurationChange(
+                view.id(), view.revision(), view.enabled(), kind));
+    }
+
+    private void notifyCommitted(BotConfigurationChange change) {
         try {
-            changeListener.onCommitted(new BotConfigurationChange(
-                    view.id(), view.revision(), view.enabled(), kind));
+            changeListener.onCommitted(change);
         } catch (RuntimeException exception) {
             // Persistence already committed; runtime reconciliation has a periodic full-scan fallback.
             LOGGER.warn(
                     "Bot configuration notification failed for {} at revision {} ({})",
-                    view.id(),
-                    view.revision().value(),
+                    change.botId(),
+                    change.revision().value(),
                     exception.getClass().getSimpleName());
         }
     }

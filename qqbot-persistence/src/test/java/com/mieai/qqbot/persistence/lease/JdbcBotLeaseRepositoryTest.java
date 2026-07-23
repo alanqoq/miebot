@@ -55,7 +55,7 @@ class JdbcBotLeaseRepositoryTest {
                 "com.example.Echo", "LOADED", true, BASE_TIME, BASE_TIME));
         new JdbcBotPluginBindingRepository(dataSource).insert(new BotPluginBinding(
                 UUID.fromString("550e8400-e29b-41d4-a716-446655440010"), "echo", BotId.parse(BOT),
-                "{}", true, 0L, BASE_TIME, BASE_TIME));
+                true, 0L, BASE_TIME, BASE_TIME));
         var repository = new JdbcBotLeaseRepository(dataSource);
         BotId botId = BotId.parse(BOT);
         Duration duration = Duration.ofSeconds(30);

@@ -4,6 +4,7 @@ import static com.mieai.qqbot.persistence.test.PersistenceTestFixture.BASE_TIME;
 import static com.mieai.qqbot.persistence.test.PersistenceTestFixture.insertBot;
 import static com.mieai.qqbot.persistence.test.PersistenceTestFixture.migratedDatabase;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.mieai.qqbot.domain.bot.BotEnvironment;
 import com.mieai.qqbot.domain.bot.BotId;
@@ -43,12 +44,12 @@ class JdbcPluginRepositoryTest {
         artifacts.upsert(new PluginArtifact("echo", "Echo Reply", "1.0.0", "1.0.0", "echo.jar",
                 "abc", "factory", "LOADED", true, BASE_TIME, BASE_TIME));
 
-        BotPluginBinding binding = new BotPluginBinding(BINDING, "echo", BotId.parse(BOT), "{}", true, 0,
+        BotPluginBinding binding = new BotPluginBinding(BINDING, "echo", BotId.parse(BOT), true, 0,
                 BASE_TIME, BASE_TIME);
         bindings.insert(binding);
         assertThat(bindings.findByPluginAndBot("echo", BotId.parse(BOT))).contains(binding);
         BotPluginBinding updated = bindings.update(new BotPluginBinding(BINDING, "echo", BotId.parse(BOT),
-                "{\"mode\":\"safe\"}", false, 0, BASE_TIME, BASE_TIME.plusSeconds(1)), 0);
+                false, 0, BASE_TIME, BASE_TIME.plusSeconds(1)), 0);
         assertThat(updated.revision()).isEqualTo(1);
         assertThat(updated.enabled()).isFalse();
 
@@ -62,7 +63,7 @@ class JdbcPluginRepositoryTest {
                 .isEqualTo(1);
         assertThat(deliveries.findById(DELIVERY).orElseThrow().status())
                 .isEqualTo(PluginDeliveryStatus.PAUSED);
-        bindings.update(new BotPluginBinding(BINDING, "echo", BotId.parse(BOT), "{}", true, 1,
+        bindings.update(new BotPluginBinding(BINDING, "echo", BotId.parse(BOT), true, 1,
                 BASE_TIME, BASE_TIME.plusSeconds(2)), 1);
         assertThat(deliveries.resumeForBinding(BINDING, BASE_TIME.plusSeconds(2))).isEqualTo(1);
         PluginDelivery claimed = deliveries.claimNext("worker", BASE_TIME.plusSeconds(3), Duration.ofSeconds(30)).orElseThrow();
@@ -79,6 +80,24 @@ class JdbcPluginRepositoryTest {
     }
 
     @Test
+    void touchesBindingAfterAFileChangeWithOptimisticLocking() {
+        var artifacts = new JdbcPluginArtifactRepository(dataSource);
+        var bindings = new JdbcBotPluginBindingRepository(dataSource);
+        artifacts.upsert(new PluginArtifact("echo", "Echo Reply", "1.0.0", "1.0.0", "echo.jar",
+                "abc", "factory", "LOADED", true, BASE_TIME, BASE_TIME));
+        bindings.insert(new BotPluginBinding(BINDING, "echo", BotId.parse(BOT), true, 0,
+                BASE_TIME, BASE_TIME));
+
+        BotPluginBinding touched = bindings.touch(BINDING, 0, BASE_TIME.plusSeconds(1));
+
+        assertThat(touched.revision()).isEqualTo(1);
+        assertThat(touched.updatedAt()).isEqualTo(BASE_TIME.plusSeconds(1));
+        assertThat(touched.enabled()).isTrue();
+        assertThatThrownBy(() -> bindings.touch(BINDING, 0, BASE_TIME.plusSeconds(2)))
+                .isInstanceOf(PluginBindingOptimisticLockException.class);
+    }
+
+    @Test
     void ownedClaimSelectsOnlyDeliveriesForTheInstanceBotLease() {
         String secondBot = "550e8400-e29b-41d4-a716-446655440002";
         UUID secondEvent = UUID.fromString("660e8400-e29b-41d4-a716-446655440002");
@@ -91,9 +110,9 @@ class JdbcPluginRepositoryTest {
         var deliveries = new JdbcPluginDeliveryRepository(dataSource);
         artifacts.upsert(new PluginArtifact("echo", "Echo Reply", "1.0.0", "2.0.0", "echo.jar",
                 "abc", "factory", "LOADED", true, BASE_TIME, BASE_TIME));
-        bindings.insert(new BotPluginBinding(BINDING, "echo", BotId.parse(BOT), "{}", true, 0,
+        bindings.insert(new BotPluginBinding(BINDING, "echo", BotId.parse(BOT), true, 0,
                 BASE_TIME, BASE_TIME));
-        bindings.insert(new BotPluginBinding(secondBinding, "echo", BotId.parse(secondBot), "{}", true, 0,
+        bindings.insert(new BotPluginBinding(secondBinding, "echo", BotId.parse(secondBot), true, 0,
                 BASE_TIME, BASE_TIME));
         inbox.insertOrGet(new IncomingEvent(EVENT, BotEnvironment.SANDBOX, BotId.parse(BOT),
                 "MESSAGE_CREATE", "event-other", "{}", BASE_TIME));
@@ -120,7 +139,7 @@ class JdbcPluginRepositoryTest {
         var deliveries = new JdbcPluginDeliveryRepository(dataSource);
         artifacts.upsert(new PluginArtifact("echo", "Echo Reply", "1.0.0", "2.0.0", "echo.jar",
                 "abc", "factory", "LOADED", true, BASE_TIME, BASE_TIME));
-        bindings.insert(new BotPluginBinding(BINDING, "echo", BotId.parse(BOT), "{}", true, 0,
+        bindings.insert(new BotPluginBinding(BINDING, "echo", BotId.parse(BOT), true, 0,
                 BASE_TIME, BASE_TIME));
         inbox.insertOrGet(new IncomingEvent(EVENT, BotEnvironment.SANDBOX, BotId.parse(BOT),
                 "MESSAGE_CREATE", "event-stale-shard", "{}", BASE_TIME));

@@ -113,6 +113,7 @@ ENV JAVA_HOME=/opt/dragonwell \
     QQBOT_HTTP_PORT=8080 \
     QQBOT_MODULES_DIR=/modules \
     LOADER_PATH=/modules \
+    QQBOT_PLUGINS_DATA_DIR=/data/plugin-data \
     QQBOT_ONBOARDING_STATE_FILE=/data/config/onboarding.json \
     QQBOT_GATEWAY_ENABLED=true \
     QQBOT_GATEWAY_SESSION_DIRECTORY=/data/config/gateway-sessions \

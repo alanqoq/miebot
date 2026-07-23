@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -20,6 +21,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.mieai.qqbot.admin.error.ApiExceptionHandler;
+import com.mieai.qqbot.admin.plugins.PluginAdministrationException;
 import com.mieai.qqbot.admin.security.AdminSecurityConfiguration;
 import com.mieai.qqbot.admin.web.TraceIdFilter;
 import com.mieai.qqbot.domain.bot.BotEnvironment;
@@ -45,6 +47,7 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.http.MediaType;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -202,6 +205,21 @@ class BotControllerMockMvcTest {
         mockMvc.perform(delete("/api/bots/{botId}", BOT_UUID).with(csrf()))
                 .andExpect(status().isNoContent());
         verify(service).delete(BOT_ID);
+    }
+
+    @Test
+    @WithMockUser(username = "admin", roles = "ADMIN")
+    void reportsPluginDataCleanupFailureInsteadOfReturningNoContent() throws Exception {
+        doThrow(new PluginAdministrationException(
+                        HttpStatus.INTERNAL_SERVER_ERROR,
+                        "BOT_PLUGIN_DATA_DELETE_FAILED",
+                        "Unable to delete bot plugin data tombstone"))
+                .when(service).delete(BOT_ID);
+
+        mockMvc.perform(delete("/api/bots/{botId}", BOT_UUID).with(csrf()))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.code").value("BOT_PLUGIN_DATA_DELETE_FAILED"))
+                .andExpect(jsonPath("$.message").value("Unable to delete bot plugin data tombstone"));
     }
 
     @Test

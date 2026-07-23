@@ -3,15 +3,19 @@ import org.gradle.api.publish.PublishingExtension
 import org.gradle.api.publish.maven.MavenPublication
 import org.gradle.api.tasks.Delete
 import org.gradle.api.tasks.bundling.Zip
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 plugins {
     base
     id("org.springframework.boot") version "3.5.16" apply false
     id("io.spring.dependency-management") version "1.1.7" apply false
+    kotlin("jvm") version "1.9.25" apply false
+    kotlin("plugin.spring") version "1.9.25" apply false
 }
 allprojects {
     group = "com.mieai.qqbot"
-    version = "0.3.0"
+    version = "0.4.0"
 }
 
 subprojects {
@@ -36,6 +40,16 @@ subprojects {
         options.encoding = "UTF-8"
         options.release = 21
         options.compilerArgs.addAll(listOf("-parameters", "-Xlint:all", "-Xlint:-serial"))
+    }
+
+    plugins.withId("org.jetbrains.kotlin.jvm") {
+        tasks.withType<KotlinCompile>().configureEach {
+            compilerOptions {
+                jvmTarget.set(JvmTarget.JVM_21)
+                javaParameters.set(true)
+                freeCompilerArgs.add("-Xjsr305=strict")
+            }
+        }
     }
 
     tasks.withType<Test>().configureEach {

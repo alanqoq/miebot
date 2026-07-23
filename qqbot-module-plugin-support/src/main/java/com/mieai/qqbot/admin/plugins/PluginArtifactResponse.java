@@ -14,6 +14,7 @@ public record PluginArtifactResponse(
         String sha256,
         String status,
         String error,
+        String defaultConfigJson,
         boolean loaded,
         int bindingCount,
         int enabledBindingCount) {

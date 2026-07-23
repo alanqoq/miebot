@@ -14,7 +14,6 @@ public record BotPluginBinding(
         UUID id,
         String pluginId,
         BotId botId,
-        String configJson,
         boolean enabled,
         long revision,
         Instant createdAt,
@@ -22,9 +21,9 @@ public record BotPluginBinding(
         PluginBindingRuntimeState runtimeState,
         java.util.Optional<String> runtimeError) {
 
-    public BotPluginBinding(UUID id, String pluginId, BotId botId, String configJson,
+    public BotPluginBinding(UUID id, String pluginId, BotId botId,
             boolean enabled, long revision, Instant createdAt, Instant updatedAt) {
-        this(id, pluginId, botId, configJson, enabled, revision, createdAt, updatedAt,
+        this(id, pluginId, botId, enabled, revision, createdAt, updatedAt,
                 enabled ? PluginBindingRuntimeState.ACTIVE : PluginBindingRuntimeState.PAUSED,
                 java.util.Optional.empty());
     }
@@ -32,7 +31,6 @@ public record BotPluginBinding(
         requireIdentifier(id, "id");
         requireToken(pluginId, "pluginId", 128);
         Objects.requireNonNull(botId, "botId must not be null");
-        requirePayload(configJson, "configJson");
         if (revision < 0L) throw new IllegalArgumentException("revision must not be negative");
         Objects.requireNonNull(createdAt, "createdAt must not be null");
         Objects.requireNonNull(updatedAt, "updatedAt must not be null");

@@ -21,6 +21,7 @@ import com.mieai.qqbot.persistence.plugin.PluginArtifactRepository;
 import com.mieai.qqbot.persistence.plugin.PluginDeliveryRepository;
 import com.mieai.qqbot.persistence.plugin.PluginStorageRepository;
 import com.mieai.qqbot.runtime.configuration.BotConfigurationService;
+import com.mieai.qqbot.runtime.configuration.BotConfigurationChangeListener;
 import com.mieai.qqbot.runtime.security.AesGcmAppSecretCipher;
 import com.mieai.qqbot.runtime.security.AppSecretCipher;
 import com.mieai.qqbot.runtime.security.KeyProvider;
@@ -41,6 +42,7 @@ import java.security.SecureRandom;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.EnumSet;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.locks.LockSupport;
 import javax.sql.DataSource;
@@ -139,8 +141,11 @@ public class BotRuntimeConfiguration {
     BotConfigurationService botConfigurationService(
             BotRepository botRepository,
             AppSecretCipher appSecretCipher,
-            BotSupervisor botSupervisor) {
-        return new BotConfigurationService(botRepository, appSecretCipher, botSupervisor);
+            List<BotConfigurationChangeListener> changeListeners) {
+        return new BotConfigurationService(
+                botRepository,
+                appSecretCipher,
+                BotConfigurationChangeListener.composite(changeListeners));
     }
 
     private static String readOrCreateKeyFile(String file) {

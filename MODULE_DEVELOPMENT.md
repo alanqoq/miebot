@@ -1,6 +1,6 @@
 # 框架模块开发指南
 
-本文描述平台 `0.3.0` 的外置框架模块契约。框架模块是放在 `/modules` 中、随应用启动加载的可信 JAR；机器人插件是由 `plugin-support` 从 `/plugins` 加载并绑定到机器人的业务实现。二者不是同一个扩展层。
+本文描述平台 `0.4.0` 的外置框架模块契约。框架模块是放在 `/modules` 中、随应用启动加载的可信 JAR；机器人插件是由 `plugin-support` 从 `/plugins` 加载并绑定到机器人的业务实现。二者不是同一个扩展层。
 
 ## 1. 模块与插件边界
 
@@ -59,7 +59,7 @@ reports-1.0.0.jar
   "dependencies": [
     {
       "moduleId": "database-support",
-      "minimumVersion": "0.3.0",
+      "minimumVersion": "0.4.0",
       "optional": false
     }
   ],
@@ -94,10 +94,12 @@ reports-1.0.0.jar
 | `database-support` | SQLite/MySQL/PostgreSQL、迁移和在线配置 | 无 |
 | `qqbot-runtime` | QQ Gateway/OpenAPI、机器人监督、可靠消息和媒体 | `database-support` |
 | `platform-admin` | 登录、首次设置、系统接口和后台壳 | `database-support`、`qqbot-runtime` |
-| `plugin-support` | 机器人插件加载、上传、绑定和投递 | 前三个模块 |
+| `plugin-support` | 机器人插件加载、上传、绑定、每 bot/plugin 文件目录和投递 | 前三个模块 |
 | `operations` | 健康、Dashboard、审计和队列查询 | 前四个模块 |
 | `cluster-support` | SQL 租约、fencing 和插件一致性 | `database-support`、`qqbot-runtime`、`plugin-support` |
 | `onebot11` | C2C/普通群 OneBot 11 WebSocket 兼容层 | `database-support`、`qqbot-runtime` |
+
+`plugin-support` 的描述符通过 `plugin.binding-files` 声明绑定文件管理能力；该能力包含每个 `/data/plugin-data/<botId>/<pluginId>/` 目录的初始化、`config.json` 校验、管理 API 和后台文件管理器。它描述模块提供的功能，不代表 PF4J 插件运行在文件系统安全沙箱中。
 
 ## 4. Spring 后端
 
@@ -105,8 +107,8 @@ reports-1.0.0.jar
 
 ```kotlin
 dependencies {
-    compileOnly("com.mieai.qqbot:qqbot-module-api:0.3.0")
-    compileOnly("com.mieai.qqbot:qqbot-module-spi:0.3.0")
+    compileOnly("com.mieai.qqbot:qqbot-module-api:0.4.0")
+    compileOnly("com.mieai.qqbot:qqbot-module-spi:0.4.0")
     compileOnly("org.springframework.boot:spring-boot-autoconfigure:3.5.16")
     compileOnly("org.springframework.boot:spring-boot-starter-web:3.5.16")
 
@@ -114,7 +116,7 @@ dependencies {
 }
 ```
 
-平台 Boot JAR 已提供 Spring Boot、Jackson、JDBC、Flyway、SQLite/MySQL/PostgreSQL 驱动，以及本仓库的 domain、protocol、client、gateway、runtime、persistence、admin 和插件宿主基础库。不要把这些库重复打入模块 JAR。
+平台 Boot JAR 已提供 Spring Boot、Jackson、Jackson Kotlin、Kotlin 2.1 标准库与反射库、JDBC、Flyway、SQLite/MySQL/PostgreSQL 驱动，以及本仓库的 domain、protocol、client、gateway、runtime、persistence、admin 和插件宿主基础库。不要把这些库重复打入模块 JAR。
 
 模块使用标准 Spring Boot 自动配置：
 
@@ -288,8 +290,8 @@ cd ..
 输出位置：
 
 - `build/runtime/modules/*.jar`
-- `build/distributions/qqbot-default-modules-0.3.0.zip`
-- `build/distributions/qqbot-module-sdk-0.3.0.zip`
+- `build/distributions/qqbot-default-modules-0.4.0.zip`
+- `build/distributions/qqbot-module-sdk-0.4.0.zip`
 
 源码 Compose 运行前可执行 `stageRuntimeExtensions`，它复制默认模块和示例机器人插件，并保留目录中的其他 JAR：
 

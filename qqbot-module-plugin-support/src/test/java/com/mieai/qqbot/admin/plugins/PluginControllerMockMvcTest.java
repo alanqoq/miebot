@@ -54,7 +54,7 @@ class PluginControllerMockMvcTest {
                 List.of(new PluginArtifactResponse(
                         "support", "Support", "1.0", "1", "support.jar", 10,
                         Instant.parse("2026-07-18T12:00:00Z"), "hash", "DISCOVERED", null,
-                        false, 0, 0)),
+                        "{}", false, 0, 0)),
                 "/plugins", true, false, null, Instant.parse("2026-07-18T12:00:00Z")));
 
         mockMvc.perform(get("/api/plugins").param("query", "support"))
@@ -87,7 +87,7 @@ class PluginControllerMockMvcTest {
         PluginArtifactResponse artifact = new PluginArtifactResponse(
                 "support", "Support", "2.0.0", "1.1.0", "support-2.0.0-hash.jar", 3,
                 Instant.parse("2026-07-19T12:00:00Z"), "abcdef", "LOADED", null,
-                true, 2, 2);
+                "{}", true, 2, 2);
         when(service.upload(any(MultipartFile.class))).thenReturn(
                 new PluginUploadResponse("UPGRADED", artifact, "1.0.0", "oldhash"));
 

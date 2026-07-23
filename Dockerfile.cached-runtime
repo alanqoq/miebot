@@ -21,6 +21,7 @@ RUN rm -rf /opt/sqlite/* /tmp/qqbot-jar \
 
 ENV QQBOT_MODULES_DIR=/modules \
     LOADER_PATH=/modules \
+    QQBOT_PLUGINS_DATA_DIR=/data/plugin-data \
     QQBOT_MEDIA_STAGING_DIRECTORY=/data/media-staging
 
 USER 10001:10001

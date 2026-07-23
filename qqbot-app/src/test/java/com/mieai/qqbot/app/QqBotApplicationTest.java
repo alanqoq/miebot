@@ -60,7 +60,7 @@ class QqBotApplicationTest {
         assertThat(DATABASE_FILE).exists();
         assertThat(Path.of(OnboardingProperties.class.getProtectionDomain()
                         .getCodeSource().getLocation().toURI()).getFileName().toString())
-                .isEqualTo("qqbot-module-platform-admin-0.3.0.jar");
+                .isEqualTo("qqbot-module-platform-admin-0.4.0.jar");
         assertThat(onboardingProperties.getStateFile())
                 .isEqualTo(DATABASE_FILE.resolveSibling(DATABASE_FILE.getFileName() + ".onboarding.json"));
     }

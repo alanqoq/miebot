@@ -15,6 +15,7 @@ tasks.jar {
             "Plugin-Requires" to "2.0.0",
             "Plugin-Class" to "com.mieai.qqbot.plugin.host.Pf4jPluginBridge",
             "Plugin-Config-Schema" to "qqbot-plugin-schema.json",
+            "Plugin-Default-Config" to "qqbot-plugin-default.json",
             "Plugin-Capabilities" to "event.read,event.subscribe,message.send,storage",
         )
     }
