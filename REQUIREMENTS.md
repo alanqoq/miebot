@@ -104,13 +104,14 @@ flowchart LR
   qqbot-module-spi       FrameworkModuleLifecycle 与 ModuleContext
   qqbot-module-host      JAR 扫描、依赖图、生命周期、服务注册表和资源目录
 
-框架功能模块
+框架功能模块（默认分发到 `/modules` 的七个外置 JAR）
   database-support       数据库、迁移、持久化和在线配置
   qqbot-runtime          QQ 接入、多机器人、可靠消息和媒体
   platform-admin         认证、首次设置、系统 API 和后台应用壳
   plugin-support         机器人插件 SDK、加载、上传、绑定和投递
   operations             健康、Dashboard、审计和队列查询
   cluster-support        租约、fencing 和多实例一致性
+  onebot11               C2C/普通群 OneBot 11 WebSocket 兼容层
 
 内部技术库
   qqbot-domain / protocol / client / gateway / runtime / persistence
@@ -122,6 +123,8 @@ flowchart LR
 ```
 
 框架功能模块通过版本化描述符声明依赖，宿主按拓扑顺序启动并反序停止。模块间共享能力通过类型化服务注册表完成，消费方只能读取已声明依赖模块发布的服务。机器人插件不是框架模块，只能依赖 `qqbot-plugin-api` 和 `qqbot-plugin-spi`，由 `plugin-support` 加载和绑定，不得依赖 Spring、PF4J、数据库实体或 QQ 原始传输实现。
+
+根工程当前声明 23 个 Gradle 子项目；上述七个条目只是默认 `/modules` 运行时模块。`qqbot-module-api`、`qqbot-module-spi`、`qqbot-module-host` 是模块框架契约与宿主，其余子项目提供领域/协议/客户端/运行时/持久化/插件能力和应用交付，不会分别作为默认框架功能模块 JAR 运行。
 
 ### 4.4 可复用库边界
 
@@ -486,7 +489,7 @@ Compose 不创建 MySQL/PostgreSQL 服务。数据库由外部系统部署和备
 - 媒体 URL 的 SSRF、大小、重定向和超时测试。
 - Angular 机器人和插件管理核心流程测试。
 - 模块 JAR 缺少/错误描述符、重复 ID、缺失依赖、版本过低、依赖环、启动回滚、反序停止、服务访问、SHA-256 和 Web 资源精确归属测试。
-- 应用上下文中六个内置功能模块全部为 `ACTIVE` 的集成测试。
+- 应用上下文中七个默认外置框架功能模块全部为 `ACTIVE` 的集成测试。
 - SQLite 默认模式和外部 MySQL/PostgreSQL 连接模式的 Compose 冒烟测试。
 
 ### 13.2 第一版验收标准
@@ -506,7 +509,7 @@ Compose 不创建 MySQL/PostgreSQL 服务。数据库由外部系统部署和备
 13. 数据库或 QQ 网络短暂中断并恢复后，应用能够自动恢复处理且不产生重复的已提交副作用。
 14. Angular 任意后台路由在浏览器直接刷新后仍能正常加载。
 15. Web 或候选配置文件切换数据库前完成连接、读写和 schema 检查，失败时旧数据库和活动配置继续可用。
-16. 六个默认框架功能模块以 `/modules` 中的独立 JAR 存在，通过目录 API 可见且为 `ACTIVE`；缺少必需模块、版本不足或依赖成环时应用在执行模块代码前拒绝启动。
+16. 七个默认框架功能模块（`platform-admin`、`database-support`、`qqbot-runtime`、`plugin-support`、`operations`、`cluster-support`、`onebot11`）以 `/modules` 中的独立 JAR 存在，通过目录 API 可见且为 `ACTIVE`；缺少必需模块、版本不足或依赖成环时应用在执行模块代码前拒绝启动。
 17. 模块可通过已声明依赖交换类型化服务，并可在自身 JAR 中携带不修改 Angular 主工程路由表的同源 Web Component 页面。
 18. 模块可在自己的命名空间中提供 SQLite/MySQL/PostgreSQL 迁移，并使用独立 Flyway 历史表避免版本号冲突。
 

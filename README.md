@@ -25,6 +25,8 @@
 - SQL bot/shard 租约与 fencing token；Inbox、插件投递和 Outbox 只由机器人租约持有者领取，插件哈希变化也会使不匹配实例失去续租资格
 - 文本、Markdown、Keyboard、Ark、Embed，以及受大小/类型/SSRF 策略保护的本地或远程媒体 Outbox
 
+`settings.gradle.kts` 当前声明 23 个 Gradle 子项目。它们包含模块 SDK/宿主、领域与协议库、QQ 运行时、插件 SDK/宿主、持久化、管理 API、示例插件和启动器；其中只有 `platform-admin`、`database-support`、`qqbot-runtime`、`plugin-support`、`operations`、`cluster-support`、`onebot11` 七个框架功能模块会作为默认独立 JAR 分发到运行时 `/modules` 目录。
+
 应用会直接通过 HTTP 提供管理 API 和编译后的 Angular 静态资源。Caddy 或 Nginx 仅作为可选的生产反向代理。
 
 SQLite 默认写入工作目录的 `qqbot.db`，并强制启用 WAL、外键、5 秒 busy timeout 和进程级文件锁；文件锁会随 Web 数据库热切换转移。管理后台的“系统”页面可测试并切换 SQLite、MySQL 和 PostgreSQL；切换失败时继续使用原数据库，空目标库会先初始化 schema 并复制当前唯一管理员。业务数据不会在数据库之间迁移。SQLite 只支持一个应用实例，多实例必须使用 MySQL/PostgreSQL。
@@ -81,6 +83,6 @@ npm.cmd ci
 npm.cmd run build
 ```
 
-前端构建会同时生成后台壳和五个模块页面包。随后执行 `:qqbot-app:bootJar defaultModuleDirectory`：壳资源进入核心 Boot JAR，模块页面进入各自的普通 JAR，默认模块输出到 `build/runtime/modules`。`stageRuntimeExtensions` 可把默认模块和示例插件放入项目的 `modules/`、`plugins/` 目录供 Compose 使用。
+前端构建会同时生成后台壳和五个带 Web Component 页面贡献的模块页面包：`operations`、`qqbot-runtime`、`plugin-support`、`platform-admin`、`onebot11`。这五个页面包不等于默认框架模块总数；默认 `/modules` 分发仍包含七个模块，`database-support` 和 `cluster-support` 当前没有单独的前端页面包。随后执行 `:qqbot-app:bootJar defaultModuleDirectory`：壳资源进入核心 Boot JAR，模块页面进入各自的普通 JAR，默认模块输出到 `build/runtime/modules`。`stageRuntimeExtensions` 可把默认模块和示例插件放入项目的 `modules/`、`plugins/` 目录供 Compose 使用。
 
 框架功能开发者应阅读 [MODULE_DEVELOPMENT.md](./MODULE_DEVELOPMENT.md)；文档说明模块/插件边界、依赖图、生命周期、模块间服务、Web Component 和 Docker 接入，`moduleSdkRepository`/`moduleSdkDistribution` 可生成模块 SDK。OneBot 接入和兼容边界见 [ONEBOT11.md](./ONEBOT11.md)。插件作者应阅读 [PLUGIN_DEVELOPMENT.md](./PLUGIN_DEVELOPMENT.md)，并可直接复制 [plugin-template](./plugin-template)；`pluginSdkRepository`/`pluginSdkDistribution` 可生成插件 SDK。完整平台需求见 [REQUIREMENTS.md](./REQUIREMENTS.md)。
