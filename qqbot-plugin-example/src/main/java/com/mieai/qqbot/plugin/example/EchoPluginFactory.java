@@ -5,14 +5,14 @@ import com.mieai.qqbot.plugin.api.PluginEvent;
 import com.mieai.qqbot.plugin.api.PluginRuntimeContext;
 import com.mieai.qqbot.plugin.api.TextMessage;
 import com.mieai.qqbot.plugin.spi.BotPlugin;
-import com.mieai.qqbot.plugin.spi.BotPluginFactoryV2;
+import com.mieai.qqbot.plugin.spi.BotPluginFactory;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CompletionStage;
 
 /** Minimal production-shaped plugin used for smoke tests and deployment verification. */
-public final class EchoPluginFactory implements BotPluginFactoryV2 {
+public final class EchoPluginFactory implements BotPluginFactory {
     @Override
     public String pluginId() { return "echo"; }
 
@@ -28,7 +28,7 @@ public final class EchoPluginFactory implements BotPluginFactoryV2 {
         private EchoPlugin(PluginRuntimeContext context) { this.context = context; }
 
         @Override
-        public void start(PluginRuntimeContext ignored) {
+        public void start() {
             subscriptions.add(context.events().subscribe("commands", Set.of(), this::handleCommand));
             subscriptions.add(context.events().subscribe("audit", Set.of(), this::observeEvent));
         }

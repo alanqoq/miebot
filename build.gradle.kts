@@ -11,7 +11,7 @@ plugins {
 }
 allprojects {
     group = "com.mieai.qqbot"
-    version = "0.2.0"
+    version = "0.3.0"
 }
 
 subprojects {
@@ -55,7 +55,7 @@ subprojects {
 // The SDK is consumed by plugin projects, so publish a self-contained local
 // Maven repository in addition to the normal Gradle module outputs.
 val pluginSdkModules = listOf(
-    "qqbot-domain", "qqbot-protocol", "qqbot-client",
+    "qqbot-domain",
     "qqbot-plugin-api", "qqbot-plugin-spi", "qqbot-plugin-testkit")
 val cleanPluginSdkRepository by tasks.registering(Delete::class) {
     delete(layout.buildDirectory.dir("plugin-sdk/repository"))
@@ -109,4 +109,108 @@ val pluginSdkDistribution by tasks.registering(Zip::class) {
     }
     from("PLUGIN_DEVELOPMENT.md")
     from("README.md") { into("project") }
+}
+
+val moduleSdkModules = listOf("qqbot-module-api", "qqbot-module-spi")
+val cleanModuleSdkRepository by tasks.registering(Delete::class) {
+    delete(layout.buildDirectory.dir("module-sdk/repository"))
+}
+moduleSdkModules.forEach { moduleName ->
+    project(":$moduleName") {
+        apply(plugin = "maven-publish")
+        extensions.configure<PublishingExtension> {
+            publications {
+                create<MavenPublication>("moduleSdk") {
+                    from(components["java"])
+                    versionMapping {
+                        usage("java-api") { fromResolutionOf("runtimeClasspath") }
+                        usage("java-runtime") { fromResolutionResult() }
+                    }
+                    pom {
+                        name.set(project.name)
+                        description.set(project.description ?: "QQBot framework module SDK")
+                    }
+                }
+            }
+            repositories {
+                maven {
+                    name = "moduleSdk"
+                    url = uri(rootProject.layout.buildDirectory.dir("module-sdk/repository"))
+                }
+            }
+        }
+        tasks.matching { it.name == "publishModuleSdkPublicationToModuleSdkRepository" }.configureEach {
+            dependsOn(cleanModuleSdkRepository)
+        }
+    }
+}
+
+val moduleSdkRepository by tasks.registering {
+    group = "distribution"
+    description = "Publishes the framework module API and SPI to a local SDK repository."
+    dependsOn(moduleSdkModules.map { ":$it:publishModuleSdkPublicationToModuleSdkRepository" })
+}
+
+val moduleSdkDistribution by tasks.registering(Zip::class) {
+    group = "distribution"
+    description = "Builds the framework module SDK and development guide."
+    dependsOn(moduleSdkRepository)
+    archiveBaseName.set("qqbot-module-sdk")
+    destinationDirectory.set(layout.buildDirectory.dir("distributions"))
+    from(layout.buildDirectory.dir("module-sdk/repository")) { into("repository") }
+    from("MODULE_DEVELOPMENT.md")
+}
+
+val defaultModuleProjects = listOf(
+    "qqbot-module-platform-admin",
+    "qqbot-module-database-support",
+    "qqbot-module-qqbot-runtime",
+    "qqbot-module-plugin-support",
+    "qqbot-module-operations",
+    "qqbot-module-cluster-support",
+    "qqbot-module-onebot11")
+
+val defaultModuleDirectory by tasks.registering(Sync::class) {
+    group = "distribution"
+    description = "Collects the default external framework module JARs."
+    into(layout.buildDirectory.dir("runtime/modules"))
+    defaultModuleProjects.forEach { moduleName ->
+        val moduleJar = project(":$moduleName").tasks.named<Jar>("jar")
+        dependsOn(moduleJar)
+        from(moduleJar.flatMap { it.archiveFile })
+    }
+}
+
+val stageDefaultModules by tasks.registering(Copy::class) {
+    group = "distribution"
+    description = "Copies default module JARs into the project modules directory for Compose."
+    dependsOn(defaultModuleDirectory)
+    from(layout.buildDirectory.dir("runtime/modules"))
+    into(layout.projectDirectory.dir("modules"))
+}
+
+val stageExamplePlugin by tasks.registering(Copy::class) {
+    group = "distribution"
+    description = "Copies the example robot plugin into the project plugins directory."
+    val pluginJar = project(":qqbot-plugin-example").tasks.named<Jar>("jar")
+    dependsOn(pluginJar)
+    from(pluginJar.flatMap { it.archiveFile })
+    into(layout.projectDirectory.dir("plugins"))
+}
+
+val stageRuntimeExtensions by tasks.registering {
+    group = "distribution"
+    description = "Stages default framework modules and the example robot plugin for Compose."
+    dependsOn(stageDefaultModules, stageExamplePlugin)
+}
+
+val defaultModuleDistribution by tasks.registering(Zip::class) {
+    group = "distribution"
+    description = "Builds the default /modules directory used by Debian Docker deployments."
+    dependsOn(defaultModuleDirectory)
+    archiveBaseName.set("qqbot-default-modules")
+    destinationDirectory.set(layout.buildDirectory.dir("distributions"))
+    from(layout.buildDirectory.dir("runtime/modules")) { into("modules") }
+    from("MODULE_DEVELOPMENT.md")
+    from("ONEBOT11.md")
 }

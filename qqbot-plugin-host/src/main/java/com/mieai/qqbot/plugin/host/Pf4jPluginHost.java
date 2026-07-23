@@ -25,7 +25,6 @@ import com.mieai.qqbot.plugin.api.RestrictedHttpClient;
 import com.mieai.qqbot.plugin.api.TextMessage;
 import com.mieai.qqbot.plugin.spi.BotPlugin;
 import com.mieai.qqbot.plugin.spi.BotPluginFactory;
-import com.mieai.qqbot.plugin.spi.BotPluginFactoryV2;
 import com.mieai.qqbot.plugin.spi.PluginApiVersion;
 import java.io.IOException;
 import java.io.InputStream;
@@ -267,19 +266,23 @@ public final class Pf4jPluginHost implements AutoCloseable {
 
     public synchronized List<String> handlerIds(BotPluginBinding binding) {
         InstanceHandle handle = instance(binding);
-        return handle.resources().handlerIds(handle.plugin().handlerId());
+        return handle.resources().handlerIds();
     }
 
     public synchronized List<String> handlerIds(BotPluginBinding binding, String eventType) {
         InstanceHandle handle = instance(binding);
-        return handle.resources().handlerIds(handle.plugin().handlerId(), eventType);
+        return handle.resources().handlerIds(eventType);
     }
 
     public CompletionStage<Void> execute(BotPluginBinding binding, InboxEvent inboxEvent) {
         String handlerId;
         synchronized (this) {
             InstanceHandle handle = instance(binding);
-            handlerId = handle.resources().handlerIds(handle.plugin().handlerId()).getFirst();
+            List<String> handlerIds = handle.resources().handlerIds();
+            if (handlerIds.isEmpty()) {
+                throw new IllegalStateException("Plugin has no registered event handlers: " + binding.pluginId());
+            }
+            handlerId = handlerIds.getFirst();
         }
         return execute(binding, inboxEvent, handlerId);
     }
@@ -295,7 +298,7 @@ public final class Pf4jPluginHost implements AutoCloseable {
         InstanceHandle handle;
         synchronized (this) { handle = instance(binding); }
         PluginEvent event = eventMapper.map(inboxEvent);
-        return handle.resources().executeCancellable(handlerId, event, handle.plugin()::onEvent);
+        return handle.resources().executeCancellable(handlerId, event);
     }
 
     public synchronized void invalidate(UUID bindingId) {
@@ -357,11 +360,9 @@ public final class Pf4jPluginHost implements AutoCloseable {
                 plugin.metadata().capabilities().contains("media.send")
                         ? durable : MediaService.denied());
         try {
-            BotPlugin created = plugin.factory() instanceof BotPluginFactoryV2 v2
-                    ? v2.create(extended) : plugin.factory().create(base);
+            BotPlugin created = plugin.factory().create(extended);
             BotPlugin botPlugin = Objects.requireNonNull(created, "plugin factory returned null");
-            if (plugin.factory() instanceof BotPluginFactoryV2) botPlugin.start(extended);
-            else botPlugin.start(base);
+            botPlugin.start();
             InstanceHandle handle = new InstanceHandle(binding.id(), binding.pluginId(), binding.revision(),
                     botPlugin, resources, http);
             instances.put(binding.id(), handle);

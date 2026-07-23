@@ -1,0 +1,111 @@
+<section class="onebot-settings" aria-labelledby="onebot-settings-title">
+  <header class="settings-header">
+    <div>
+      <p class="eyebrow">ONEBOT 11</p>
+      <h3 id="onebot-settings-title">协议接入</h3>
+    </div>
+    <div class="runtime-summary">
+      @if (runtime(); as current) {
+        <span class="runtime-badge" [class.runtime-active]="current.state === 'RUNNING'">
+          {{ stateLabel(current) }}
+        </span>
+      }
+      <button class="icon-button" type="button" title="刷新 OneBot 状态" aria-label="刷新 OneBot 状态" (click)="load()">
+        <svg lucideRefreshCw [size]="17" [class.spinning]="loading()"></svg>
+      </button>
+    </div>
+  </header>
+
+  @if (loading()) {
+    <div class="settings-loading"><svg lucideRefreshCw class="spinning" [size]="20"></svg></div>
+  } @else {
+    <form [formGroup]="form" (ngSubmit)="save()" novalidate>
+      <div class="settings-body">
+        @if (error()) { <div class="notice notice-error" role="alert">{{ error() }}</div> }
+        @if (saved()) { <div class="notice notice-success" role="status">OneBot 配置已保存。</div> }
+
+        <label class="toggle-row primary-toggle">
+          <input type="checkbox" formControlName="enabled" />
+          <span class="toggle-indicator"></span>
+          <span><strong>启用 OneBot 11</strong><small>QQ C2C 与普通群兼容子集</small></span>
+        </label>
+
+        <fieldset>
+          <legend>正向 WebSocket</legend>
+          <label class="toggle-row">
+            <input type="checkbox" formControlName="forwardEnabled" />
+            <span class="toggle-indicator"></span>
+            <span><strong>启用监听</strong><small>/api · /event · /</small></span>
+          </label>
+          <div class="field-grid">
+            <label class="form-field">
+              <span>监听地址</span>
+              <input type="text" formControlName="forwardBindAddress" autocomplete="off" />
+            </label>
+            <label class="form-field">
+              <span>端口</span>
+              <input type="number" formControlName="forwardPort" min="1" max="65535" />
+            </label>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>反向 WebSocket</legend>
+          <label class="toggle-row">
+            <input type="checkbox" formControlName="reverseEnabled" />
+            <span class="toggle-indicator"></span>
+            <span><strong>启用 Universal 连接</strong><small>X-Client-Role: Universal</small></span>
+          </label>
+          <label class="form-field">
+            <span>连接 URL</span>
+            <input type="url" formControlName="reverseUrl" placeholder="ws://127.0.0.1:8080/onebot" />
+          </label>
+          <label class="form-field compact-field">
+            <span>重连间隔（毫秒）</span>
+            <input type="number" formControlName="reconnectIntervalMs" min="500" max="300000" />
+          </label>
+        </fieldset>
+
+        <fieldset>
+          <legend>鉴权与心跳</legend>
+          <label class="form-field">
+            <span class="secret-label">access token @if (tokenConfigured()) { <small>已配置</small> }</span>
+            <input type="password" formControlName="accessToken" autocomplete="new-password" placeholder="保持现有令牌" />
+          </label>
+          @if (tokenConfigured()) {
+            <label class="clear-token">
+              <input type="checkbox" formControlName="clearAccessToken" />
+              <span>清除现有令牌</span>
+            </label>
+          }
+          <div class="heartbeat-row">
+            <label class="toggle-row">
+              <input type="checkbox" formControlName="heartbeatEnabled" />
+              <span class="toggle-indicator"></span>
+              <span><strong>心跳</strong></span>
+            </label>
+            <label class="form-field compact-field">
+              <span>间隔（毫秒）</span>
+              <input type="number" formControlName="heartbeatIntervalMs" min="1000" max="300000" />
+            </label>
+          </div>
+        </fieldset>
+
+        @if (runtime(); as current) {
+          <div class="connection-status">
+            <span>正向 {{ current.forwardListening ? '监听中' : '未监听' }} · {{ current.forwardConnections }} 个连接</span>
+            <span>反向 {{ current.reverseConnected ? '已连接' : '未连接' }}</span>
+            @if (current.lastError) { <strong>{{ current.lastError }}</strong> }
+          </div>
+        }
+      </div>
+      <footer class="settings-footer">
+        <button class="button button-primary" type="submit" [disabled]="saving()">
+          @if (saving()) { <svg lucideRefreshCw class="spinning" [size]="16"></svg> }
+          @else { <svg lucideSave [size]="16"></svg> }
+          <span>保存 OneBot 配置</span>
+        </button>
+      </footer>
+    </form>
+  }
+</section>

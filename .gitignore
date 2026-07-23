@@ -17,6 +17,7 @@ qqbot-admin-web/.angular/
 data/
 media-staging/
 plugins/*.jar
+modules/*.jar
 *.db
 *.db-shm
 *.db-wal

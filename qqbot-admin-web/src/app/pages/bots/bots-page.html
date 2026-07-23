@@ -435,6 +435,9 @@
             </button>
           </footer>
         </form>
+        @if (mode === 'edit' && editingBot(); as bot) {
+          <qqbot-bot-settings-host [botId]="bot.id" />
+        }
       }
     </section>
   </div>

@@ -51,7 +51,7 @@ class JdbcBotLeaseRepositoryTest {
         insertBot(dataSource, BOT, "10001", BotEnvironment.SANDBOX);
         var artifactRepository = new JdbcPluginArtifactRepository(dataSource);
         artifactRepository.upsert(new PluginArtifact(
-                "echo", "Echo", "1.0.0", "1.2.0", "echo.jar", "correct-hash",
+                "echo", "Echo", "1.0.0", "2.0.0", "echo.jar", "correct-hash",
                 "com.example.Echo", "LOADED", true, BASE_TIME, BASE_TIME));
         new JdbcBotPluginBindingRepository(dataSource).insert(new BotPluginBinding(
                 UUID.fromString("550e8400-e29b-41d4-a716-446655440010"), "echo", BotId.parse(BOT),
@@ -71,7 +71,7 @@ class JdbcBotLeaseRepositoryTest {
         assertThat(repository.isOwned(botId, "instance-b", BASE_TIME.plusSeconds(1))).isFalse();
 
         artifactRepository.upsert(new PluginArtifact(
-                "echo", "Echo", "1.1.0", "1.2.0", "echo.jar", "replacement-hash",
+                "echo", "Echo", "1.1.0", "2.0.0", "echo.jar", "replacement-hash",
                 "com.example.Echo", "LOADED", true, BASE_TIME, BASE_TIME.plusSeconds(2)));
         assertThat(repository.renew(acquired, BASE_TIME.plusSeconds(5), duration,
                 Map.of("echo", "correct-hash"))).isFalse();

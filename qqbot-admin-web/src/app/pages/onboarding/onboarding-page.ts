@@ -256,7 +256,7 @@ export class OnboardingPage implements OnInit {
       .complete()
       .pipe(finalize(() => this.completing.set(false)))
       .subscribe({
-        next: () => void this.router.navigateByUrl('/dashboard'),
+        next: () => void this.router.navigateByUrl('/'),
         error: (error: unknown) => {
           this.botError.set(this.genericError(error, '无法完成首次设置，请重试。'));
         },
@@ -312,7 +312,7 @@ export class OnboardingPage implements OnInit {
       .subscribe({
         next: ({ onboarding, configuration, bots }) => {
           if (onboarding.stage === 'COMPLETE') {
-            void this.router.navigateByUrl('/dashboard');
+            void this.router.navigateByUrl('/');
             return;
           }
           this.configuration.set(configuration);

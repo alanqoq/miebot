@@ -18,6 +18,7 @@ import com.mieai.qqbot.persistence.plugin.JdbcPluginArtifactRepository;
 import com.mieai.qqbot.persistence.plugin.JdbcPluginStorageRepository;
 import com.mieai.qqbot.persistence.sqlite.SQLiteDataSourceFactory;
 import com.mieai.qqbot.persistence.sqlite.SQLiteDatabaseInitializer;
+import com.mieai.qqbot.runtime.outbox.OutboundTextPayload;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;

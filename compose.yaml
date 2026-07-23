@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: mirai-qqbot:0.2.0
+    image: mirai-qqbot:0.3.0
     platform: linux/amd64
     restart: unless-stopped
     stop_grace_period: 30s
@@ -14,12 +14,15 @@ services:
     environment:
       QQBOT_HTTP_ADDRESS: 0.0.0.0
       QQBOT_HTTP_PORT: 8080
+      QQBOT_MODULES_DIR: /modules
+      LOADER_PATH: /modules
       QQBOT_ONBOARDING_STATE_FILE: /data/config/onboarding.json
       QQBOT_GATEWAY_ENABLED: "${QQBOT_GATEWAY_ENABLED:-true}"
       QQBOT_GATEWAY_SESSION_DIRECTORY: /data/config/gateway-sessions
       QQBOT_GATEWAY_LEASE_DURATION: "${QQBOT_GATEWAY_LEASE_DURATION:-45s}"
       QQBOT_INSTANCE_ID: "${QQBOT_INSTANCE_ID:-}"
       QQBOT_GATEWAY_SHUTDOWN_TIMEOUT: "${QQBOT_GATEWAY_SHUTDOWN_TIMEOUT:-10s}"
+      QQBOT_ONEBOT11_CACHE_DIRECTORY: /data/onebot-cache
       QQBOT_PLUGINS_DIR: /plugins
       QQBOT_PLUGINS_BINDING_QUEUE_CAPACITY: "${QQBOT_PLUGINS_BINDING_QUEUE_CAPACITY:-256}"
       QQBOT_PLUGINS_SHUTDOWN_TIMEOUT: "${QQBOT_PLUGINS_SHUTDOWN_TIMEOUT:-20s}"
@@ -35,7 +38,8 @@ services:
     volumes:
       - qqbot-data:/data
       - ./config:/data/config
-      - qqbot-plugins:/plugins
+      - ./modules:/modules:ro
+      - ./plugins:/plugins
     tmpfs:
       - /tmp/qqbot:rw,nosuid,nodev,size=128m,uid=10001,gid=10001,mode=0700
     read_only: true
@@ -53,4 +57,3 @@ services:
 
 volumes:
   qqbot-data:
-  qqbot-plugins:

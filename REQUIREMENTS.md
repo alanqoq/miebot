@@ -1,29 +1,31 @@
-# QQ 机器人多机器人接入与插件平台需求文档
+# QQ 机器人框架模块与插件平台需求文档
 
 | 项目 | 内容 |
 | --- | --- |
-| 文档状态 | 草案 |
-| 版本 | 0.1.0 |
-| 最后更新 | 2026-07-16 |
+| 文档状态 | 0.3.0 实现基线 |
+| 版本 | 0.3.0 |
+| 最后更新 | 2026-07-21 |
 | 目标平台 | Debian + Docker Compose |
 
 ## 1. 项目背景
 
-本项目用于构建一个可复用的 QQ 机器人 API 接入库及其配套运行平台。系统需要同时管理和运行多个 QQ 机器人，通过插件扩展消息处理与发送能力，并提供基于 Angular 的 Web 管理后台。
+本项目用于构建一个可复用的 QQ 机器人 API 接入库及其配套运行平台。平台功能通过框架模块拆分，机器人业务通过插件实现；系统需要同时管理和运行多个 QQ 机器人，并提供基于 Angular 的 Web 管理后台。
 
 项目最终交付物不是单一前端或单一 SDK，而是以下组件的组合：
 
 1. 可独立引用的 QQ Bot Java 接入库。
 2. 支持多机器人的服务端运行时。
-3. 稳定、版本化的插件开发 API、SPI 和测试工具。
-4. Angular Web 管理后台。
-5. SQLite、MySQL、PostgreSQL 持久化实现。
-6. 面向 Debian 的 Docker Compose 部署文件。
+3. 稳定、版本化的框架模块 API、SPI 和宿主。
+4. 由 `plugin-support` 模块承载的插件 API、SPI、测试工具、加载与绑定能力。
+5. Angular Web 管理后台及模块 Web 贡献入口。
+6. SQLite、MySQL、PostgreSQL 持久化实现。
+7. 面向 Debian 的 Docker Compose 部署文件。
 
 ## 2. 术语
 
 - **多机器人**：一个应用进程同时连接并管理多个 QQ Bot AppID。
 - **多实例**：同时运行多个本系统应用容器，并由它们共同承担机器人连接和任务处理。
+- **框架模块**：放在 `/modules`、启动前加入核心类路径、实现一组平台功能并由模块宿主管理依赖和生命周期的可信 JAR 制品。
 - **插件制品**：一个可安装的插件 JAR 文件。
 - **插件绑定**：插件与某个机器人的启用关系及独立配置。
 - **插件实例**：由一个插件绑定创建的运行中对象。
@@ -37,6 +39,7 @@
 - 支持在同一套系统中新增、配置、启停和监控多个 QQ 机器人。
 - 封装 QQ Access Token、OpenAPI、Gateway、事件和消息发送协议。
 - 使用插件实现机器人业务，插件不直接管理机器人密钥和底层连接。
+- 使用稳定模块 API/SPI 拆分平台功能，模块可声明依赖、交换服务并贡献后台内容。
 - 提供 HTTP API 和 Angular 管理后台修改配置、增加机器人和管理插件。
 - 默认使用 SQLite，部署时可切换为 MySQL 或 PostgreSQL。
 - 使用 Docker Compose 部署到 Debian 系统。
@@ -47,6 +50,7 @@
 当前版本仍不包含以下能力：
 
 - 不可信第三方插件的进程内安全沙箱。
+- 通过 Web 或 `/plugins` 目录运行时上传、安装或卸载框架模块。
 - 插件之间直接依赖或共享运行时对象。
 - Redis、Kafka、RabbitMQ 等额外基础设施。
 - SQLite 模式下的多应用实例和高可用部署。
@@ -64,16 +68,18 @@
 - 数据访问：Spring JDBC，复杂并发 SQL 使用数据库方言适配器。
 - 数据库迁移：版本化迁移脚本，按公共脚本和数据库方言组织。
 - 测试：JUnit、Testcontainers、QQ 协议测试桩、Angular 单元与端到端测试。
-- 部署：Docker、Docker Compose、Caddy 或 Nginx。
+- 部署：Docker、Docker Compose；Caddy 或 Nginx 仅为可选反向代理。
 
 ### 4.2 架构形态
 
-第一版采用模块化单体，不拆分微服务。Angular 构建产物可由 Spring Boot 或反向代理提供，前后端保持同源部署。
+第一版采用模块化单体，不拆分微服务。核心 Boot JAR 通过 `PropertiesLauncher` 在启动前加载 `/modules/*.jar`；模块宿主在创建模块 Bean 前统一校验 JSON 描述符、版本和依赖图，再按拓扑顺序启动。模块变更需要重启，不支持热卸载。Angular 后台壳由核心提供，各模块的编译后 Web Component 由所属 JAR 同源提供，反向代理可选。
 
 ```mermaid
 flowchart LR
     ADMIN["管理员浏览器"] --> WEB["Angular 管理后台"]
     WEB -->|REST / SSE| API["Spring Boot 管理 API"]
+    MODULE_HOST["框架模块宿主"] --> API
+    MODULE_HOST --> WEB
     API --> DB[("SQL 数据库")]
     API --> SUPERVISOR["BotSupervisor"]
 
@@ -85,35 +91,44 @@ flowchart LR
 
     BOT_A --> INBOX["持久化 Inbox"]
     BOT_N --> INBOX
-    INBOX --> HOST["插件宿主"]
-    HOST --> OUTBOX["持久化 Outbox"]
+    INBOX --> PLUGIN_SUPPORT["plugin-support / 插件宿主"]
+    PLUGIN_SUPPORT --> OUTBOX["持久化 Outbox"]
     OUTBOX --> QQ
 ```
 
-### 4.3 推荐模块
+### 4.3 模块分层
 
 ```text
-qqbot-domain          稳定领域模型
-qqbot-protocol        QQ 传输 DTO、Payload 和错误模型
-qqbot-client          Access Token、OpenAPI 和媒体上传
-qqbot-gateway         WebSocket、心跳、Resume、Intents 和重连
-qqbot-runtime         BotSupervisor 和多机器人生命周期
-qqbot-plugin-api      插件可调用的稳定能力接口
-qqbot-plugin-spi      插件入口、生命周期和事件处理契约
-qqbot-plugin-host     PF4J、类加载、隔离和事件投递
-qqbot-plugin-testkit  插件测试桩和契约测试
-qqbot-persistence     三种数据库实现、Inbox 和 Outbox
-qqbot-admin-api       HTTP API、认证、审计和健康检查
-qqbot-admin-web       Angular 管理后台
-qqbot-app             Spring Boot 启动器和 Docker 镜像
+框架核心
+  qqbot-module-api       模块描述符、依赖、服务键和 Web 贡献
+  qqbot-module-spi       FrameworkModuleLifecycle 与 ModuleContext
+  qqbot-module-host      JAR 扫描、依赖图、生命周期、服务注册表和资源目录
+
+框架功能模块
+  database-support       数据库、迁移、持久化和在线配置
+  qqbot-runtime          QQ 接入、多机器人、可靠消息和媒体
+  platform-admin         认证、首次设置、系统 API 和后台应用壳
+  plugin-support         机器人插件 SDK、加载、上传、绑定和投递
+  operations             健康、Dashboard、审计和队列查询
+  cluster-support        租约、fencing 和多实例一致性
+
+内部技术库
+  qqbot-domain / protocol / client / gateway / runtime / persistence
+  qqbot-plugin-api / spi / host / testkit
+
+交付层
+  qqbot-admin-web         Angular 管理后台
+  qqbot-app               Spring Boot 启动器和 Docker 镜像
 ```
 
-模块依赖必须保持单向。插件只能依赖 `qqbot-plugin-api` 和 `qqbot-plugin-spi`，不得依赖 Spring、PF4J、数据库实体或 QQ 原始传输实现。
+框架功能模块通过版本化描述符声明依赖，宿主按拓扑顺序启动并反序停止。模块间共享能力通过类型化服务注册表完成，消费方只能读取已声明依赖模块发布的服务。机器人插件不是框架模块，只能依赖 `qqbot-plugin-api` 和 `qqbot-plugin-spi`，由 `plugin-support` 加载和绑定，不得依赖 Spring、PF4J、数据库实体或 QQ 原始传输实现。
 
 ### 4.4 可复用库边界
 
 - `qqbot-domain`、`qqbot-protocol` 和 `qqbot-client` 必须能够脱离 Spring、Angular、数据库和 PF4J 单独使用。
-- 可复用模块发布为独立 Maven 制品，并遵循语义化版本规则。
+- `qqbot-module-api` 和 `qqbot-module-spi` 必须能够作为独立 SDK 发布，不依赖模块宿主或功能模块实现。
+- 框架模块可携带 Spring 自动配置、同源 Web Component 和按数据库方言隔离的迁移；资源必须由活动模块自己的 JAR 命名空间提供。
+- 可复用模块发布为普通独立 JAR 和可选 Maven 制品，并遵循语义化版本规则；平台提供的依赖使用 `compileOnly`。
 - 公共 API 不暴露具体 HTTP Client、JSON 框架、数据库或依赖注入容器类型。
 - QQ 原始协议 DTO 与稳定领域模型分离，协议变化不得直接破坏插件 API。
 - 发布物必须包含源码包、API 文档、变更记录和最小接入示例。
@@ -206,6 +221,7 @@ qqbot-app             Spring Boot 启动器和 Docker 镜像
 
 ### 7.1 插件模型
 
+- 插件系统是 `plugin-support` 框架模块提供的机器人功能实现机制，不把单个机器人插件登记为框架模块。
 - 一个插件 JAR 对应一个 PluginArtifact 和一个 ClassLoader。
 - 一个插件可以绑定多个机器人。
 - 每个 `pluginId + botId` 创建独立 PluginInstance。
@@ -223,9 +239,9 @@ Manifest 至少声明：
 - 入口类。
 - 配置 JSON Schema。
 - 所需能力。
-- 插件依赖和制品哈希。
+- 所需能力；制品 SHA-256 由宿主读取 JAR 后计算，不由插件自报。
 
-宿主必须在执行插件代码前完成 Manifest、API 兼容性和授权校验。
+当前插件 API 级别为 `2.0.0`。插件只通过 `BotPluginFactory.create(PluginRuntimeContext)` 创建绑定实例，在 `BotPlugin.start()` 中使用 `EventService` 注册命名 handler；不提供旧工厂或 `BotPlugin.onEvent(...)` 兼容回退。宿主必须在执行插件代码前完成 Manifest、API 兼容性和授权校验。
 
 ### 7.3 插件能力
 
@@ -366,6 +382,7 @@ PF4J 类加载隔离不构成安全沙箱。第一版只允许运维人员部署
 至少包含以下页面：
 
 - 登录和账户安全。
+- 基于 `/api/modules` 的活动模块导航和模块运行状态。
 - 系统概览和健康状态。
 - 机器人列表、创建、编辑、启停和连接状态。
 - 机器人事件权限与 Intents 配置。
@@ -381,6 +398,7 @@ PF4J 类加载隔离不构成安全沙箱。第一版只允许运维人员部署
 
 ```text
 /api/auth/*
+/api/modules
 /api/bots/*
 /api/plugins/*
 /api/plugin-bindings/*
@@ -392,6 +410,8 @@ PF4J 类加载隔离不构成安全沙箱。第一版只允许运维人员部署
 /health/live
 /health/ready
 ```
+
+框架模块的外部后台页面使用 `/modules/{moduleId}/{contributionId}`，脚本资源使用 `/module-assets/{moduleId}/...`。外部页面采用标准 Web Component，脚本与管理后台同源并受相同认证边界约束。
 
 - REST API 使用 OpenAPI 描述，并生成 Angular TypeScript Client。
 - REST API 使用统一错误结构、参数校验、分页协议和 trace ID。
@@ -408,7 +428,7 @@ PF4J 类加载隔离不构成安全沙箱。第一版只允许运维人员部署
 
 ```text
 app
-volumes: data, plugins
+volumes: data, modules(ro), plugins
 ```
 
 Spring Boot 直接提供管理 HTTP API 和 Angular 静态资源。Caddy/Nginx 只在需要域名、TLS 或统一入口时作为可选反向代理。
@@ -418,7 +438,7 @@ Spring Boot 直接提供管理 HTTP API 和 Angular 静态资源。Caddy/Nginx �
 ```text
 app
 external mysql or postgresql
-volumes: config, plugins
+volumes: config, modules(ro), plugins
 ```
 
 Compose 不创建 MySQL/PostgreSQL 服务。数据库由外部系统部署和备份，应用只保存连接配置。
@@ -426,7 +446,7 @@ Compose 不创建 MySQL/PostgreSQL 服务。数据库由外部系统部署和备
 ### 11.3 容器安全
 
 - 应用容器使用非 root 用户。
-- 根文件系统尽量只读，仅数据、插件和临时目录可写。
+- 根文件系统尽量只读，仅数据、插件和临时目录可写；模块目录只读。
 - 默认移除不需要的 Linux capabilities，并启用 no-new-privileges。
 - 不挂载 Docker Socket。
 - Compose 不包含数据库容器，也不映射数据库端口。
@@ -465,6 +485,8 @@ Compose 不创建 MySQL/PostgreSQL 服务。数据库由外部系统部署和备
 - 沙箱与正式环境隔离测试。
 - 媒体 URL 的 SSRF、大小、重定向和超时测试。
 - Angular 机器人和插件管理核心流程测试。
+- 模块 JAR 缺少/错误描述符、重复 ID、缺失依赖、版本过低、依赖环、启动回滚、反序停止、服务访问、SHA-256 和 Web 资源精确归属测试。
+- 应用上下文中六个内置功能模块全部为 `ACTIVE` 的集成测试。
 - SQLite 默认模式和外部 MySQL/PostgreSQL 连接模式的 Compose 冒烟测试。
 
 ### 13.2 第一版验收标准
@@ -484,14 +506,18 @@ Compose 不创建 MySQL/PostgreSQL 服务。数据库由外部系统部署和备
 13. 数据库或 QQ 网络短暂中断并恢复后，应用能够自动恢复处理且不产生重复的已提交副作用。
 14. Angular 任意后台路由在浏览器直接刷新后仍能正常加载。
 15. Web 或候选配置文件切换数据库前完成连接、读写和 schema 检查，失败时旧数据库和活动配置继续可用。
+16. 六个默认框架功能模块以 `/modules` 中的独立 JAR 存在，通过目录 API 可见且为 `ACTIVE`；缺少必需模块、版本不足或依赖成环时应用在执行模块代码前拒绝启动。
+17. 模块可通过已声明依赖交换类型化服务，并可在自身 JAR 中携带不修改 Angular 主工程路由表的同源 Web Component 页面。
+18. 模块可在自己的命名空间中提供 SQLite/MySQL/PostgreSQL 迁移，并使用独立 Flyway 历史表避免版本号冲突。
 
 具体机器人数量、消息吞吐量、延迟目标和数据保留周期需要在获得实际使用规模后补充，不在本草案中虚构数值。
 
 ## 14. 开发阶段
 
-### 阶段一：工程与协议基础
+### 阶段一：框架核心、工程与协议基础
 
 - 建立 Gradle 多模块和 Angular 工程。
+- 发布 module-api/module-spi，实现模块宿主、依赖图、生命周期、服务注册表和 Web 贡献。
 - 完成领域模型、QQ DTO、Access Token 和 OpenAPI Client。
 - 建立 SQLite 默认数据源和迁移框架。
 

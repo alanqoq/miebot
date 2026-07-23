@@ -11,7 +11,7 @@ class TemplatePluginFactoryTest {
     void startsItsNamedHandlersWithTheSdkTestkit() {
         try (PluginTestContext fixture = new PluginTestContext("template", "{}")) {
             BotPlugin plugin = new TemplatePluginFactory().create(fixture.context());
-            plugin.start(fixture.context());
+            plugin.start();
 
             assertEquals(Set.of("commands", "audit"), fixture.events().handlerIds());
 

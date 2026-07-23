@@ -12,7 +12,7 @@ tasks.jar {
             "Plugin-Id" to "echo",
             "Plugin-Name" to "Echo Reply",
             "Plugin-Version" to project.version.toString(),
-            "Plugin-Requires" to "1.2.0",
+            "Plugin-Requires" to "2.0.0",
             "Plugin-Class" to "com.mieai.qqbot.plugin.host.Pf4jPluginBridge",
             "Plugin-Config-Schema" to "qqbot-plugin-schema.json",
             "Plugin-Capabilities" to "event.read,event.subscribe,message.send,storage",

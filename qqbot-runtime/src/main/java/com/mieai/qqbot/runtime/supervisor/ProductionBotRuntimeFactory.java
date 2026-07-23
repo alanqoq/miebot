@@ -100,7 +100,8 @@ public final class ProductionBotRuntimeFactory implements BotRuntimeFactory {
             QqAccessTokenClient tokenClient = new QqAccessTokenClient(options);
             SingleFlightTokenProvider tokenProvider =
                     new SingleFlightTokenProvider(credentials, tokenClient, options);
-            QqOpenApiClient openApiClient = new QqOpenApiClient(options, tokenProvider);
+            QqOpenApiClient openApiClient =
+                    new QqOpenApiClient(options, tokenProvider, credentials.appId());
             return new ProductionBotRuntime(
                     definition,
                     credentials,

@@ -1,6 +1,6 @@
 # QQBot 插件模板
 
-这是一个可复制的 Java 21 V2 插件项目。模板只把 `qqbot-plugin-api` 和
+这是一个可复制的 Java 21、插件 API 2.0 项目。模板只把 `qqbot-plugin-api` 和
 `qqbot-plugin-spi` 作为 `compileOnly` 依赖，最终 JAR 不会携带 API、SPI、PF4J、
 Spring 或数据库驱动。
 
@@ -25,7 +25,7 @@ Spring 或数据库驱动。
 
 复制到其他目录后，通过 `-PqqbotSdkRepository=<SDK 仓库路径>` 或环境变量
 `QQBOT_SDK_REPOSITORY` 指定 SDK 仓库。SDK 版本默认是仓库当前的
-`0.1.0`。
+`0.3.0`。
 
 ## 需要改动的文件
 
@@ -36,4 +36,5 @@ Spring 或数据库驱动。
 
 模板示例使用 `EventService` 注册 `commands` 和 `audit` 两个 handler；不需要
 命名 handler 时可保留一个订阅。宿主会为每个匹配的 handler 创建独立投递记录。
-`BotPlugin` 的默认 `onEvent` 已完成，因此只使用 `EventService` 时不需要再写空方法。
+`BotPluginFactory.create(PluginRuntimeContext)` 为每个机器人绑定创建实例，实例在
+`start()` 中通过 `EventService` 注册命名 handler，并在 `stop()` 中关闭订阅。

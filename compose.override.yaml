@@ -1,0 +1,7 @@
+services:
+  qqbot:
+    build:
+      context: .
+      dockerfile: Dockerfile.cached-runtime
+      args:
+        BASE_IMAGE: mirai-qqbot:runtime-cache-dragonwell21

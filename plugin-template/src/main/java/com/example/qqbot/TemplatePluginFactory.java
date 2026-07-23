@@ -5,7 +5,7 @@ import com.mieai.qqbot.plugin.api.PluginEvent;
 import com.mieai.qqbot.plugin.api.PluginRuntimeContext;
 import com.mieai.qqbot.plugin.api.TextMessage;
 import com.mieai.qqbot.plugin.spi.BotPlugin;
-import com.mieai.qqbot.plugin.spi.BotPluginFactoryV2;
+import com.mieai.qqbot.plugin.spi.BotPluginFactory;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -13,7 +13,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 
 /** Copy this class and replace the command logic with your plugin behavior. */
-public final class TemplatePluginFactory implements BotPluginFactoryV2 {
+public final class TemplatePluginFactory implements BotPluginFactory {
     @Override
     public String pluginId() {
         return "template";
@@ -33,7 +33,7 @@ public final class TemplatePluginFactory implements BotPluginFactoryV2 {
         }
 
         @Override
-        public void start(PluginRuntimeContext ignored) {
+        public void start() {
             subscriptions.add(context.events().subscribe("commands", Set.of(), this::handleCommand));
             // Add more named subscriptions when a plugin has independent workflows.
             subscriptions.add(context.events().subscribe("audit", Set.of(), this::audit));

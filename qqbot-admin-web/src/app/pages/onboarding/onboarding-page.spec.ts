@@ -138,7 +138,7 @@ describe('OnboardingPage', () => {
       }),
     );
     expect(complete).toHaveBeenCalledOnce();
-    expect(navigate).toHaveBeenCalledWith('/dashboard');
+    expect(navigate).toHaveBeenCalledWith('/');
     expect(buttonByText(fixture, '继续添加')).toBeNull();
   });
 

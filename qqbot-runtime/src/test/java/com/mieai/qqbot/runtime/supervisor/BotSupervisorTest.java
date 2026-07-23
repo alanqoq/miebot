@@ -20,6 +20,8 @@ import com.mieai.qqbot.persistence.inbox.InboxInsertResult;
 import com.mieai.qqbot.persistence.inbox.InboxPage;
 import com.mieai.qqbot.persistence.inbox.InboxQuery;
 import com.mieai.qqbot.persistence.inbox.InboxStatus;
+import com.mieai.qqbot.runtime.event.BotGatewayEvent;
+import com.mieai.qqbot.runtime.event.BotGatewayEventSink;
 import com.mieai.qqbot.persistence.inbox.IncomingEvent;
 import com.mieai.qqbot.runtime.configuration.BotConfigurationChange;
 import com.mieai.qqbot.runtime.configuration.BotConfigurationChangeKind;
@@ -386,6 +388,32 @@ class BotSupervisorTest {
     }
 
     @Test
+    void publishesOnlyNewDurableDispatchesToReadOnlySubscribers() {
+        InMemoryBotRepository repository = new InMemoryBotRepository();
+        StoredBot configured = bot(1, true, 1, 512L, "secret-a");
+        repository.put(configured);
+        FakeRuntimeFactory factory = new FakeRuntimeFactory();
+        RecordingInboxRepository inbox = new RecordingInboxRepository();
+        java.util.List<BotGatewayEvent> published = new java.util.ArrayList<>();
+        BotSupervisor supervisor = supervisor(repository, factory, inbox, published::add);
+        await(supervisor.start());
+        drain(supervisor);
+        FakeRuntime runtime = factory.latest(configured.id());
+
+        GatewayDispatch dispatch = new GatewayDispatch(
+                2L, "C2C_MESSAGE_CREATE",
+                "{\"op\":0,\"s\":2,\"t\":\"C2C_MESSAGE_CREATE\",\"id\":\"event\",\"d\":{}}");
+        assertThat(runtime.dispatch(dispatch)).isTrue();
+        assertThat(runtime.dispatch(dispatch)).isTrue();
+
+        assertThat(published).singleElement().satisfies(event -> {
+            assertThat(event.botId()).isEqualTo(configured.id());
+            assertThat(event.dispatch()).isEqualTo(dispatch);
+            assertThat(event.receivedAt()).isEqualTo(NOW);
+        });
+    }
+
+    @Test
     void rejectsDispatchAndPublishesFailureWhenInboxWriteFails() {
         InMemoryBotRepository repository = new InMemoryBotRepository();
         StoredBot configured = bot(1, true, 1, 512L, "secret-a");
@@ -553,6 +581,27 @@ class BotSupervisorTest {
                 SHUTDOWN_TIMEOUT,
                 Clock.fixed(NOW, ZoneOffset.UTC),
                 inboxRepository);
+        supervisors.add(supervisor);
+        return supervisor;
+    }
+
+    private BotSupervisor supervisor(
+            InMemoryBotRepository repository,
+            FakeRuntimeFactory factory,
+            EventInboxRepository inboxRepository,
+            BotGatewayEventSink events) {
+        BotSupervisor supervisor = new BotSupervisor(
+                repository,
+                factory,
+                LONG_INTERVAL,
+                SHUTDOWN_TIMEOUT,
+                Clock.fixed(NOW, ZoneOffset.UTC),
+                inboxRepository,
+                null,
+                null,
+                null,
+                Map::of,
+                events);
         supervisors.add(supervisor);
         return supervisor;
     }

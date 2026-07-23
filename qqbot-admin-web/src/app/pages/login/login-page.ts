@@ -218,6 +218,6 @@ export class LoginPage implements OnInit {
     ) {
       return requested;
     }
-    return '/dashboard';
+    return '/';
   }
 }

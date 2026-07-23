@@ -15,6 +15,9 @@ import com.mieai.qqbot.plugin.api.StagedMedia;
 import com.mieai.qqbot.plugin.api.StagedMediaMessage;
 import com.mieai.qqbot.plugin.api.TextMessage;
 import com.mieai.qqbot.plugin.api.RichMessage;
+import com.mieai.qqbot.runtime.outbox.OutboundMediaPayload;
+import com.mieai.qqbot.runtime.outbox.OutboundRichPayload;
+import com.mieai.qqbot.runtime.outbox.OutboundTextPayload;
 import java.nio.charset.StandardCharsets;
 import java.io.ByteArrayInputStream;
 import java.time.Clock;
@@ -76,7 +79,8 @@ final class DurableMessageSender implements MessageSender, MediaService {
         String payload;
         try {
             payload = mapper.writeValueAsString(new OutboundTextPayload(
-                    message.target().type(), message.target().id(), message.content(),
+                    com.mieai.qqbot.client.QqMessageTargetType.valueOf(message.target().type().name()),
+                    message.target().id(), message.content(),
                     message.replyMessageId().orElse(null), message.replyEventId().orElse(null),
                     message.messageSequence()));
         } catch (JsonProcessingException exception) {
@@ -107,7 +111,8 @@ final class DurableMessageSender implements MessageSender, MediaService {
         String payload;
         try {
             payload = mapper.writeValueAsString(new OutboundMediaPayload(
-                    message.target().type(), message.target().id(), message.kind(),
+                    com.mieai.qqbot.client.QqMessageTargetType.valueOf(message.target().type().name()),
+                    message.target().id(), com.mieai.qqbot.client.QqMediaKind.valueOf(message.kind().name()),
                     message.mediaUrl().toString(), message.content().orElse(null),
                     message.replyMessageId().orElse(null), message.replyEventId().orElse(null),
                     message.messageSequence()));
@@ -139,7 +144,9 @@ final class DurableMessageSender implements MessageSender, MediaService {
         String payload;
         try {
             payload = mapper.writeValueAsString(new OutboundRichPayload(
-                    message.target().type(), message.target().id(), message.kind(), message.payload(),
+                    com.mieai.qqbot.client.QqMessageTargetType.valueOf(message.target().type().name()),
+                    message.target().id(), com.mieai.qqbot.client.QqRichMessageKind.valueOf(message.kind().name()),
+                    message.payload(),
                     message.replyMessageId().orElse(null), message.replyEventId().orElse(null),
                     message.messageSequence()));
         } catch (JsonProcessingException exception) {
@@ -203,8 +210,9 @@ final class DurableMessageSender implements MessageSender, MediaService {
         String payload;
         try {
             payload = mapper.writeValueAsString(new OutboundMediaPayload(
-                    message.target().type(), message.target().id(),
-                    com.mieai.qqbot.plugin.api.MediaKind.valueOf(message.media().kind().name()),
+                    com.mieai.qqbot.client.QqMessageTargetType.valueOf(message.target().type().name()),
+                    message.target().id(),
+                    com.mieai.qqbot.client.QqMediaKind.valueOf(message.media().kind().name()),
                     "https://asset.invalid/" + message.media().id(), message.content().orElse(null),
                     message.replyMessageId().orElse(null), message.replyEventId().orElse(null),
                     message.messageSequence(), message.media().id()));

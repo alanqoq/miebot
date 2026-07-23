@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "id": "operations",
+  "name": "Operations and Audit",
+  "version": "0.3.0",
+  "minimumFrameworkVersion": "1.0.0",
+  "dependencies": [
+    { "moduleId": "database-support", "minimumVersion": "0.3.0", "optional": false },
+    { "moduleId": "qqbot-runtime", "minimumVersion": "0.3.0", "optional": false },
+    { "moduleId": "platform-admin", "minimumVersion": "0.3.0", "optional": false },
+    { "moduleId": "plugin-support", "minimumVersion": "0.3.0", "optional": false }
+  ],
+  "capabilities": [
+    "operations.health",
+    "operations.dashboard",
+    "operations.audit",
+    "operations.queue-inspection"
+  ],
+  "web": {
+    "pages": [
+      {
+        "id": "dashboard",
+        "label": "运行概览",
+        "route": "/modules/operations/dashboard",
+        "icon": "dashboard",
+        "order": 10,
+        "entrypoint": "main.js",
+        "customElement": "qqbot-operations-dashboard"
+      },
+      {
+        "id": "events",
+        "label": "事件与任务",
+        "route": "/modules/operations/events",
+        "icon": "inbox",
+        "order": 40,
+        "entrypoint": "main.js",
+        "customElement": "qqbot-operations-events"
+      }
+    ]
+  }
+}

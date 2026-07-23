@@ -10,6 +10,7 @@ public record GatewayIntents(long bits) {
     public static final GatewayIntents GUILD_MESSAGES = bit(9);
     public static final GatewayIntents GUILD_MESSAGE_REACTIONS = bit(10);
     public static final GatewayIntents DIRECT_MESSAGE = bit(12);
+    public static final GatewayIntents GROUP_MEMBERS = bit(24);
     public static final GatewayIntents GROUP_AND_C2C_EVENT = bit(25);
     public static final GatewayIntents INTERACTION = bit(26);
     public static final GatewayIntents MESSAGE_AUDIT = bit(27);

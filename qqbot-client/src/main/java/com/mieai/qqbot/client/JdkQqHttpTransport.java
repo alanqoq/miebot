@@ -12,6 +12,7 @@ import java.net.http.HttpTimeoutException;
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CompletionException;
@@ -54,22 +55,71 @@ final class JdkQqHttpTransport {
 
     <T> CompletionStage<T> postAuthorizedJson(
             URI endpoint, AccessToken accessToken, Object requestBody, Class<T> responseType) {
-        Objects.requireNonNull(accessToken, "accessToken must not be null");
-        String encoded;
-        try {
-            encoded = jsonCodec.encode(requestBody);
-        } catch (JsonCodecException exception) {
-            return java.util.concurrent.CompletableFuture.failedFuture(
-                    QqClientException.protocol(endpoint, exception));
-        }
-        HttpRequest request = HttpRequest.newBuilder(endpoint)
-                .timeout(requestTimeout)
-                .header("Accept", JSON)
-                .header("Content-Type", JSON)
-                .header("Authorization", accessToken.authorizationHeaderValue())
-                .POST(HttpRequest.BodyPublishers.ofString(encoded, StandardCharsets.UTF_8))
-                .build();
-        return send(request, responseType);
+        return authorizedJson("POST", endpoint, accessToken, requestBody, Map.of(), responseType);
+    }
+
+    <T> CompletionStage<T> postAuthorizedJson(
+            URI endpoint,
+            AccessToken accessToken,
+            Object requestBody,
+            Map<String, String> headers,
+            Class<T> responseType) {
+        return authorizedJson("POST", endpoint, accessToken, requestBody, headers, responseType);
+    }
+
+    <T> CompletionStage<T> putAuthorizedJson(
+            URI endpoint, AccessToken accessToken, Object requestBody, Class<T> responseType) {
+        return authorizedJson("PUT", endpoint, accessToken, requestBody, Map.of(), responseType);
+    }
+
+    <T> CompletionStage<T> putAuthorizedJson(
+            URI endpoint,
+            AccessToken accessToken,
+            Object requestBody,
+            Map<String, String> headers,
+            Class<T> responseType) {
+        return authorizedJson("PUT", endpoint, accessToken, requestBody, headers, responseType);
+    }
+
+    <T> CompletionStage<T> patchAuthorizedJson(
+            URI endpoint, AccessToken accessToken, Object requestBody, Class<T> responseType) {
+        return authorizedJson("PATCH", endpoint, accessToken, requestBody, Map.of(), responseType);
+    }
+
+    <T> CompletionStage<T> patchAuthorizedJson(
+            URI endpoint,
+            AccessToken accessToken,
+            Object requestBody,
+            Map<String, String> headers,
+            Class<T> responseType) {
+        return authorizedJson("PATCH", endpoint, accessToken, requestBody, headers, responseType);
+    }
+
+    <T> CompletionStage<T> deleteAuthorizedJson(
+            URI endpoint, AccessToken accessToken, Object requestBody, Class<T> responseType) {
+        return authorizedJson("DELETE", endpoint, accessToken, requestBody, Map.of(), responseType);
+    }
+
+    <T> CompletionStage<T> deleteAuthorizedJson(
+            URI endpoint,
+            AccessToken accessToken,
+            Object requestBody,
+            Map<String, String> headers,
+            Class<T> responseType) {
+        return authorizedJson("DELETE", endpoint, accessToken, requestBody, headers, responseType);
+    }
+
+    <T> CompletionStage<T> deleteAuthorized(
+            URI endpoint, AccessToken accessToken, Class<T> responseType) {
+        return authorizedJson("DELETE", endpoint, accessToken, null, Map.of(), responseType);
+    }
+
+    <T> CompletionStage<T> deleteAuthorized(
+            URI endpoint,
+            AccessToken accessToken,
+            Map<String, String> headers,
+            Class<T> responseType) {
+        return authorizedJson("DELETE", endpoint, accessToken, null, headers, responseType);
     }
 
     /** Sends a bounded multipart request used by QQ's channel/direct image endpoint. */
@@ -82,7 +132,22 @@ final class JdkQqHttpTransport {
             String contentType,
             byte[] fileBytes,
             Class<T> responseType) {
+        return postAuthorizedMultipart(endpoint, accessToken, Map.of(), fields, fileField,
+                fileName, contentType, fileBytes, responseType);
+    }
+
+    <T> CompletionStage<T> postAuthorizedMultipart(
+            URI endpoint,
+            AccessToken accessToken,
+            Map<String, String> headers,
+            Map<String, String> fields,
+            String fileField,
+            String fileName,
+            String contentType,
+            byte[] fileBytes,
+            Class<T> responseType) {
         Objects.requireNonNull(accessToken, "accessToken must not be null");
+        Objects.requireNonNull(headers, "headers must not be null");
         Objects.requireNonNull(fields, "fields must not be null");
         Objects.requireNonNull(fileField, "fileField must not be null");
         Objects.requireNonNull(fileName, "fileName must not be null");
@@ -96,25 +161,78 @@ final class JdkQqHttpTransport {
             return java.util.concurrent.CompletableFuture.failedFuture(
                     QqClientException.protocol(endpoint, exception));
         }
-        HttpRequest request = HttpRequest.newBuilder(endpoint)
+        HttpRequest.Builder builder = HttpRequest.newBuilder(endpoint)
                 .timeout(requestTimeout)
                 .header("Accept", JSON)
                 .header("Content-Type", "multipart/form-data; boundary=" + boundary)
                 .header("Authorization", accessToken.authorizationHeaderValue())
-                .POST(HttpRequest.BodyPublishers.ofByteArray(body))
-                .build();
-        return send(request, responseType);
+                .POST(HttpRequest.BodyPublishers.ofByteArray(body));
+        addHeaders(builder, headers);
+        return send(builder.build(), responseType);
     }
 
     <T> CompletionStage<T> getJson(URI endpoint, AccessToken accessToken, Class<T> responseType) {
+        return getJson(endpoint, accessToken, Map.of(), responseType);
+    }
+
+    <T> CompletionStage<T> getJson(
+            URI endpoint,
+            AccessToken accessToken,
+            Map<String, String> headers,
+            Class<T> responseType) {
         Objects.requireNonNull(accessToken, "accessToken must not be null");
-        HttpRequest request = HttpRequest.newBuilder(endpoint)
+        HttpRequest.Builder builder = HttpRequest.newBuilder(endpoint)
                 .timeout(requestTimeout)
                 .header("Accept", JSON)
                 .header("Authorization", accessToken.authorizationHeaderValue())
-                .GET()
-                .build();
-        return send(request, responseType);
+                .GET();
+        addHeaders(builder, headers);
+        return send(builder.build(), responseType);
+    }
+
+    private <T> CompletionStage<T> authorizedJson(
+            String method,
+            URI endpoint,
+            AccessToken accessToken,
+            Object requestBody,
+            Map<String, String> headers,
+            Class<T> responseType) {
+        Objects.requireNonNull(method, "method must not be null");
+        Objects.requireNonNull(endpoint, "endpoint must not be null");
+        Objects.requireNonNull(accessToken, "accessToken must not be null");
+        Objects.requireNonNull(headers, "headers must not be null");
+        Objects.requireNonNull(responseType, "responseType must not be null");
+
+        HttpRequest.BodyPublisher publisher = HttpRequest.BodyPublishers.noBody();
+        if (requestBody != null) {
+            try {
+                String encoded = jsonCodec.encode(requestBody);
+                publisher = HttpRequest.BodyPublishers.ofString(encoded, StandardCharsets.UTF_8);
+            } catch (JsonCodecException exception) {
+                return java.util.concurrent.CompletableFuture.failedFuture(
+                        QqClientException.protocol(endpoint, exception));
+            }
+        }
+
+        HttpRequest.Builder builder = HttpRequest.newBuilder(endpoint)
+                .timeout(requestTimeout)
+                .header("Accept", JSON)
+                .header("Authorization", accessToken.authorizationHeaderValue());
+        if (requestBody != null) {
+            builder.header("Content-Type", JSON);
+        }
+        addHeaders(builder, headers);
+        return send(builder.method(method.toUpperCase(Locale.ROOT), publisher).build(), responseType);
+    }
+
+    private static void addHeaders(HttpRequest.Builder builder, Map<String, String> headers) {
+        Objects.requireNonNull(headers, "headers must not be null");
+        headers.forEach((name, value) -> {
+            if (name == null || name.isBlank() || value == null || value.isBlank()) {
+                throw new IllegalArgumentException("headers must contain non-blank names and values");
+            }
+            builder.header(name, value);
+        });
     }
 
     private <T> CompletionStage<T> send(HttpRequest request, Class<T> responseType) {
@@ -128,6 +246,14 @@ final class JdkQqHttpTransport {
                     if (response.statusCode() < 200 || response.statusCode() >= 300) {
                         throw QqClientException.httpStatus(
                                 endpoint, response.statusCode(), decodeError(response.body()));
+                    }
+                    if (responseType == Void.class) {
+                        return null;
+                    }
+                    if (response.body() == null || response.body().isBlank()) {
+                        throw QqClientException.protocol(
+                                endpoint,
+                                new IllegalStateException("QQ returned an empty success response"));
                     }
                     try {
                         return jsonCodec.decode(response.body(), responseType);

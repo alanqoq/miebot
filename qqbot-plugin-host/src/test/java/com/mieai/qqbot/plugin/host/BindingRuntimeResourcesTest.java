@@ -34,10 +34,10 @@ class BindingRuntimeResourcesTest {
         });
         var scheduled = resources.pluginScheduler().schedule(Duration.ofHours(1), calls::incrementAndGet);
 
-        assertThat(resources.handlerIds("default", "TYPE_A")).containsExactly("first");
-        assertThat(resources.handlerIds("default", "TYPE_B")).containsExactly("second");
-        assertThat(resources.handlerIds("default", "TYPE_C")).isEmpty();
-        resources.execute("first", event("TYPE_A"), ignored -> CompletableFuture.completedFuture(null))
+        assertThat(resources.handlerIds("TYPE_A")).containsExactly("first");
+        assertThat(resources.handlerIds("TYPE_B")).containsExactly("second");
+        assertThat(resources.handlerIds("TYPE_C")).isEmpty();
+        resources.execute("first", event("TYPE_A"))
                 .toCompletableFuture().join();
         assertThat(calls).hasValue(1);
 
@@ -59,7 +59,7 @@ class BindingRuntimeResourcesTest {
         CompletableFuture<Void> pending = new CompletableFuture<>();
         resources.eventService().subscribe("async", Set.of(), ignored -> pending);
 
-        var execution = resources.execute("async", event("TYPE_A"), ignored -> CompletableFuture.completedFuture(null));
+        var execution = resources.execute("async", event("TYPE_A"));
         resources.beginShutdown();
 
         assertThat(resources.awaitIdle(Duration.ofMillis(20))).isFalse();
@@ -77,7 +77,7 @@ class BindingRuntimeResourcesTest {
         CountDownLatch release = new CountDownLatch(1);
         AtomicReference<com.mieai.qqbot.plugin.api.CancellationToken> token = new AtomicReference<>();
 
-        PluginExecution execution = resources.executeCancellable("default", event("TYPE_A"), ignored -> {
+        resources.eventService().subscribe("default", Set.of(), ignored -> {
             token.set(com.mieai.qqbot.plugin.api.CancellationToken.current());
             entered.countDown();
             try {
@@ -88,6 +88,7 @@ class BindingRuntimeResourcesTest {
                 throw new CancellationException("cancelled");
             }
         });
+        PluginExecution execution = resources.executeCancellable("default", event("TYPE_A"));
 
         assertThat(entered.await(1, TimeUnit.SECONDS)).isTrue();
         execution.cancel();

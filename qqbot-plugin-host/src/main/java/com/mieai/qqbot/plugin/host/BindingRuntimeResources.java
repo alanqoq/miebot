@@ -68,44 +68,32 @@ final class BindingRuntimeResources implements AutoCloseable {
         };
     }
 
-    synchronized List<String> handlerIds(String fallback) {
-        if (handlers.isEmpty()) {
-            validateHandlerId(fallback);
-            return List.of(fallback);
-        }
+    synchronized List<String> handlerIds() {
         return List.copyOf(handlers.keySet());
     }
 
-    synchronized List<String> handlerIds(String fallback, String eventType) {
+    synchronized List<String> handlerIds(String eventType) {
         Objects.requireNonNull(eventType, "eventType must not be null");
-        if (handlers.isEmpty()) {
-            validateHandlerId(fallback);
-            return List.of(fallback);
-        }
         return handlers.values().stream()
                 .filter(value -> value.matches(eventType))
                 .map(value -> value.id)
                 .toList();
     }
 
-    CompletionStage<Void> execute(String handlerId, PluginEvent event, PluginEventHandler fallback) {
-        return executeCancellable(handlerId, event, fallback).stage();
+    CompletionStage<Void> execute(String handlerId, PluginEvent event) {
+        return executeCancellable(handlerId, event).stage();
     }
 
-    PluginExecution executeCancellable(String handlerId, PluginEvent event, PluginEventHandler fallback) {
+    PluginExecution executeCancellable(String handlerId, PluginEvent event) {
         PluginEventHandler selected;
         synchronized (this) {
             if (closed) return completedExecution(new IllegalStateException("Plugin binding is stopped"));
             Registration registration = handlers.get(handlerId);
-            if (!handlers.isEmpty() && registration == null) {
-                // A stale delivery for a removed subscription must not invoke
-                // the legacy fallback handler by accident.
-                return completedExecution(null);
-            }
+            if (registration == null) return completedExecution(null);
             if (registration != null && !registration.matches(event.eventType())) {
                 return completedExecution(null);
             }
-            selected = registration == null ? fallback : registration.handler;
+            selected = registration.handler;
         }
         inFlight.incrementAndGet();
         Invocation invocation = new Invocation(selected, event);

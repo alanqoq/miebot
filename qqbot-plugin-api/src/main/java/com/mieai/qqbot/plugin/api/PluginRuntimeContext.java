@@ -2,7 +2,7 @@ package com.mieai.qqbot.plugin.api;
 
 import java.util.Objects;
 
-/** Extended SDK context used by version-two factories while preserving the original context API. */
+/** Complete binding-scoped capability context supplied to a robot plugin factory. */
 public record PluginRuntimeContext(
         PluginContext base,
         ConfigSnapshot configuration,
@@ -24,10 +24,4 @@ public record PluginRuntimeContext(
         return CancellationToken.current();
     }
 
-    public static PluginRuntimeContext legacy(PluginContext context, long revision) {
-        return new PluginRuntimeContext(context,
-                new ConfigSnapshot(context.configurationJson(), revision, java.time.Instant.now()),
-                EventService.denied(), PluginScheduler.denied(), RestrictedHttpClient.denied(),
-                MediaService.denied());
-    }
 }

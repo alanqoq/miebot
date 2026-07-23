@@ -89,7 +89,7 @@ class JdbcPluginRepositoryTest {
         var bindings = new JdbcBotPluginBindingRepository(dataSource);
         var inbox = new JdbcEventInboxRepository(dataSource);
         var deliveries = new JdbcPluginDeliveryRepository(dataSource);
-        artifacts.upsert(new PluginArtifact("echo", "Echo Reply", "1.0.0", "1.2.0", "echo.jar",
+        artifacts.upsert(new PluginArtifact("echo", "Echo Reply", "1.0.0", "2.0.0", "echo.jar",
                 "abc", "factory", "LOADED", true, BASE_TIME, BASE_TIME));
         bindings.insert(new BotPluginBinding(BINDING, "echo", BotId.parse(BOT), "{}", true, 0,
                 BASE_TIME, BASE_TIME));
@@ -118,7 +118,7 @@ class JdbcPluginRepositoryTest {
         var bindings = new JdbcBotPluginBindingRepository(dataSource);
         var inbox = new JdbcEventInboxRepository(dataSource);
         var deliveries = new JdbcPluginDeliveryRepository(dataSource);
-        artifacts.upsert(new PluginArtifact("echo", "Echo Reply", "1.0.0", "1.2.0", "echo.jar",
+        artifacts.upsert(new PluginArtifact("echo", "Echo Reply", "1.0.0", "2.0.0", "echo.jar",
                 "abc", "factory", "LOADED", true, BASE_TIME, BASE_TIME));
         bindings.insert(new BotPluginBinding(BINDING, "echo", BotId.parse(BOT), "{}", true, 0,
                 BASE_TIME, BASE_TIME));

@@ -1,0 +1,6 @@
+@if (loading()) {
+  <div class="module-state" role="status">正在加载模块页面</div>
+} @else if (failed()) {
+  <div class="module-state module-state-error" role="alert">模块页面不可用</div>
+}
+<div #moduleHost class="module-web-host" [hidden]="loading() || failed()"></div>

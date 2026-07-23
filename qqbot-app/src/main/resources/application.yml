@@ -21,6 +21,8 @@ spring:
     timeout: 8h
 
 qqbot:
+  modules:
+    directory: ${QQBOT_MODULES_DIR:modules}
   onboarding:
     state-file: ${QQBOT_ONBOARDING_STATE_FILE:onboarding.json}
   gateway:
@@ -57,6 +59,8 @@ qqbot:
     batch-size: ${QQBOT_OUTBOX_BATCH_SIZE:16}
   media:
     staging-directory: ${QQBOT_MEDIA_STAGING_DIRECTORY:media-staging}
+  onebot11:
+    cache-directory: ${QQBOT_ONEBOT11_CACHE_DIRECTORY:onebot-cache}
   database:
     type: ${QQBOT_DATABASE_TYPE:sqlite}
     config-file: ${QQBOT_DATABASE_CONFIG_FILE:database-config.json}

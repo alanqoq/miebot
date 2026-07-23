@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mieai.qqbot.client.QqClientOptions;
+import com.mieai.qqbot.client.QqMediaKind;
+import com.mieai.qqbot.client.QqMessageTargetType;
 import com.mieai.qqbot.domain.bot.BotEnvironment;
 import com.mieai.qqbot.domain.bot.BotId;
 import com.mieai.qqbot.persistence.outbox.JdbcOutboxRepository;
@@ -11,8 +13,6 @@ import com.mieai.qqbot.persistence.outbox.NewOutboxJob;
 import com.mieai.qqbot.persistence.outbox.OutboxStatus;
 import com.mieai.qqbot.persistence.sqlite.SQLiteDataSourceFactory;
 import com.mieai.qqbot.persistence.sqlite.SQLiteDatabaseInitializer;
-import com.mieai.qqbot.plugin.host.OutboundTextPayload;
-import com.mieai.qqbot.plugin.host.OutboundMediaPayload;
 import com.mieai.qqbot.runtime.security.AppSecret;
 import com.mieai.qqbot.runtime.security.AppSecretBinding;
 import com.mieai.qqbot.runtime.security.AppSecretCipher;
@@ -47,7 +47,7 @@ class ProductionOutboxWorkerTest {
             var repository = new JdbcOutboxRepository(dataSource);
             ObjectMapper mapper = new ObjectMapper();
             String payload = mapper.writeValueAsString(new OutboundTextPayload(
-                    com.mieai.qqbot.plugin.api.MessageTargetType.GROUP, "group-1", "hello", null, null, 1));
+                    QqMessageTargetType.GROUP, "group-1", "hello", null, null, 1));
             UUID jobId = UUID.randomUUID();
             repository.create(new NewOutboxJob(jobId, BotEnvironment.SANDBOX, BotId.parse(BOT), Optional.empty(),
                     OutboundTextPayload.JOB_TYPE, Optional.of("test-job"), payload, BASE_TIME, BASE_TIME));
@@ -98,8 +98,8 @@ class ProductionOutboxWorkerTest {
             var repository = new JdbcOutboxRepository(dataSource);
             ObjectMapper mapper = new ObjectMapper();
             String payload = mapper.writeValueAsString(new OutboundMediaPayload(
-                    com.mieai.qqbot.plugin.api.MessageTargetType.GROUP, "group-1",
-                    com.mieai.qqbot.plugin.api.MediaKind.IMAGE, "https://cdn.example/image.png",
+                    QqMessageTargetType.GROUP, "group-1",
+                    QqMediaKind.IMAGE, "https://cdn.example/image.png",
                     "caption", null, null, 2));
             UUID jobId = UUID.randomUUID();
             repository.create(new NewOutboxJob(jobId, BotEnvironment.SANDBOX, BotId.parse(BOT), Optional.empty(),

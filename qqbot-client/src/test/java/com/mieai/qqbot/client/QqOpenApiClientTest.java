@@ -111,6 +111,23 @@ class QqOpenApiClientTest {
     }
 
     @Test
+    void acceptsTheCurrentErrCodeErrorField() throws Exception {
+        try (TestHttpServer server = new TestHttpServer()) {
+            server.handle("/gateway", exchange -> TestHttpServer.respond(
+                    exchange,
+                    403,
+                    "{\"err_code\":304003,\"message\":\"missing permission\","
+                            + "\"trace_id\":\"trace-current\"}"));
+            QqOpenApiClient client = client(server, Duration.ofSeconds(2));
+
+            QqClientException exception = failureOf(client.getGateway());
+
+            assertThat(exception.qqCode()).hasValue(304003);
+            assertThat(exception.qqTraceId()).contains("trace-current");
+        }
+    }
+
+    @Test
     void sendsAuthorizedC2cTextReplyWithMessageDedupFields() throws Exception {
         AtomicReference<String> method = new AtomicReference<>();
         AtomicReference<String> authorization = new AtomicReference<>();

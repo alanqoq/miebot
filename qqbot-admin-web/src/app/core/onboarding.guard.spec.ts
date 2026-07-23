@@ -47,7 +47,7 @@ describe('onboarding guards', () => {
 
     const result = await runPageGuard('/setup');
 
-    expect(serialize(result)).toBe('/dashboard');
+    expect(serialize(result)).toBe('/');
   });
 
   it('allows the setup page while a stage remains', async () => {

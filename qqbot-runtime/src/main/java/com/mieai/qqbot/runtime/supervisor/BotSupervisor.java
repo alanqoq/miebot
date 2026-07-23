@@ -17,6 +17,8 @@ import com.mieai.qqbot.persistence.lease.BotLeaseRepository;
 import com.mieai.qqbot.gateway.GatewayDispatch;
 import com.mieai.qqbot.runtime.configuration.BotConfigurationChange;
 import com.mieai.qqbot.runtime.configuration.BotConfigurationChangeListener;
+import com.mieai.qqbot.runtime.event.BotGatewayEvent;
+import com.mieai.qqbot.runtime.event.BotGatewayEventSink;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -77,6 +79,7 @@ public final class BotSupervisor implements BotConfigurationChangeListener, Auto
     private final String leaseOwnerId;
     private final Duration leaseDuration;
     private final Supplier<Map<String, String>> pluginHashes;
+    private final BotGatewayEventSink gatewayEvents;
     private final ConcurrentMap<BotId, BotLease> leases = new ConcurrentHashMap<>();
     private final Duration reconciliationInterval;
     private final Duration shutdownTimeout;
@@ -165,6 +168,24 @@ public final class BotSupervisor implements BotConfigurationChangeListener, Auto
             String leaseOwnerId,
             Duration leaseDuration,
             Supplier<Map<String, String>> pluginHashes) {
+        this(repository, runtimeFactory, reconciliationInterval, shutdownTimeout, clock,
+                inboxRepository, leaseRepository, leaseOwnerId, leaseDuration, pluginHashes,
+                BotGatewayEventSink.noop());
+    }
+
+    /** Production constructor with an asynchronous read-only Gateway event sink. */
+    public BotSupervisor(
+            BotRepository repository,
+            BotRuntimeFactory runtimeFactory,
+            Duration reconciliationInterval,
+            Duration shutdownTimeout,
+            Clock clock,
+            EventInboxRepository inboxRepository,
+            BotLeaseRepository leaseRepository,
+            String leaseOwnerId,
+            Duration leaseDuration,
+            Supplier<Map<String, String>> pluginHashes,
+            BotGatewayEventSink gatewayEvents) {
         this.repository = Objects.requireNonNull(repository, "repository must not be null");
         this.runtimeFactory =
                 Objects.requireNonNull(runtimeFactory, "runtimeFactory must not be null");
@@ -174,6 +195,7 @@ public final class BotSupervisor implements BotConfigurationChangeListener, Auto
         this.leaseDuration = leaseRepository == null ? null : requirePositive(leaseDuration, "leaseDuration");
         this.pluginHashes = leaseRepository == null
                 ? Map::of : Objects.requireNonNull(pluginHashes, "pluginHashes must not be null");
+        this.gatewayEvents = Objects.requireNonNull(gatewayEvents, "gatewayEvents must not be null");
         this.reconciliationInterval =
                 requirePositive(reconciliationInterval, "reconciliationInterval");
         if (leaseRepository != null && this.leaseDuration.compareTo(this.reconciliationInterval) <= 0) {
@@ -1211,7 +1233,11 @@ public final class BotSupervisor implements BotConfigurationChangeListener, Auto
                         dispatch.rawPayload(),
                         receivedAt);
                 try {
-                    inboxRepository.insertOrGet(event);
+                    var stored = inboxRepository.insertOrGet(event);
+                    if (stored.inserted()) {
+                        gatewayEvents.publish(new BotGatewayEvent(
+                                slot.botId(), dispatch, receivedAt));
+                    }
                     return true;
                 } catch (RuntimeException exception) {
                     slot.recordFailure(

@@ -30,7 +30,7 @@ COPY qqbot-admin-web/package.json qqbot-admin-web/package-lock.json ./
 RUN npm ci --no-audit --no-fund
 
 COPY qqbot-admin-web/ ./
-RUN node ./node_modules/@angular/cli/bin/ng.js build --progress=false
+RUN npm run build
 
 FROM dragonwell AS backend-build
 
@@ -39,6 +39,9 @@ WORKDIR /workspace
 COPY build.gradle.kts settings.gradle.kts gradle.properties ./
 COPY gradle/ ./gradle/
 COPY qqbot-domain/ ./qqbot-domain/
+COPY qqbot-module-api/ ./qqbot-module-api/
+COPY qqbot-module-spi/ ./qqbot-module-spi/
+COPY qqbot-module-host/ ./qqbot-module-host/
 COPY qqbot-protocol/ ./qqbot-protocol/
 COPY qqbot-client/ ./qqbot-client/
 COPY qqbot-gateway/ ./qqbot-gateway/
@@ -50,16 +53,25 @@ COPY qqbot-plugin-testkit/ ./qqbot-plugin-testkit/
 COPY qqbot-plugin-example/ ./qqbot-plugin-example/
 COPY qqbot-persistence/ ./qqbot-persistence/
 COPY qqbot-admin-api/ ./qqbot-admin-api/
+COPY qqbot-module-platform-admin/ ./qqbot-module-platform-admin/
+COPY qqbot-module-database-support/ ./qqbot-module-database-support/
+COPY qqbot-module-qqbot-runtime/ ./qqbot-module-qqbot-runtime/
+COPY qqbot-module-plugin-support/ ./qqbot-module-plugin-support/
+COPY qqbot-module-operations/ ./qqbot-module-operations/
+COPY qqbot-module-cluster-support/ ./qqbot-module-cluster-support/
+COPY qqbot-module-onebot11/ ./qqbot-module-onebot11/
 COPY qqbot-app/ ./qqbot-app/
 COPY --from=frontend-build /workspace/qqbot-admin-web/dist/ ./qqbot-admin-web/dist/
 
 RUN /opt/dragonwell/bin/java \
         -classpath ./gradle/wrapper/gradle-wrapper.jar \
         org.gradle.wrapper.GradleWrapperMain \
-        :qqbot-app:bootJar :qqbot-plugin-example:jar \
+        :qqbot-app:bootJar defaultModuleDirectory :qqbot-plugin-example:jar \
         --no-daemon \
     && cp ./qqbot-app/build/libs/qqbot-app-*.jar /tmp/qqbot-app.jar \
-    && cp ./qqbot-plugin-example/build/libs/qqbot-plugin-echo-*.jar /tmp/qqbot-plugin-echo.jar
+    && cp ./qqbot-plugin-example/build/libs/qqbot-plugin-echo-*.jar /tmp/qqbot-plugin-echo.jar \
+    && mkdir -p /tmp/qqbot-modules \
+    && cp ./build/runtime/modules/*.jar /tmp/qqbot-modules/
 
 FROM debian:bookworm-slim AS runtime
 
@@ -72,11 +84,12 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --system --gid 10001 qqbot \
     && useradd --system --uid 10001 --gid 10001 --home-dir /app qqbot \
-    && mkdir -p /app /data/config /plugins /tmp/qqbot \
-    && chown -R 10001:10001 /app /data /plugins /tmp/qqbot
+    && mkdir -p /app /data/config /modules /plugins /tmp/qqbot \
+    && chown -R 10001:10001 /app /data /modules /plugins /tmp/qqbot
 
 COPY --from=dragonwell /opt/dragonwell /opt/dragonwell
 COPY --from=backend-build --chown=10001:10001 /tmp/qqbot-app.jar /app/qqbot-app.jar
+COPY --from=backend-build --chown=10001:10001 /tmp/qqbot-modules/ /modules/
 COPY --from=backend-build --chown=10001:10001 /tmp/qqbot-plugin-echo.jar /plugins/qqbot-plugin-echo.jar
 
 RUN mkdir -p /tmp/qqbot-jar /opt/sqlite \
@@ -98,10 +111,13 @@ ENV JAVA_HOME=/opt/dragonwell \
     JAVA_TOOL_OPTIONS="-Dfile.encoding=UTF-8 -Djava.io.tmpdir=/tmp/qqbot -Dorg.sqlite.lib.path=/opt/sqlite -XX:MaxRAMPercentage=75.0" \
     QQBOT_HTTP_ADDRESS=0.0.0.0 \
     QQBOT_HTTP_PORT=8080 \
+    QQBOT_MODULES_DIR=/modules \
+    LOADER_PATH=/modules \
     QQBOT_ONBOARDING_STATE_FILE=/data/config/onboarding.json \
     QQBOT_GATEWAY_ENABLED=true \
     QQBOT_GATEWAY_SESSION_DIRECTORY=/data/config/gateway-sessions \
     QQBOT_GATEWAY_LEASE_DURATION=45s \
+    QQBOT_ONEBOT11_CACHE_DIRECTORY=/data/onebot-cache \
     QQBOT_MEDIA_STAGING_DIRECTORY=/data/media-staging \
     QQBOT_DATABASE_CONFIG_FILE=/data/config/database.json \
     QQBOT_DATABASE_CANDIDATE_CONFIG_FILE=/data/config/database-candidate.json \
@@ -114,4 +130,4 @@ VOLUME ["/data", "/plugins"]
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
     CMD curl --fail --silent --show-error http://127.0.0.1:8080/health/ready || exit 1
 
-ENTRYPOINT ["/opt/dragonwell/bin/java", "-jar", "/app/qqbot-app.jar"]
+ENTRYPOINT ["/opt/dragonwell/bin/java", "-cp", "/app/qqbot-app.jar", "org.springframework.boot.loader.launch.PropertiesLauncher"]

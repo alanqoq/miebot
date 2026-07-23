@@ -1,0 +1,13 @@
+.module-web-host {
+  display: block;
+  min-width: 0;
+}
+
+.module-state {
+  padding: 24px 0;
+  color: var(--muted);
+}
+
+.module-state-error {
+  color: var(--red);
+}

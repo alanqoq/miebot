@@ -6,6 +6,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.mieai.qqbot.app.onboarding.OnboardingProperties;
+import com.mieai.qqbot.module.host.FrameworkModuleHost;
+import com.mieai.qqbot.module.host.ModuleRuntimeState;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -49,12 +51,46 @@ class QqBotApplicationTest {
     @Autowired
     private MockMvc mockMvc;
 
+    @Autowired
+    private FrameworkModuleHost moduleHost;
+
     @Test
-    void startsWithSQLiteAndWebApplicationContext() {
+    void startsWithSQLiteAndWebApplicationContext() throws Exception {
         assertThat(context).isNotNull();
         assertThat(DATABASE_FILE).exists();
+        assertThat(Path.of(OnboardingProperties.class.getProtectionDomain()
+                        .getCodeSource().getLocation().toURI()).getFileName().toString())
+                .isEqualTo("qqbot-module-platform-admin-0.3.0.jar");
         assertThat(onboardingProperties.getStateFile())
                 .isEqualTo(DATABASE_FILE.resolveSibling(DATABASE_FILE.getFileName() + ".onboarding.json"));
+    }
+
+    @Test
+    void activatesAllBuiltInFrameworkModules() {
+        assertThat(moduleHost.snapshots())
+                .extracting(snapshot -> snapshot.descriptor().id())
+                .containsExactly(
+                        "cluster-support",
+                        "database-support",
+                        "onebot11",
+                        "operations",
+                        "platform-admin",
+                        "plugin-support",
+                        "qqbot-runtime");
+        assertThat(moduleHost.snapshots())
+                .allSatisfy(snapshot -> assertThat(snapshot.state())
+                        .as(snapshot.descriptor().id())
+                        .isEqualTo(ModuleRuntimeState.ACTIVE));
+        assertThat(moduleHost.snapshots())
+                .allSatisfy(snapshot -> assertThat(moduleHost.artifact(snapshot.descriptor().id()))
+                        .isPresent()
+                        .get()
+                        .satisfies(artifact -> {
+                            assertThat(artifact.path().getParent().getFileName().toString())
+                                    .isEqualTo("test-modules");
+                            assertThat(artifact.sha256()).matches("[0-9a-f]{64}");
+                        }));
+        assertThat(moduleHost.findWebAsset("operations", "main.js")).isPresent();
     }
 
     @Test

@@ -22,7 +22,7 @@ export const onboardingPageGuard: CanActivateFn = () => {
   const router = inject(Router);
 
   return onboarding.status().pipe(
-    map((status) => (status.stage === 'COMPLETE' ? router.createUrlTree(['/dashboard']) : true)),
+    map((status) => (status.stage === 'COMPLETE' ? router.createUrlTree(['/']) : true)),
     catchError(() => of(true))
   );
 };

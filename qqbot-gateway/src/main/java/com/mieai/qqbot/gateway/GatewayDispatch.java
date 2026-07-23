@@ -1,10 +1,13 @@
 package com.mieai.qqbot.gateway;
 
 import com.mieai.qqbot.protocol.gateway.GatewayEnvelope;
+import com.mieai.qqbot.protocol.event.QqEventData;
+import com.mieai.qqbot.protocol.event.QqEventDecoder;
 import com.mieai.qqbot.protocol.json.JsonCodecs;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 
 /** Raw dispatch offered to the durable-ingress hook before the session advances its sequence. */
 public record GatewayDispatch(
@@ -13,6 +16,8 @@ public record GatewayDispatch(
         String rawPayload,
         String platformEventId,
         String sessionId) {
+    private static final QqEventDecoder EVENT_DECODER = QqEventDecoder.defaultDecoder();
+
     public GatewayDispatch {
         if (sequence < 0L) {
             throw new IllegalArgumentException("sequence must not be negative");
@@ -40,6 +45,11 @@ public record GatewayDispatch(
     /** Source-compatible constructor that extracts the event id from the raw Gateway envelope. */
     public GatewayDispatch(long sequence, String eventType, String rawPayload) {
         this(sequence, eventType, rawPayload, extractPlatformEventId(eventType, rawPayload), null);
+    }
+
+    /** Returns a typed data object for current official events, or empty for a future event type. */
+    public Optional<QqEventData> decodeKnownEvent() {
+        return EVENT_DECODER.decodeKnown(eventType, rawPayload);
     }
 
     private static String extractPlatformEventId(String eventType, String rawPayload) {

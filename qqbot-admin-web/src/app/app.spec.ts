@@ -6,6 +6,7 @@ import { App } from './app';
 import { AuthApiService } from './core/auth-api.service';
 import { AuthStatus } from './core/auth-session.store';
 import { OnboardingApiService } from './core/onboarding-api.service';
+import { ModuleCatalogService } from './core/module-catalog.service';
 import { SystemApiService } from './core/system-api.service';
 
 describe('App', () => {
@@ -13,10 +14,13 @@ describe('App', () => {
   const logout = vi.fn();
   const getReadiness = vi.fn();
   const ensureDatabaseConfiguration = vi.fn();
+  const moduleNavigation = signal([]);
+  const loadModules = vi.fn();
 
   beforeEach(async () => {
     currentStatus.set(null);
     logout.mockReset();
+    loadModules.mockReset().mockReturnValue(of({ frameworkVersion: '1.0.0', modules: [] }));
     getReadiness.mockReset().mockReturnValue(
       of({ status: 'UP', checkedAt: '2026-07-18T12:00:00Z', components: {} }),
     );
@@ -46,6 +50,10 @@ describe('App', () => {
         provideRouter([]),
         { provide: AuthApiService, useValue: { currentStatus, logout } },
         { provide: OnboardingApiService, useValue: { clear: vi.fn() } },
+        {
+          provide: ModuleCatalogService,
+          useValue: { navigation: moduleNavigation, load: loadModules, clear: vi.fn() }
+        },
         { provide: SystemApiService, useValue: { getReadiness, ensureDatabaseConfiguration } },
       ]
     }).compileComponents();

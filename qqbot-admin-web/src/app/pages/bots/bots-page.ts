@@ -53,6 +53,7 @@ import {
   setGatewayIntent,
   unknownGatewayIntents,
 } from '../../core/gateway-intents';
+import { BotSettingsHostComponent } from '../../core/bot-settings-host.component';
 
 type DialogMode = 'create' | 'edit';
 
@@ -107,6 +108,7 @@ const shardRange: ValidatorFn = (control: AbstractControl): ValidationErrors | n
     LucideSettings,
     LucideTrash2,
     LucideX,
+    BotSettingsHostComponent,
   ],
   templateUrl: './bots-page.html',
   styleUrl: './bots-page.scss',

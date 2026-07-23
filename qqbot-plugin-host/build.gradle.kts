@@ -2,6 +2,7 @@ description = "PF4J plugin discovery, validation, and isolated execution"
 
 dependencies {
     api(project(":qqbot-plugin-spi"))
+    implementation(project(":qqbot-runtime"))
     implementation(project(":qqbot-client"))
     implementation(project(":qqbot-persistence"))
     implementation("com.fasterxml.jackson.core:jackson-databind")

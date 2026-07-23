@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "id": "qqbot-runtime",
+  "name": "QQ Bot Runtime",
+  "version": "0.3.0",
+  "minimumFrameworkVersion": "1.0.0",
+  "dependencies": [
+    { "moduleId": "database-support", "minimumVersion": "0.3.0", "optional": false }
+  ],
+  "capabilities": [
+    "qq.gateway",
+    "qq.openapi",
+    "bot.supervision",
+    "message.reliable",
+    "media.staging"
+  ],
+  "web": {
+    "pages": [
+      {
+        "id": "bots",
+        "label": "机器人",
+        "route": "/modules/qqbot-runtime/bots",
+        "icon": "bot",
+        "order": 20,
+        "entrypoint": "main.js",
+        "customElement": "qqbot-runtime-bots"
+      }
+    ]
+  }
+}

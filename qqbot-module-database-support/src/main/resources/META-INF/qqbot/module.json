@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "database-support",
+  "name": "Database Support",
+  "version": "0.3.0",
+  "minimumFrameworkVersion": "1.0.0",
+  "dependencies": [],
+  "capabilities": [
+    "database.configuration",
+    "database.migration",
+    "database.persistence"
+  ],
+  "web": { "pages": [] }
+}

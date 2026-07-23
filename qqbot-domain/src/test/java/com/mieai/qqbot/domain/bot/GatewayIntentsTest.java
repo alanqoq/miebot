@@ -14,6 +14,7 @@ class GatewayIntentsTest {
         assertThat(GatewayIntents.GUILD_MESSAGES.bits()).isEqualTo(1L << 9);
         assertThat(GatewayIntents.GUILD_MESSAGE_REACTIONS.bits()).isEqualTo(1L << 10);
         assertThat(GatewayIntents.DIRECT_MESSAGE.bits()).isEqualTo(1L << 12);
+        assertThat(GatewayIntents.GROUP_MEMBERS.bits()).isEqualTo(1L << 24);
         assertThat(GatewayIntents.GROUP_AND_C2C_EVENT.bits()).isEqualTo(1L << 25);
         assertThat(GatewayIntents.INTERACTION.bits()).isEqualTo(1L << 26);
         assertThat(GatewayIntents.MESSAGE_AUDIT.bits()).isEqualTo(1L << 27);

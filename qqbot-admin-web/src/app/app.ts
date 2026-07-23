@@ -1,5 +1,5 @@
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, DestroyRef, OnInit, computed, effect, inject, signal } from '@angular/core';
+import { Component, DestroyRef, HostListener, OnInit, computed, effect, inject, signal } from '@angular/core';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import {
@@ -17,6 +17,8 @@ import { EMPTY, filter, map, timer } from 'rxjs';
 import { AuthApiService } from './core/auth-api.service';
 import { DatabaseStatusStore } from './core/database-status.store';
 import { OnboardingApiService } from './core/onboarding-api.service';
+import { ModuleCatalogService, ModuleWebContribution } from './core/module-catalog.service';
+import { ModuleNotification } from './core/module-bridge';
 import { SystemApiService } from './core/system-api.service';
 
 @Component({
@@ -42,6 +44,7 @@ export class App implements OnInit {
   private readonly router = inject(Router);
   private readonly databaseStatus = inject(DatabaseStatusStore);
   private readonly onboarding = inject(OnboardingApiService);
+  private readonly modules = inject(ModuleCatalogService);
   private readonly system = inject(SystemApiService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly currentUrl = toSignal(
@@ -58,6 +61,8 @@ export class App implements OnInit {
   protected readonly logoutError = signal<string | null>(null);
   protected readonly serviceReady = signal<boolean | null>(null);
   protected readonly databaseStatusFailed = signal(false);
+  protected readonly navigationItems = this.modules.navigation;
+  protected readonly moduleNotification = signal<ModuleNotification | null>(null);
   protected readonly setupRoute = computed(() => this.currentUrl().startsWith('/setup'));
   protected readonly adminInitial = computed(() =>
     (this.authStatus()?.username?.trim().charAt(0) || 'A').toUpperCase()
@@ -83,12 +88,14 @@ export class App implements OnInit {
         queueMicrotask(() => {
           this.refreshServiceStatus();
           this.refreshDatabaseStatus();
+          this.refreshModuleCatalog();
         });
       } else {
         this.serviceReady.set(null);
         this.databaseStatusFailed.set(false);
         if (!this.authStatus()?.authenticated) {
           this.databaseStatus.clear();
+          this.modules.clear();
         }
       }
     });
@@ -98,6 +105,17 @@ export class App implements OnInit {
     timer(15000, 15000)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(() => this.refreshServiceStatus());
+  }
+
+  @HostListener('window:qqbot:notification', ['$event'])
+  protected showModuleNotification(event: Event): void {
+    const notification = (event as CustomEvent<ModuleNotification>).detail;
+    this.moduleNotification.set(notification);
+    window.setTimeout(() => {
+      if (this.moduleNotification() === notification) {
+        this.moduleNotification.set(null);
+      }
+    }, 5000);
   }
 
   protected toggleNavigation(): void {
@@ -119,7 +137,8 @@ export class App implements OnInit {
       .pipe(finalize(() => this.loggingOut.set(false)))
       .subscribe({
         next: () => {
-          this.databaseStatus.clear();
+            this.databaseStatus.clear();
+            this.modules.clear();
           this.onboarding.clear();
           this.closeNavigation();
           void this.router.navigate(['/login']);
@@ -173,5 +192,18 @@ export class App implements OnInit {
         this.databaseStatus.setConfiguration(configuration);
         this.databaseStatusFailed.set(false);
       });
+  }
+
+  private refreshModuleCatalog(): void {
+    if (!this.authStatus()?.authenticated || this.setupRoute()) {
+      return;
+    }
+    this.modules
+      .load()
+      .pipe(
+        catchError(() => EMPTY),
+        takeUntilDestroyed(this.destroyRef)
+      )
+      .subscribe();
   }
 }

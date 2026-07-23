@@ -18,26 +18,18 @@
       </div>
 
       <nav class="primary-navigation">
-        <a routerLink="/dashboard" routerLinkActive="active" (click)="closeNavigation()">
-          <svg lucideLayoutDashboard [size]="18"></svg>
-          <span>运行概览</span>
-        </a>
-        <a routerLink="/bots" routerLinkActive="active" (click)="closeNavigation()">
-          <svg lucideBot [size]="18"></svg>
-          <span>机器人</span>
-        </a>
-        <a routerLink="/plugins" routerLinkActive="active" (click)="closeNavigation()">
-          <svg lucidePuzzle [size]="18"></svg>
-          <span>插件</span>
-        </a>
-        <a routerLink="/events" routerLinkActive="active" (click)="closeNavigation()">
-          <svg lucideInbox [size]="18"></svg>
-          <span>事件与任务</span>
-        </a>
-        <a routerLink="/system" routerLinkActive="active" (click)="closeNavigation()">
-          <svg lucideSettings [size]="18"></svg>
-          <span>系统</span>
-        </a>
+        @for (item of navigationItems(); track item.moduleId + ':' + item.id) {
+          <a [routerLink]="item.route" routerLinkActive="active" (click)="closeNavigation()">
+            @switch (item.icon) {
+              @case ('dashboard') { <svg lucideLayoutDashboard [size]="18"></svg> }
+              @case ('bot') { <svg lucideBot [size]="18"></svg> }
+              @case ('inbox') { <svg lucideInbox [size]="18"></svg> }
+              @case ('settings') { <svg lucideSettings [size]="18"></svg> }
+              @default { <svg lucidePuzzle [size]="18"></svg> }
+            }
+            <span>{{ item.label }}</span>
+          </a>
+        }
       </nav>
 
       <div class="sidebar-footer">
@@ -82,6 +74,16 @@
 
       @if (logoutError()) {
         <div class="session-error" role="alert">{{ logoutError() }}</div>
+      }
+
+      @if (moduleNotification(); as notification) {
+        <div
+          class="module-notification"
+          [class]="'module-notification module-notification-' + notification.level"
+          role="status"
+        >
+          {{ notification.message }}
+        </div>
       }
 
       <main class="main-content">

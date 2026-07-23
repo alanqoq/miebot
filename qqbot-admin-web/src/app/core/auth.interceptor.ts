@@ -15,7 +15,7 @@ export const authUnauthorizedInterceptor: HttpInterceptorFn = (request, next) =>
       if (error instanceof HttpErrorResponse && error.status === 401) {
         session.markUnauthenticated();
         if (!request.url.startsWith(AUTH_RESOURCE) && !router.url.startsWith('/login')) {
-          const returnUrl = router.url.startsWith('/') ? router.url : '/dashboard';
+          const returnUrl = router.url.startsWith('/') ? router.url : '/';
           void router.navigate(['/login'], { queryParams: { returnUrl } });
         }
       }

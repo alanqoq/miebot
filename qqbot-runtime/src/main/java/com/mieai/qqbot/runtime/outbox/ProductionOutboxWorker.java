@@ -6,14 +6,11 @@ import com.mieai.qqbot.client.QqAccessTokenClient;
 import com.mieai.qqbot.client.QqClientException;
 import com.mieai.qqbot.client.QqClientFailure;
 import com.mieai.qqbot.client.QqClientOptions;
-import com.mieai.qqbot.client.QqMessageTargetType;
-import com.mieai.qqbot.client.QqMediaKind;
 import com.mieai.qqbot.client.QqMediaMessageRequest;
 import com.mieai.qqbot.client.QqOpenApiClient;
 import com.mieai.qqbot.client.QqMessageSendResult;
 import com.mieai.qqbot.client.QqTextMessageRequest;
 import com.mieai.qqbot.client.QqRichMessageRequest;
-import com.mieai.qqbot.client.QqRichMessageKind;
 import com.mieai.qqbot.client.SingleFlightTokenProvider;
 import com.mieai.qqbot.domain.bot.BotEnvironment;
 import com.mieai.qqbot.domain.bot.BotId;
@@ -25,9 +22,6 @@ import com.mieai.qqbot.persistence.outbox.OutboxStatus;
 import com.mieai.qqbot.persistence.lease.BotLeaseRepository;
 import com.mieai.qqbot.client.MediaAssetStore;
 import com.mieai.qqbot.client.MediaAsset;
-import com.mieai.qqbot.plugin.host.OutboundTextPayload;
-import com.mieai.qqbot.plugin.host.OutboundMediaPayload;
-import com.mieai.qqbot.plugin.host.OutboundRichPayload;
 import com.mieai.qqbot.runtime.security.AppSecretCipher;
 import com.mieai.qqbot.runtime.security.BotCredentialDecryptor;
 import java.time.Clock;
@@ -178,7 +172,7 @@ public final class ProductionOutboxWorker implements AutoCloseable {
             if (OutboundTextPayload.JOB_TYPE.equals(job.jobType())) {
                 OutboundTextPayload payload = mapper.readValue(job.payload(), OutboundTextPayload.class);
                 QqTextMessageRequest request = new QqTextMessageRequest(
-                        QqMessageTargetType.valueOf(payload.targetType().name()), payload.targetId(), payload.content(),
+                        payload.targetType(), payload.targetId(), payload.content(),
                         Optional.ofNullable(payload.replyMessageId()), Optional.ofNullable(payload.replyEventId()),
                         payload.messageSequence());
                 client(bot).sendText(request).toCompletableFuture()
@@ -186,8 +180,7 @@ public final class ProductionOutboxWorker implements AutoCloseable {
             } else if (OutboundMediaPayload.JOB_TYPE.equals(job.jobType())) {
                 OutboundMediaPayload payload = mapper.readValue(job.payload(), OutboundMediaPayload.class);
                 QqMediaMessageRequest request = new QqMediaMessageRequest(
-                        QqMessageTargetType.valueOf(payload.targetType().name()), payload.targetId(),
-                        QqMediaKind.valueOf(payload.mediaKind().name()), java.net.URI.create(payload.mediaUrl()),
+                        payload.targetType(), payload.targetId(), payload.mediaKind(), java.net.URI.create(payload.mediaUrl()),
                         Optional.ofNullable(payload.content()), Optional.ofNullable(payload.replyMessageId()),
                         Optional.ofNullable(payload.replyEventId()), payload.messageSequence());
                 if (payload.mediaAssetId() == null) {
@@ -219,8 +212,7 @@ public final class ProductionOutboxWorker implements AutoCloseable {
             } else {
                 OutboundRichPayload payload = mapper.readValue(job.payload(), OutboundRichPayload.class);
                 QqRichMessageRequest request = new QqRichMessageRequest(
-                        QqMessageTargetType.valueOf(payload.targetType().name()), payload.targetId(),
-                        QqRichMessageKind.valueOf(payload.kind().name()), payload.payload(),
+                        payload.targetType(), payload.targetId(), payload.kind(), payload.payload(),
                         Optional.ofNullable(payload.replyMessageId()), Optional.ofNullable(payload.replyEventId()),
                         payload.messageSequence());
                 client(bot).sendRich(request).toCompletableFuture()
@@ -276,7 +268,8 @@ public final class ProductionOutboxWorker implements AutoCloseable {
                     .build();
             SingleFlightTokenProvider provider = new SingleFlightTokenProvider(decrypted,
                     new QqAccessTokenClient(options), options);
-            QqOpenApiClient client = new QqOpenApiClient(options, provider);
+            QqOpenApiClient client =
+                    new QqOpenApiClient(options, provider, decrypted.appId());
             clients.put(id, new ClientHandle(revision, bot.definition().environment(), client, decrypted));
             return client;
         } catch (RuntimeException exception) {

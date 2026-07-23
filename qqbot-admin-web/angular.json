@@ -81,6 +81,111 @@
           "builder": "@angular/build:unit-test"
         }
       }
+    },
+    "operations-module": {
+      "projectType": "application",
+      "root": "",
+      "sourceRoot": "src",
+      "prefix": "qqbot",
+      "architect": {
+        "build": {
+          "builder": "@angular/build:application",
+          "options": {
+            "browser": "src/module-elements/operations.ts",
+            "tsConfig": "tsconfig.app.json",
+            "inlineStyleLanguage": "scss",
+            "outputPath": "dist/modules/operations",
+            "index": false,
+            "outputHashing": "none",
+            "optimization": true,
+            "sourceMap": false
+          }
+        }
+      }
+    },
+    "qqbot-runtime-module": {
+      "projectType": "application",
+      "root": "",
+      "sourceRoot": "src",
+      "prefix": "qqbot",
+      "architect": {
+        "build": {
+          "builder": "@angular/build:application",
+          "options": {
+            "browser": "src/module-elements/qqbot-runtime.ts",
+            "tsConfig": "tsconfig.app.json",
+            "inlineStyleLanguage": "scss",
+            "outputPath": "dist/modules/qqbot-runtime",
+            "index": false,
+            "outputHashing": "none",
+            "optimization": true,
+            "sourceMap": false
+          }
+        }
+      }
+    },
+    "plugin-support-module": {
+      "projectType": "application",
+      "root": "",
+      "sourceRoot": "src",
+      "prefix": "qqbot",
+      "architect": {
+        "build": {
+          "builder": "@angular/build:application",
+          "options": {
+            "browser": "src/module-elements/plugin-support.ts",
+            "tsConfig": "tsconfig.app.json",
+            "inlineStyleLanguage": "scss",
+            "outputPath": "dist/modules/plugin-support",
+            "index": false,
+            "outputHashing": "none",
+            "optimization": true,
+            "sourceMap": false
+          }
+        }
+      }
+    },
+    "platform-admin-module": {
+      "projectType": "application",
+      "root": "",
+      "sourceRoot": "src",
+      "prefix": "qqbot",
+      "architect": {
+        "build": {
+          "builder": "@angular/build:application",
+          "options": {
+            "browser": "src/module-elements/platform-admin.ts",
+            "tsConfig": "tsconfig.app.json",
+            "inlineStyleLanguage": "scss",
+            "outputPath": "dist/modules/platform-admin",
+            "index": false,
+            "outputHashing": "none",
+            "optimization": true,
+            "sourceMap": false
+          }
+        }
+      }
+    },
+    "onebot11-module": {
+      "projectType": "application",
+      "root": "",
+      "sourceRoot": "src",
+      "prefix": "qqbot",
+      "architect": {
+        "build": {
+          "builder": "@angular/build:application",
+          "options": {
+            "browser": "src/module-elements/onebot11.ts",
+            "tsConfig": "tsconfig.app.json",
+            "inlineStyleLanguage": "scss",
+            "outputPath": "dist/modules/onebot11",
+            "index": false,
+            "outputHashing": "none",
+            "optimization": true,
+            "sourceMap": false
+          }
+        }
+      }
     }
   }
 }

@@ -18,30 +18,17 @@ export const routes: Routes = [
     canActivateChild: [authGuard, onboardingGuard],
     children: [
       {
-        path: 'dashboard',
+        path: 'modules/:moduleId/:contributionId',
         loadComponent: () =>
-          import('./pages/dashboard/dashboard-page').then((module) => module.DashboardPage)
+          import('./pages/module/module-page').then((module) => module.ModulePage)
       },
       {
-        path: 'bots',
-        loadComponent: () => import('./pages/bots/bots-page').then((module) => module.BotsPage)
-      },
-      {
-        path: 'plugins',
+        path: '',
+        pathMatch: 'full',
         loadComponent: () =>
-          import('./pages/plugins/plugins-page').then((module) => module.PluginsPage)
+          import('./pages/module/module-landing-page').then((module) => module.ModuleLandingPage)
       },
-      {
-        path: 'events',
-        loadComponent: () =>
-          import('./pages/events/events-page').then((module) => module.EventsPage)
-      },
-      {
-        path: 'system',
-        loadComponent: () => import('./pages/system/system-page').then((module) => module.SystemPage)
-      },
-      { path: '', pathMatch: 'full', redirectTo: 'dashboard' },
-      { path: '**', redirectTo: 'dashboard' }
+      { path: '**', redirectTo: '' }
     ]
   }
 ];

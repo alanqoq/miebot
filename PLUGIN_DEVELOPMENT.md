@@ -10,7 +10,7 @@
 QQ Gateway 事件
   -> event_inbox 持久化和去重
   -> plugin_deliveries 独立投递
-  -> EventService 命名 handler 或兼容的 BotPlugin.onEvent(...)
+  -> EventService 命名 handler
   -> MessageSender 写入 outbox_jobs
   -> Outbox Worker 调用 QQ OpenAPI
 ```
@@ -36,11 +36,11 @@ dependencies {
 }
 ```
 
-外部插件项目应依赖与宿主完全相同的 Maven 制品版本。当前平台制品版本为 `0.2.0`，Manifest 的插件 API 兼容级别为 `1.2.0`。根项目的 `pluginSdkRepository` 任务会生成可复制的本地 Maven SDK 仓库，`pluginSdkDistribution` 会把仓库、模板和本指南打成 ZIP；不需要把宿主模块或 PF4J 放进插件项目。
+外部插件项目应依赖与宿主完全相同的 Maven 制品版本。当前平台制品版本为 `0.3.0`，Manifest 的插件 API 兼容级别为 `2.0.0`。根项目的 `pluginSdkRepository` 任务会生成可复制的本地 Maven SDK 仓库，`pluginSdkDistribution` 会把仓库、模板和本指南打成 ZIP；不需要把宿主模块或 PF4J 放进插件项目。
 
 必须使用 `compileOnly` 或 Maven 的 `provided` scope。不要把 API/SPI、PF4J、Spring、数据库驱动或宿主模块打入插件 JAR，否则可能出现类型不相等、类加载冲突或越过宿主安全边界的问题。
 
-仓库内可复制 `plugin-template` 作为起点；`qqbot-plugin-example` 是宿主端到端测试使用的 V2 参考实现。建议目录如下：
+仓库内可复制 `plugin-template` 作为起点；`qqbot-plugin-example` 是宿主端到端测试使用的 API 2.0 参考实现。建议目录如下：
 
 ```text
 my-plugin/
@@ -58,11 +58,13 @@ my-plugin/
 ```java
 package com.example;
 
-import com.mieai.qqbot.plugin.api.PluginContext;
+import com.mieai.qqbot.plugin.api.EventSubscription;
 import com.mieai.qqbot.plugin.api.PluginEvent;
+import com.mieai.qqbot.plugin.api.PluginRuntimeContext;
 import com.mieai.qqbot.plugin.api.TextMessage;
 import com.mieai.qqbot.plugin.spi.BotPlugin;
 import com.mieai.qqbot.plugin.spi.BotPluginFactory;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 
@@ -73,22 +75,35 @@ public final class HelloPluginFactory implements BotPluginFactory {
     }
 
     @Override
-    public BotPlugin create(PluginContext context) {
+    public BotPlugin create(PluginRuntimeContext context) {
         return new BotPlugin() {
+            private EventSubscription commands;
+
             @Override
-            public CompletionStage<Void> onEvent(PluginEvent event) {
-                String content = event.message()
-                        .flatMap(message -> message.content())
-                        .map(String::strip)
-                        .orElse("");
-                if (!"/hello".equalsIgnoreCase(content)) {
-                    return CompletableFuture.completedFuture(null);
-                }
-                return context.messageSender()
-                        .enqueue(TextMessage.reply(event, "hello"))
-                        .thenApply(receipt -> null);
+            public void start() {
+                commands = context.events().subscribe(
+                        "commands", Set.of(), event -> handle(context, event));
+            }
+
+            @Override
+            public void stop() {
+                if (commands != null) commands.close();
             }
         };
+    }
+
+    private static CompletionStage<Void> handle(
+            PluginRuntimeContext context, PluginEvent event) {
+        String content = event.message()
+                .flatMap(message -> message.content())
+                .map(String::strip)
+                .orElse("");
+        if (!"/hello".equalsIgnoreCase(content)) {
+            return CompletableFuture.completedFuture(null);
+        }
+        return context.base().messageSender()
+                .enqueue(TextMessage.reply(event, "hello"))
+                .thenApply(receipt -> null);
     }
 }
 ```
@@ -110,7 +125,7 @@ com.example.HelloPluginFactory
 | `Plugin-Id` | 是 | 稳定插件 ID，必须与 `BotPluginFactory.pluginId()` 完全一致 |
 | `Plugin-Name` | 建议 | 后台显示名称；未提供时使用插件 ID |
 | `Plugin-Version` | 是 | 插件版本 |
-| `Plugin-Requires` | 建议 | 宿主插件 API 兼容版本；缺省时宿主按当前 `1.2.0` 处理 |
+| `Plugin-Requires` | 建议 | 宿主插件 API 兼容版本；缺省时宿主按当前 `2.0.0` 处理 |
 | `Plugin-Class` | 是 | 固定为 `com.mieai.qqbot.plugin.host.Pf4jPluginBridge` |
 | `Plugin-Config-Schema` | 是 | JAR 内 JSON Schema 资源路径 |
 | `Plugin-Capabilities` | 建议 | 逗号分隔的能力列表 |
@@ -124,10 +139,10 @@ tasks.jar {
             "Plugin-Id" to "hello",
             "Plugin-Name" to "Hello Plugin",
             "Plugin-Version" to project.version.toString(),
-            "Plugin-Requires" to "1.2.0",
+            "Plugin-Requires" to "2.0.0",
             "Plugin-Class" to "com.mieai.qqbot.plugin.host.Pf4jPluginBridge",
             "Plugin-Config-Schema" to "qqbot-plugin-schema.json",
-            "Plugin-Capabilities" to "event.read,message.send,storage",
+            "Plugin-Capabilities" to "event.read,event.subscribe,message.send,storage",
         )
     }
 }
@@ -171,31 +186,28 @@ tasks.jar {
 
 不要依赖 `$ref`、`oneOf`、`anyOf`、条件 Schema、格式校验或其他未列出的关键字。配置必须是 JSON 对象，后台保存绑定前会验证并返回首个具体字段错误。单个绑定配置的 HTTP 字段最多包含 65,536 个 Java 字符。
 
-插件通过 `PluginContext.configurationJson()` 取得原始 JSON 字符串。插件公共 API 不暴露 Jackson，因此插件可以使用自身选择的 JSON 库；若将 JSON 库打入 JAR，应做依赖重定位或确认不会与父加载器冲突。
+插件通过 `PluginRuntimeContext.configuration().json()` 取得创建实例时捕获的原始 JSON 字符串，也可从同一 `ConfigSnapshot` 读取绑定 revision 和加载时间。`context.base().configurationJson()` 保留同一份原始 JSON。插件公共 API 不暴露 Jackson，因此插件可以使用自身选择的 JSON 库；若将 JSON 库打入 JAR，应做依赖重定位或确认不会与父加载器冲突。
 
 ## 6. 生命周期与并发
 
-`BotPlugin` 提供兼容旧插件的生命周期方法，并为 V2 插件增加扩展上下文重载：
+插件 API 2.0 只有一个工厂和一套生命周期：
 
 ```java
-default void start(PluginContext context) {}
-default void start(PluginRuntimeContext context) {}
-default CompletionStage<Void> onEvent(PluginEvent event) {
-    return CompletableFuture.completedFuture(null);
-}
+BotPlugin create(PluginRuntimeContext context);
+default void start() {}
 default void stop() {}
 ```
 
-- 插件绑定实例按需创建：第一条待处理事件到来时执行 `create(context)`，随后立即调用 `start(context)`。
+- 插件绑定实例按需创建：第一条待处理事件到来时执行 `create(context)`，随后立即调用 `start()`。
 - 每个绑定复用同一个插件实例处理事件。
 - 当前每个绑定使用独立有界执行队列；插件不应把单线程执行当作 API 保证，内部可变状态仍应自行保证线程安全。
-- `onEvent` 不能返回 `null`。只使用 `EventService` 的 V2 插件可以使用默认实现，不必再写空方法。
-- 不要在 `onEvent` 中长时间阻塞。默认执行超时为 20 秒。
+- 事件只能通过 `EventService` 命名 handler 接收；handler 不能返回 `null`。
+- 不要在 handler 中长时间阻塞。默认执行超时为 20 秒。
 - handler 开始时可读取 `context.cancellationToken()`；异步链必须保存该对象，超时后检查 `isCancellationRequested()` 或调用 `throwIfCancellationRequested()`，不能在其他线程重新读取 ThreadLocal。
 - 配置变化、绑定删除、插件重载、数据库热切换和应用停止都可能调用 `stop()`。
 - `stop()` 应快速、幂等地释放插件自行创建的资源，且不应抛出异常。
 
-旧插件的 `handlerId()` 仍作为兼容的默认处理器 ID。V2 插件应在 `start(PluginRuntimeContext)` 中通过 `EventService` 注册命名 handler；每个匹配事件会创建独立的 `(event, binding, handlerId)` 投递记录。
+插件应在 `start()` 中通过 `EventService` 注册至少一个命名 handler；每个匹配事件会创建独立的 `(event, binding, handlerId)` 投递记录。API 2.0 不再提供 `BotPlugin.onEvent(...)`、`handlerId()` 或旧工厂回退路径。
 
 ## 7. 事件 API
 
@@ -228,7 +240,7 @@ default void stop() {}
 最安全的被动回复方式是：
 
 ```java
-return context.messageSender()
+return context.base().messageSender()
         .enqueue(TextMessage.reply(event, "pong"))
         .thenApply(receipt -> null);
 ```
@@ -259,7 +271,7 @@ RichMessage markdown = new RichMessage(
         1,
         Optional.of("markdown:" + event.id()),
         Optional.of(event.id()));
-return context.messageSender().enqueue(markdown).thenApply(receipt -> null);
+return context.base().messageSender().enqueue(markdown).thenApply(receipt -> null);
 ```
 
 QQ 不支持独立 Keyboard 消息。`KEYBOARD` 是 SDK 提供的组合类型，payload 必须同时包含非空 `markdown` 和 `keyboard` 对象，发送时使用官方 Markdown 类型 `msg_type=2`：
@@ -272,9 +284,7 @@ Map<String, Object> payload = Map.of(
 
 自定义按钮使用 `keyboard.content.rows`，其中每个 row 是包含 `buttons` 数组的对象；不要把 row 写成裸按钮数组。Web 机器人页选择 Keyboard 时会填入一个可编辑的完整骨架。
 
-插件可通过 `MediaService`（V2）或兼容的 `MessageSender` 入队远程 `MediaMessage`：
-
-插件可通过 `MediaService`（V2）或兼容的 `MessageSender` 入队 `MediaMessage`：
+插件可通过 `MessageSender` 入队远程 `MediaMessage`：
 
 ```java
 MediaMessage message = new MediaMessage(
@@ -288,7 +298,7 @@ MediaMessage message = new MediaMessage(
         Optional.of("image:" + event.id()),
         Optional.of(event.id()));
 
-return context.messageSender().enqueue(message).thenApply(receipt -> null);
+return context.base().messageSender().enqueue(message).thenApply(receipt -> null);
 ```
 
 限制如下：
@@ -319,10 +329,10 @@ return context.mediaService().enqueue(new StagedMediaMessage(
 声明 `storage` 能力后，可使用按绑定隔离的持久化键值存储：
 
 ```java
-context.storage().put("settings", "last-user", userId);
-Optional<String> value = context.storage().get("settings", "last-user");
-Map<String, String> all = context.storage().list("settings");
-context.storage().delete("settings", "last-user");
+context.base().storage().put("settings", "last-user", userId);
+Optional<String> value = context.base().storage().get("settings", "last-user");
+Map<String, String> all = context.base().storage().list("settings");
+context.base().storage().delete("settings", "last-user");
 ```
 
 约束：
@@ -337,9 +347,9 @@ context.storage().delete("settings", "last-user");
 
 `PluginStorage` 不提供事务、CAS、扫描游标、TTL 或任意 SQL。需要跨多个键保持严格原子性时，应把状态编码为一个值，或调整业务设计。
 
-## 11. V2 扩展能力
+## 11. PluginRuntimeContext 能力
 
-`BotPluginFactoryV2` 的 `create(PluginRuntimeContext)` 会收到以下绑定级能力：
+`BotPluginFactory.create(PluginRuntimeContext)` 会收到以下绑定级能力：
 
 ```java
 PluginRuntimeContext context = ...;
@@ -348,7 +358,7 @@ context.events();         // EventService
 context.scheduler();      // PluginScheduler
 context.httpClient();     // RestrictedHttpClient
 context.mediaService();   // MediaService
-context.base();           // 兼容的 PluginContext
+context.base();           // 消息、存储、日志和绑定身份
 ```
 
 ### EventService 与多 handler
@@ -386,19 +396,19 @@ PluginHttpResponse response = context.httpClient()
 
 ## 12. 日志
 
-使用 `PluginContext.logger()`，不要依赖宿主的 SLF4J：
+使用 `context.base().logger()`，不要依赖宿主的 SLF4J：
 
 ```java
-context.logger().info("plugin started");
-context.logger().warn("configuration fallback used");
-context.logger().error("processing failed", exception);
+context.base().logger().info("plugin started");
+context.base().logger().warn("configuration fallback used");
+context.base().logger().error("processing failed", exception);
 ```
 
 宿主会附加 `pluginId` 和 `botId`，移除换行并把单条消息截断为 512 字符。不要记录 AppSecret、Access Token、完整个人信息或完整消息载荷。
 
 ## 13. 可靠性与幂等
 
-插件投递采用至少一次处理语义。以下情况都可能使同一事件再次进入 `onEvent`：进程崩溃、执行超时、数据库租约过期、插件抛出异常或返回失败的 CompletionStage。
+插件投递采用至少一次处理语义。以下情况都可能使同一事件 handler 再次执行：进程崩溃、执行超时、数据库租约过期、插件抛出异常或返回失败的 CompletionStage。
 
 - 回复消息应使用稳定 `deduplicationKey`；`TextMessage.reply` 已默认提供。
 - 其他外部副作用必须由插件自行提供幂等键和幂等接口。
@@ -497,7 +507,7 @@ PF4J 类加载隔离不是安全沙箱。第一版只允许运维人员部署可
 
 ## 18. 参考实现
 
-- `plugin-template`：可复制的 V2 项目模板和多 handler 示例。
+- `plugin-template`：可复制的 API 2.0 项目模板和多 handler 示例。
 - `qqbot-plugin-example`：宿主端到端测试使用的最小可运行插件。
 - `qqbot-plugin-testkit`：插件单元测试替身。
 - `qqbot-plugin-api`：插件可调用的稳定接口。
