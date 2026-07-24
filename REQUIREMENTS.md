@@ -2,9 +2,9 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 文档状态 | 0.4.0 实现基线 |
-| 版本 | 0.4.0 |
-| 最后更新 | 2026-07-21 |
+| 文档状态 | 0.4.1 实现基线 |
+| 版本 | 0.4.1 |
+| 最后更新 | 2026-07-24 |
 | 目标平台 | Debian + Docker Compose |
 
 ## 1. 项目背景
@@ -67,7 +67,7 @@
 - 插件运行时：PF4J，插件公共契约使用纯 Java 接口。
 - 数据访问：Spring JDBC，复杂并发 SQL 使用数据库方言适配器。
 - 数据库迁移：版本化迁移脚本，按公共脚本和数据库方言组织。
-- 测试：JUnit、Testcontainers、QQ 协议测试桩、Angular 单元与端到端测试。
+- 测试：JUnit、进程内 HTTP/WebSocket 测试桩和 Angular 单元测试。当前未集成 Testcontainers 或 Angular E2E 测试目标。
 - 部署：Docker、Docker Compose；Caddy 或 Nginx 仅为可选反向代理。
 
 ### 4.2 架构形态
@@ -134,8 +134,8 @@ flowchart LR
 - 可复用模块发布为普通独立 JAR 和可选 Maven 制品，并遵循语义化版本规则；平台提供的依赖使用 `compileOnly`。
 - 公共 API 不暴露具体 HTTP Client、JSON 框架、数据库或依赖注入容器类型。
 - QQ 原始协议 DTO 与稳定领域模型分离，协议变化不得直接破坏插件 API。
-- 发布物必须包含源码包、API 文档、变更记录和最小接入示例。
-- CI 使用二进制兼容检查阻止未声明的破坏性 API 变更。
+- SDK 仓库发布源码 JAR、Javadoc JAR、开发指南、变更记录和最小接入模板。
+- 当前仓库尚未配置 CI 二进制兼容检查；发布前需要通过本地构建和契约测试复核 API 变更。
 
 ## 5. QQ 机器人接入需求
 
@@ -416,7 +416,7 @@ PF4J 类加载隔离不构成安全沙箱。第一版只允许运维人员部署
 
 框架模块的外部后台页面使用 `/modules/{moduleId}/{contributionId}`，脚本资源使用 `/module-assets/{moduleId}/...`。外部页面采用标准 Web Component，脚本与管理后台同源并受相同认证边界约束。
 
-- REST API 使用 OpenAPI 描述，并生成 Angular TypeScript Client。
+- 当前管理 API 由 Spring 控制器和手工维护的 Angular API 服务衔接；尚未集成 OpenAPI 描述或 TypeScript Client 自动生成。
 - REST API 使用统一错误结构、参数校验、分页协议和 trace ID。
 - 实时运行状态使用 SSE，第一版不为管理后台额外引入 WebSocket。
 - 前后端同源部署时使用 HttpOnly、Secure、SameSite Cookie。
@@ -490,7 +490,9 @@ Compose 不创建 MySQL/PostgreSQL 服务。数据库由外部系统部署和备
 - Angular 机器人和插件管理核心流程测试。
 - 模块 JAR 缺少/错误描述符、重复 ID、缺失依赖、版本过低、依赖环、启动回滚、反序停止、服务访问、SHA-256 和 Web 资源精确归属测试。
 - 应用上下文中七个默认外置框架功能模块全部为 `ACTIVE` 的集成测试。
-- SQLite 默认模式和外部 MySQL/PostgreSQL 连接模式的 Compose 冒烟测试。
+- SQLite 默认模式和外部 MySQL/PostgreSQL 连接模式的 Compose 冒烟验证按 [DEPLOYMENT.md](./DEPLOYMENT.md) 人工执行，当前未配置自动化 Compose 测试。
+
+当前仓库未集成 Testcontainers、Angular E2E、OpenAPI/TypeScript Client 生成或 CI 二进制兼容检查；这些能力不能视为 `0.4.1` 的已交付保证。
 
 ### 13.2 第一版验收标准
 

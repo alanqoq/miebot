@@ -412,7 +412,7 @@ public final class OneBotActionService implements AutoCloseable {
     private JsonNode versionInfo() {
         ObjectNode data = objectMapper.createObjectNode();
         data.put("app_name", "mirai-qqbot-onebot11");
-        data.put("app_version", "0.4.0");
+        data.put("app_version", "0.4.1");
         data.put("protocol_version", "v11");
         data.put("compatibility", "qq-official-c2c-group-subset");
         return data;

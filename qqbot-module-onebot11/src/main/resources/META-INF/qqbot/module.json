@@ -2,11 +2,11 @@
   "schemaVersion": 1,
   "id": "onebot11",
   "name": "OneBot 11",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "minimumFrameworkVersion": "1.1.0",
   "dependencies": [
-    { "moduleId": "database-support", "minimumVersion": "0.4.0", "optional": false },
-    { "moduleId": "qqbot-runtime", "minimumVersion": "0.4.0", "optional": false }
+    { "moduleId": "database-support", "minimumVersion": "0.4.1", "optional": false },
+    { "moduleId": "qqbot-runtime", "minimumVersion": "0.4.1", "optional": false }
   ],
   "capabilities": [
     "onebot.v11",

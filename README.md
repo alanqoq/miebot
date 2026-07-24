@@ -4,7 +4,7 @@
 
 ## 当前实现
 
-- Java 21 / Kotlin 2.1.21 / Spring Boot 3.5 多模块工程
+- Java 21 / Kotlin Gradle 编译器 1.9.25（运行时标准库 2.1.21）/ Spring Boot 3.5.16 多模块工程
 - 框架核心开放 `qqbot-module-api`、`qqbot-module-spi`，启动前扫描 `/modules/*.jar`，严格校验描述符、版本和依赖图，再由 `qqbot-module-host` 管理生命周期和模块间服务
 - 七个默认外置功能模块：`platform-admin`、`database-support`、`qqbot-runtime`、`plugin-support`、`operations`、`cluster-support`、`onebot11`
 - 功能模块 JAR 可携带 Spring 自动配置、数据库迁移和编译后的同源 Web Component；模块目录、制品文件名和 SHA-256 由 `GET /api/modules` 提供
@@ -14,7 +14,7 @@
 - OneBot 11 C2C/普通群兼容模块，支持正向与反向 Universal WebSocket，并可在每个机器人编辑页独立配置
 - SQLite/MySQL/PostgreSQL 持久化、版本化迁移和安全热切换
 - Angular 22 管理后台工程
-- 插件 SDK 兼容级别 `2.0.0`（Maven 制品 `0.4.0`，API、SPI、testkit）、可复制项目模板和本地分发任务
+- 插件 SDK 兼容级别 `2.0.0`（Maven 制品 `0.4.1`，API、SPI、testkit）、可复制项目模板和本地分发任务
 - Gateway Dispatch 持久化到 `event_inbox`，并提供管理员 Inbox 查询 API
 - Outbox/DLQ 持久化状态、生产 QQ OpenAPI 发送、管理员查询 API 与后台实时视图
 - PF4J 可信插件宿主、每机器人绑定、配置 Schema 和默认配置校验、绑定级 `PluginStorage`、暂停/恢复、超时取消与隔离、插件投递重试和插件 DLQ
@@ -74,7 +74,7 @@ Set-Location ..
 
 前端使用独立 npm 工程：
 
-Angular 22.0.7 要求 Node.js `24.15.0+`（或官方支持的其他版本）。安装依赖后可使用符合版本要求的 `node.exe` 直接调用项目内 CLI，不需要修改系统 PATH：
+Angular CLI 22.0.7 支持 Node.js `^22.22.3`、`^24.15.0` 或 `>=26.0.0`；本项目 Docker 构建使用 Node 24.15.0。安装依赖后可使用符合版本要求的 `node.exe` 直接调用项目内 CLI，不需要修改系统 PATH：
 
 ```powershell
 Set-Location .\qqbot-admin-web
@@ -85,4 +85,4 @@ npm.cmd run build
 
 前端构建会同时生成后台壳和五个带 Web Component 页面贡献的模块页面包：`operations`、`qqbot-runtime`、`plugin-support`、`platform-admin`、`onebot11`。这五个页面包不等于默认框架模块总数；默认 `/modules` 分发仍包含七个模块，`database-support` 和 `cluster-support` 当前没有单独的前端页面包。随后执行 `:qqbot-app:bootJar defaultModuleDirectory`：壳资源进入核心 Boot JAR，模块页面进入各自的普通 JAR，默认模块输出到 `build/runtime/modules`。`stageRuntimeExtensions` 可把默认模块和示例插件放入项目的 `modules/`、`plugins/` 目录供 Compose 使用。
 
-框架功能开发者应阅读 [MODULE_DEVELOPMENT.md](./MODULE_DEVELOPMENT.md)；文档说明模块/插件边界、依赖图、生命周期、模块间服务、Web Component 和 Docker 接入，`moduleSdkRepository`/`moduleSdkDistribution` 可生成模块 SDK。OneBot 接入和兼容边界见 [ONEBOT11.md](./ONEBOT11.md)。插件作者应阅读 [PLUGIN_DEVELOPMENT.md](./PLUGIN_DEVELOPMENT.md)，并可直接复制 [plugin-template](./plugin-template)；`pluginSdkRepository`/`pluginSdkDistribution` 可生成插件 SDK。完整平台需求见 [REQUIREMENTS.md](./REQUIREMENTS.md)。
+框架功能开发者应阅读 [MODULE_DEVELOPMENT.md](./MODULE_DEVELOPMENT.md)；文档说明模块/插件边界、依赖图、生命周期、模块间服务、Web Component 和 Docker 接入，`moduleSdkRepository`/`moduleSdkDistribution` 可生成模块 SDK。OneBot 接入和兼容边界见 [ONEBOT11.md](./ONEBOT11.md)。插件作者应阅读 [PLUGIN_DEVELOPMENT.md](./PLUGIN_DEVELOPMENT.md)，并可直接复制 [plugin-template](./plugin-template)；`pluginSdkRepository`/`pluginSdkDistribution` 可生成插件 SDK。完整平台需求见 [REQUIREMENTS.md](./REQUIREMENTS.md)，发行变更见 [CHANGELOG.md](./CHANGELOG.md)。

@@ -2,7 +2,7 @@
 
 ## 部署结论
 
-项目可以部署到 Debian 的 Docker Compose 中，当前 Compose 镜像为 `mirai-qqbot:0.4.0`。Compose 只运行 QQ Bot 应用，默认使用容器数据卷中的 SQLite；MySQL/PostgreSQL 由外部系统提供，通过 Web 后台或候选配置文件填写连接信息。Spring Boot 直接在 `8080` 端口提供管理 API 和 Angular 页面，不强制依赖 Caddy/Nginx。真实 QQ Gateway 运行时默认启用，应用启动后会自动调和当前数据库内所有已启用机器人。
+项目可以部署到 Debian 的 Docker Compose 中，当前 Compose 镜像为 `mirai-qqbot:0.4.1`。Compose 只运行 QQ Bot 应用，默认使用容器数据卷中的 SQLite；MySQL/PostgreSQL 由外部系统提供，通过 Web 后台或候选配置文件填写连接信息。Spring Boot 直接在 `8080` 端口提供管理 API 和 Angular 页面，不强制依赖 Caddy/Nginx。真实 QQ Gateway 运行时默认启用，应用启动后会自动调和当前数据库内所有已启用机器人。
 
 镜像携带 `database-support`、`qqbot-runtime`、`platform-admin`、`plugin-support`、`operations`、`cluster-support` 和 `onebot11` 七个默认框架模块 JAR。Compose 将宿主机 `./modules` 只读挂载到 `/modules`，Spring Boot 使用 `PropertiesLauncher` 在启动前把其中的 JAR 加入类路径；宿主随后校验描述符、SHA-256、框架版本、必需依赖、版本下限、重复项和依赖环。`GET /api/modules` 可查看制品和运行状态。替换模块后只需重启应用，不需要重新编译核心；模块不能从 Web 上传或热卸载。`/plugins` 只存放由 `plugin-support` 加载并绑定机器人的业务插件，绑定配置和插件自有数据则持久化在 `/data/plugin-data`。
 

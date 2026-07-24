@@ -15,7 +15,7 @@ plugins {
 }
 allprojects {
     group = "com.mieai.qqbot"
-    version = "0.4.0"
+    version = "0.4.1"
 }
 
 subprojects {
@@ -122,6 +122,7 @@ val pluginSdkDistribution by tasks.registering(Zip::class) {
         exclude(".gradle/**", "build/**")
     }
     from("PLUGIN_DEVELOPMENT.md")
+    from("CHANGELOG.md")
     from("README.md") { into("project") }
 }
 
@@ -173,6 +174,7 @@ val moduleSdkDistribution by tasks.registering(Zip::class) {
     destinationDirectory.set(layout.buildDirectory.dir("distributions"))
     from(layout.buildDirectory.dir("module-sdk/repository")) { into("repository") }
     from("MODULE_DEVELOPMENT.md")
+    from("CHANGELOG.md")
 }
 
 val defaultModuleProjects = listOf(
@@ -227,4 +229,5 @@ val defaultModuleDistribution by tasks.registering(Zip::class) {
     from(layout.buildDirectory.dir("runtime/modules")) { into("modules") }
     from("MODULE_DEVELOPMENT.md")
     from("ONEBOT11.md")
+    from("CHANGELOG.md")
 }

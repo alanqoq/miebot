@@ -1,6 +1,6 @@
 # 框架模块开发指南
 
-本文描述平台 `0.4.0` 的外置框架模块契约。框架模块是放在 `/modules` 中、随应用启动加载的可信 JAR；机器人插件是由 `plugin-support` 从 `/plugins` 加载并绑定到机器人的业务实现。二者不是同一个扩展层。
+本文描述平台 `0.4.1` 的外置框架模块契约。框架模块是放在 `/modules` 中、随应用启动加载的可信 JAR；机器人插件是由 `plugin-support` 从 `/plugins` 加载并绑定到机器人的业务实现。二者不是同一个扩展层。
 
 ## 1. 模块与插件边界
 
@@ -59,7 +59,7 @@ reports-1.0.0.jar
   "dependencies": [
     {
       "moduleId": "database-support",
-      "minimumVersion": "0.4.0",
+      "minimumVersion": "0.4.1",
       "optional": false
     }
   ],
@@ -107,8 +107,8 @@ reports-1.0.0.jar
 
 ```kotlin
 dependencies {
-    compileOnly("com.mieai.qqbot:qqbot-module-api:0.4.0")
-    compileOnly("com.mieai.qqbot:qqbot-module-spi:0.4.0")
+    compileOnly("com.mieai.qqbot:qqbot-module-api:0.4.1")
+    compileOnly("com.mieai.qqbot:qqbot-module-spi:0.4.1")
     compileOnly("org.springframework.boot:spring-boot-autoconfigure:3.5.16")
     compileOnly("org.springframework.boot:spring-boot-starter-web:3.5.16")
 
@@ -290,8 +290,8 @@ cd ..
 输出位置：
 
 - `build/runtime/modules/*.jar`
-- `build/distributions/qqbot-default-modules-0.4.0.zip`
-- `build/distributions/qqbot-module-sdk-0.4.0.zip`
+- `build/distributions/qqbot-default-modules-0.4.1.zip`
+- `build/distributions/qqbot-module-sdk-0.4.1.zip`
 
 源码 Compose 运行前可执行 `stageRuntimeExtensions`，它复制默认模块和示例机器人插件，并保留目录中的其他 JAR：
 
