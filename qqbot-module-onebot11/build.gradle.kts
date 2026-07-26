@@ -1,5 +1,10 @@
 description = "OneBot 11 WebSocket compatibility module for QQ C2C and group bots"
 
+plugins {
+    kotlin("jvm")
+    kotlin("plugin.spring")
+}
+
 val moduleWebDist = layout.projectDirectory.dir(
     "../qqbot-admin-web/dist/modules/onebot11/browser")
 

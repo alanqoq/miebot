@@ -1,5 +1,9 @@
 description = "Multi-bot supervisor and isolated bot runtimes"
 
+plugins {
+    kotlin("jvm")
+}
+
 dependencies {
     api(project(":qqbot-domain"))
     api(project(":qqbot-client"))

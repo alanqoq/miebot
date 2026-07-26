@@ -60,7 +60,7 @@ class PluginBotDeletionCoordinator(
         val botRoot = botRoot(dataRoot, botId)
         var movedTombstone: Path? = null
         try {
-            if (bots.findById(botId).isEmpty) throw BotNotFoundException(botId)
+            if (bots.findById(botId) == null) throw BotNotFoundException(botId)
 
             val pending = pendingTombstones(dataRoot, botId)
             if (pending.size > 1 || pending.isNotEmpty() && Files.exists(botRoot, LinkOption.NOFOLLOW_LINKS)) {
@@ -110,7 +110,7 @@ class PluginBotDeletionCoordinator(
         var problem: RuntimeException? = null
         var resolution = AbortResolution.RESTORED
         try {
-            if (bots.findById(botId).isPresent) {
+            if (bots.findById(botId) != null) {
                 restore(prepared)
             } else {
                 resolution = AbortResolution.DELETION_COMMITTED
@@ -135,7 +135,7 @@ class PluginBotDeletionCoordinator(
         )
         var problem: RuntimeException? = null
         try {
-            if (bots.findById(botId).isPresent) {
+            if (bots.findById(botId) != null) {
                 throw failure(
                     HttpStatus.CONFLICT,
                     "BOT_DELETION_NOT_COMMITTED",
@@ -160,7 +160,7 @@ class PluginBotDeletionCoordinator(
             var problem: RuntimeException? = null
             try {
                 val botRoot = botRoot(dataRoot, botId)
-                if (bots.findById(botId).isPresent) {
+                if (bots.findById(botId) != null) {
                     if (tombstones.size != 1 || Files.exists(botRoot, LinkOption.NOFOLLOW_LINKS)) {
                         throw failure(
                             HttpStatus.CONFLICT,
@@ -237,7 +237,7 @@ class PluginBotDeletionCoordinator(
     }
 
     private fun requireDataRoot(): Path {
-        val dataRoot = host.pluginDataRoot().toAbsolutePath().normalize()
+        val dataRoot = host.pluginDataRoot.toAbsolutePath().normalize()
         try {
             Files.createDirectories(dataRoot)
         } catch (exception: IOException) {

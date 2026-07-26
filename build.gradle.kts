@@ -15,7 +15,7 @@ plugins {
 }
 allprojects {
     group = "com.mieai.qqbot"
-    version = "0.4.1"
+    version = "1.0.0"
 }
 
 subprojects {
@@ -36,18 +36,12 @@ subprojects {
         withJavadocJar()
     }
 
-    tasks.withType<JavaCompile>().configureEach {
-        options.encoding = "UTF-8"
-        options.release = 21
-        options.compilerArgs.addAll(listOf("-parameters", "-Xlint:all", "-Xlint:-serial"))
-    }
-
     plugins.withId("org.jetbrains.kotlin.jvm") {
         tasks.withType<KotlinCompile>().configureEach {
             compilerOptions {
                 jvmTarget.set(JvmTarget.JVM_21)
                 javaParameters.set(true)
-                freeCompilerArgs.add("-Xjsr305=strict")
+                freeCompilerArgs.addAll(listOf("-Xjsr305=strict", "-Xjvm-default=all"))
             }
         }
     }
@@ -205,12 +199,20 @@ val stageDefaultModules by tasks.registering(Copy::class) {
     into(layout.projectDirectory.dir("modules"))
 }
 
+val cleanLegacyExamplePlugin by tasks.registering(Delete::class) {
+    delete(fileTree(layout.projectDirectory.dir("plugins")) {
+        include("qqbot-plugin-echo*.jar", "qqbot-plugin-example-*.jar")
+    })
+}
+
 val stageExamplePlugin by tasks.registering(Copy::class) {
     group = "distribution"
     description = "Copies the example robot plugin into the project plugins directory."
     val pluginJar = project(":qqbot-plugin-example").tasks.named<Jar>("jar")
-    dependsOn(pluginJar)
-    from(pluginJar.flatMap { it.archiveFile })
+    dependsOn(pluginJar, cleanLegacyExamplePlugin)
+    from(pluginJar.flatMap { it.archiveFile }) {
+        rename { "qqbot-plugin-example.jar" }
+    }
     into(layout.projectDirectory.dir("plugins"))
 }
 

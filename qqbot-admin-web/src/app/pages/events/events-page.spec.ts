@@ -269,7 +269,13 @@ describe('EventsPage', () => {
   it('loads Outbox task detail payload', async () => {
     const { fixture, api } = await configure({
       outboxPage: outboxPageFixture(),
-      outboxDetail: outboxDetailFixture('{"content":"<b>safe text</b>"}'),
+      outboxDetail: {
+        ...outboxDetailFixture('{"content":"<b>safe text</b>"}'),
+        producerBindingId: 'binding-1',
+        platformMessageId: 'bot-message-900',
+        platformMessageSequence: 3,
+        platformTimestamp: '2026-07-24T12:00:00Z',
+      },
     });
     buttonByText(fixture, 'Outbox').click();
     fixture.detectChanges();
@@ -280,6 +286,15 @@ describe('EventsPage', () => {
       '<b>safe text</b>',
     );
     expect(fixture.nativeElement.querySelector('b')).toBeNull();
+    const dialogText = fixture.nativeElement.querySelector('[role="dialog"]').textContent;
+    expect(dialogText).toContain('插件绑定 ID');
+    expect(dialogText).toContain('binding-1');
+    expect(dialogText).toContain('QQ 消息 ID');
+    expect(dialogText).toContain('bot-message-900');
+    expect(dialogText).toContain('QQ 消息序号');
+    expect(dialogText).toContain('3');
+    expect(dialogText).toContain('QQ 返回时间');
+    expect(dialogText).toContain('2026-07-24T12:00:00Z');
   });
 
   it('sends Outbox filters and prevents an invalid DLQ status filter', async () => {
@@ -451,6 +466,10 @@ function outboxDetailFixture(payload: string): OutboxJobDetail {
     ...outboxJobFixture(),
     dedupKey: null,
     leaseUntil: null,
+    producerBindingId: null,
+    platformMessageId: null,
+    platformMessageSequence: null,
+    platformTimestamp: null,
     payload,
     payloadTruncated: false,
   };

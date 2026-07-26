@@ -1,5 +1,10 @@
 description = "Platform administration, authentication, onboarding, and Web shell module"
 
+plugins {
+    kotlin("jvm")
+    kotlin("plugin.spring")
+}
+
 val moduleWebDist = layout.projectDirectory.dir(
     "../qqbot-admin-web/dist/modules/platform-admin/browser")
 
@@ -18,6 +23,7 @@ dependencies {
     implementation("org.springframework:spring-webmvc")
     implementation("org.springframework:spring-jdbc")
     implementation("org.springframework:spring-tx")
+    implementation("org.jetbrains.kotlin:kotlin-reflect:1.9.25")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation("org.springframework.security:spring-security-test")

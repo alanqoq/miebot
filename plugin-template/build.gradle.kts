@@ -1,9 +1,12 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
+
 plugins {
-    java
+    kotlin("jvm") version "1.9.25"
 }
 
 group = "com.example.qqbot"
-version = providers.gradleProperty("pluginVersion").orElse("0.4.1").get()
+version = providers.gradleProperty("pluginVersion").orElse("1.0.0").get()
 
 java {
     toolchain {
@@ -23,16 +26,19 @@ repositories {
 
 dependencies {
     // These are compile-only on purpose. The host supplies the SDK classes.
-    compileOnly("com.mieai.qqbot:qqbot-plugin-api:0.4.1")
-    compileOnly("com.mieai.qqbot:qqbot-plugin-spi:0.4.1")
-    testImplementation("com.mieai.qqbot:qqbot-plugin-testkit:0.4.1")
+    compileOnly("com.mieai.qqbot:qqbot-plugin-api:1.0.0")
+    compileOnly("com.mieai.qqbot:qqbot-plugin-spi:1.0.0")
+    testImplementation("com.mieai.qqbot:qqbot-plugin-testkit:1.0.0")
     testImplementation("org.junit.jupiter:junit-jupiter:5.12.2")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher:1.12.2")
 }
 
-tasks.withType<JavaCompile>().configureEach {
-    options.encoding = "UTF-8"
-    options.release = 21
+tasks.withType<KotlinCompile>().configureEach {
+    compilerOptions {
+        jvmTarget.set(JvmTarget.JVM_21)
+        javaParameters.set(true)
+        freeCompilerArgs.addAll(listOf("-Xjsr305=strict", "-Xjvm-default=all"))
+    }
 }
 
 tasks.test {
@@ -46,7 +52,7 @@ tasks.jar {
             "Plugin-Id" to "template",
             "Plugin-Name" to "QQBot Plugin Template",
             "Plugin-Version" to project.version.toString(),
-            "Plugin-Requires" to "2.0.0",
+            "Plugin-Requires" to "3.0.0",
             "Plugin-Class" to "com.mieai.qqbot.plugin.host.Pf4jPluginBridge",
             "Plugin-Config-Schema" to "qqbot-plugin-schema.json",
             "Plugin-Default-Config" to "qqbot-plugin-default.json",

@@ -31,17 +31,16 @@ data class PluginBindingResponse(
     val runtimeError: String?,
 ) {
     companion object {
-        @JvmStatic
         fun from(binding: BotPluginBinding) = PluginBindingResponse(
-            binding.id(),
-            binding.pluginId(),
-            binding.botId().value(),
-            binding.enabled(),
-            binding.revision(),
-            binding.createdAt(),
-            binding.updatedAt(),
-            binding.runtimeState().name,
-            binding.runtimeError().orElse(null),
+            binding.id,
+            binding.pluginId,
+            binding.botId.value,
+            binding.enabled,
+            binding.revision,
+            binding.createdAt,
+            binding.updatedAt,
+            binding.runtimeState.name,
+            binding.runtimeError,
         )
     }
 }

@@ -69,7 +69,7 @@ RUN /opt/dragonwell/bin/java \
         :qqbot-app:bootJar defaultModuleDirectory :qqbot-plugin-example:jar \
         --no-daemon \
     && cp ./qqbot-app/build/libs/qqbot-app-*.jar /tmp/qqbot-app.jar \
-    && cp ./qqbot-plugin-example/build/libs/qqbot-plugin-echo-*.jar /tmp/qqbot-plugin-echo.jar \
+    && cp ./qqbot-plugin-example/build/libs/qqbot-plugin-example-*.jar /tmp/qqbot-plugin-example.jar \
     && mkdir -p /tmp/qqbot-modules \
     && cp ./build/runtime/modules/*.jar /tmp/qqbot-modules/
 
@@ -90,7 +90,7 @@ RUN apt-get update \
 COPY --from=dragonwell /opt/dragonwell /opt/dragonwell
 COPY --from=backend-build --chown=10001:10001 /tmp/qqbot-app.jar /app/qqbot-app.jar
 COPY --from=backend-build --chown=10001:10001 /tmp/qqbot-modules/ /modules/
-COPY --from=backend-build --chown=10001:10001 /tmp/qqbot-plugin-echo.jar /plugins/qqbot-plugin-echo.jar
+COPY --from=backend-build --chown=10001:10001 /tmp/qqbot-plugin-example.jar /plugins/qqbot-plugin-example.jar
 
 RUN mkdir -p /tmp/qqbot-jar /opt/sqlite \
     && cd /tmp/qqbot-jar \

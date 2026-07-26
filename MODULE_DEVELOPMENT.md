@@ -1,6 +1,6 @@
 # 框架模块开发指南
 
-本文描述平台 `0.4.1` 的外置框架模块契约。框架模块是放在 `/modules` 中、随应用启动加载的可信 JAR；机器人插件是由 `plugin-support` 从 `/plugins` 加载并绑定到机器人的业务实现。二者不是同一个扩展层。
+本文描述平台 `1.0.0` 的外置框架模块契约。框架模块是放在 `/modules` 中、随应用启动加载的可信 JAR；机器人插件是由 `plugin-support` 从 `/plugins` 加载并绑定到机器人的业务实现。二者不是同一个扩展层。
 
 ## 1. 模块与插件边界
 
@@ -12,13 +12,13 @@
 | 装配 | 启动前加入应用类路径，随后加载 Spring 自动配置 | 由 `plugin-support` 在运行中加载、上传和绑定 |
 | 变更 | 替换 JAR 后重启应用 | 支持受控热升级 |
 | Web | JAR 内携带编译后的 Web Component | 通过插件管理页配置，不直接扩展后台壳 |
-| 信任边界 | 与核心同进程，拥有完整 Java/Spring 权限 | 可信 JAR，但只使用插件 API 提供的受控能力 |
+| 信任边界 | 与核心同进程，拥有完整 JVM/Spring 权限 | 可信 JAR，但只使用插件 API 提供的受控能力 |
 
 框架模块不支持从 Web 上传、热卸载或运行中替换。模块代码拥有完整进程权限，只能安装经过审核的 JAR。`/modules` 在容器内应只读挂载；`/plugins` 因插件上传功能需要可写。
 
 ## 2. JAR 格式
 
-一个模块是普通 Java JAR，不是 Spring Boot 可执行 JAR。完整结构如下：
+一个模块是普通 Kotlin/JVM JAR，但不是 Spring Boot 可执行 JAR。完整结构如下：
 
 ```text
 reports-1.0.0.jar
@@ -59,7 +59,7 @@ reports-1.0.0.jar
   "dependencies": [
     {
       "moduleId": "database-support",
-      "minimumVersion": "0.4.1",
+      "minimumVersion": "1.0.0",
       "optional": false
     }
   ],
@@ -107,8 +107,8 @@ reports-1.0.0.jar
 
 ```kotlin
 dependencies {
-    compileOnly("com.mieai.qqbot:qqbot-module-api:0.4.1")
-    compileOnly("com.mieai.qqbot:qqbot-module-spi:0.4.1")
+    compileOnly("com.mieai.qqbot:qqbot-module-api:1.0.0")
+    compileOnly("com.mieai.qqbot:qqbot-module-spi:1.0.0")
     compileOnly("org.springframework.boot:spring-boot-autoconfigure:3.5.16")
     compileOnly("org.springframework.boot:spring-boot-starter-web:3.5.16")
 
@@ -116,17 +116,18 @@ dependencies {
 }
 ```
 
-平台 Boot JAR 已提供 Spring Boot、Jackson、Jackson Kotlin、Kotlin 2.1 标准库与反射库、JDBC、Flyway、SQLite/MySQL/PostgreSQL 驱动，以及本仓库的 domain、protocol、client、gateway、runtime、persistence、admin 和插件宿主基础库。不要把这些库重复打入模块 JAR。
+平台 Boot JAR 已提供 Spring Boot、Jackson、Jackson Kotlin、Kotlin 1.9.25 标准库与反射库、JDBC、Flyway、SQLite/MySQL/PostgreSQL 驱动，以及本仓库的 domain、protocol、client、gateway、runtime、persistence、admin 和插件宿主基础库。不要把这些库重复打入模块 JAR。
 
 模块使用标准 Spring Boot 自动配置：
 
-```java
+```kotlin
 @AutoConfiguration
 @ConditionalOnProperty(
-        name = "qqbot.modules.available.reports",
-        havingValue = "true")
-@ComponentScan(basePackageClasses = ReportsModuleMarker.class)
-public class ReportsAutoConfiguration {}
+    name = ["qqbot.modules.available.reports"],
+    havingValue = "true",
+)
+@ComponentScan(basePackageClasses = [ReportsModuleMarker::class])
+class ReportsAutoConfiguration
 ```
 
 在以下文件中登记类名：
@@ -145,38 +146,29 @@ Controller、Service、配置属性和其他 Bean 都可以由该自动配置导
 
 没有特殊生命周期代码时，宿主会直接根据 JSON 描述符创建声明式模块。需要在所有 Spring Bean 就绪后执行启动逻辑时，声明 `FrameworkModuleLifecycle` Bean：
 
-```java
+```kotlin
 @Bean
-FrameworkModuleLifecycle reportsLifecycle(ReportQueryService reports) {
-    return new FrameworkModuleLifecycle() {
-        @Override
-        public String moduleId() {
-            return "reports";
-        }
+fun reportsLifecycle(reports: ReportQueryService): FrameworkModuleLifecycle = object : FrameworkModuleLifecycle {
+    override val moduleId: String = "reports"
 
-        @Override
-        public void start(ModuleContext context) {
-            context.publish(ReportServices.QUERY, reports);
-        }
+    override fun start(context: ModuleContext) {
+        context.publish(ReportServices.QUERY, reports)
+    }
 
-        @Override
-        public void stop() {
-            // 释放模块自己持有的资源；实现应快速且幂等。
-        }
-    };
+    override fun stop() {
+        // 释放模块自己持有的资源；实现应快速且幂等。
+    }
 }
 ```
 
-模块按描述符依赖拓扑启动，停机和失败回滚时反序停止。生命周期 Bean 的 `moduleId()` 必须对应同目录中的一个 JAR 描述符。
+模块按描述符依赖拓扑启动，停机和失败回滚时反序停止。生命周期 Bean 的 `moduleId` 必须对应同目录中的一个 JAR 描述符。
 
 跨模块稳定调用使用 `ModuleServiceKey<T>`：
 
-```java
-public final class ReportServices {
-    public static final ModuleServiceKey<ReportQueryService> QUERY =
-            ModuleServiceKey.of("reports.query", ReportQueryService.class);
-
-    private ReportServices() {}
+```kotlin
+object ReportServices {
+    val QUERY: ModuleServiceKey<ReportQueryService> =
+        ModuleServiceKey("reports.query", ReportQueryService::class.java)
 }
 ```
 
@@ -290,8 +282,8 @@ cd ..
 输出位置：
 
 - `build/runtime/modules/*.jar`
-- `build/distributions/qqbot-default-modules-0.4.1.zip`
-- `build/distributions/qqbot-module-sdk-0.4.1.zip`
+- `build/distributions/qqbot-default-modules-1.0.0.zip`
+- `build/distributions/qqbot-module-sdk-1.0.0.zip`
 
 源码 Compose 运行前可执行 `stageRuntimeExtensions`，它复制默认模块和示例机器人插件，并保留目录中的其他 JAR：
 

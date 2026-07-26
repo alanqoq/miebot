@@ -2,7 +2,7 @@
 
 ## 部署结论
 
-项目可以部署到 Debian 的 Docker Compose 中，当前 Compose 镜像为 `mirai-qqbot:0.4.1`。Compose 只运行 QQ Bot 应用，默认使用容器数据卷中的 SQLite；MySQL/PostgreSQL 由外部系统提供，通过 Web 后台或候选配置文件填写连接信息。Spring Boot 直接在 `8080` 端口提供管理 API 和 Angular 页面，不强制依赖 Caddy/Nginx。真实 QQ Gateway 运行时默认启用，应用启动后会自动调和当前数据库内所有已启用机器人。
+项目可以部署到 Debian 的 Docker Compose 中，当前 Compose 镜像为 `mirai-qqbot:1.0.0`。Compose 只运行 QQ Bot 应用，默认使用容器数据卷中的 SQLite；MySQL/PostgreSQL 由外部系统提供，通过 Web 后台或候选配置文件填写连接信息。Spring Boot 直接在 `8080` 端口提供管理 API 和 Angular 页面，不强制依赖 Caddy/Nginx。真实 QQ Gateway 运行时默认启用，应用启动后会自动调和当前数据库内所有已启用机器人。
 
 镜像携带 `database-support`、`qqbot-runtime`、`platform-admin`、`plugin-support`、`operations`、`cluster-support` 和 `onebot11` 七个默认框架模块 JAR。Compose 将宿主机 `./modules` 只读挂载到 `/modules`，Spring Boot 使用 `PropertiesLauncher` 在启动前把其中的 JAR 加入类路径；宿主随后校验描述符、SHA-256、框架版本、必需依赖、版本下限、重复项和依赖环。`GET /api/modules` 可查看制品和运行状态。替换模块后只需重启应用，不需要重新编译核心；模块不能从 Web 上传或热卸载。`/plugins` 只存放由 `plugin-support` 加载并绑定机器人的业务插件，绑定配置和插件自有数据则持久化在 `/data/plugin-data`。
 
@@ -155,7 +155,7 @@ Outbox/DLQ 管理接口为：
 - `GET /api/events/dlq` 和 `GET /api/events/dlq/{id}`：固定只读 `DEAD_LETTER` 的死信列表和详情。
 - `GET /api/events/dlq/stats`：死信视图使用同一份安全统计结构。
 
-列表不会读取或返回完整 Payload，详情以纯文本返回并限制为 1 MiB；队列 lease owner 和 fencing token 永不暴露。Outbox worker 已连接生产 QQ OpenAPI：文本、Markdown、Keyboard、Ark、Embed 和媒体任务按机器人隔离凭据发送，429/5xx 有界重试，永久错误进入 Outbox DLQ，超时或响应无法解析进入 `RESULT_UNKNOWN`。插件宿主产生的任务同样先持久化再发送。
+列表不会读取或返回完整 Payload，详情以纯文本返回并限制为 1 MiB；队列 lease owner 和 fencing token 永不暴露。Outbox 详情会显示产生任务的插件绑定 ID，以及成功响应中的 QQ 真实消息 ID、序号和平台时间。Outbox worker 已连接生产 QQ OpenAPI：文本、Markdown、Keyboard、Ark、Embed 和媒体任务按机器人隔离凭据发送，429/5xx 有界重试，永久错误进入 Outbox DLQ，超时或响应无法解析进入 `RESULT_UNKNOWN`。插件宿主产生的任务同样先持久化再发送，并可由创建任务的绑定按 `jobId` 跨重启查询回执。
 
 机器人页提供消息入队入口。`POST /api/bots/{botId}/media` 上传本地媒体，`POST /api/bots/{botId}/messages` 入队文本、富消息、远程媒体或已上传媒体。机器人编辑页的媒体上限默认 `16 MiB`，范围 `1-256 MiB`；浏览器、服务端流式写入、SDK 和发送 worker 均执行上限校验。远程 URL 会在服务端受控下载，不会直接交给 QQ 绕过大小限制。
 
@@ -180,11 +180,11 @@ Outbox/DLQ 管理接口为：
 
 “机器人绑定”列表显示机器人信息、Gateway 状态、绑定插件数和更新时间；机器人详情按插件分区，只显示插件名、右侧删除操作和目录文件管理器，并可继续新增插件。文件管理器支持目录浏览、新建、上传、下载和递归删除；点击 `.json` 文件会打开编辑器，并以读取时的 SHA-256 防止静默覆盖并发修改。同名上传默认拒绝覆盖，Web 会要求管理员确认后再显式重试。新建绑定对话框从 `GET /api/plugins` 返回的 `defaultConfigJson` 预填默认配置，管理员确认后才创建 `/data/plugin-data/<botId>/<pluginId>/config.json`。一个插件可绑定多个机器人，每个机器人/插件组合的目录完全分开，JSON 配置不写入主数据库；插件可在自己的目录保存 SQLite、图片、音频、视频及任意其他文件。删除绑定会永久删除该绑定的整个目录，无法从数据库记录恢复。
 
-停用绑定会暂停未完成投递，重新启用后继续；超时执行先合作取消，未在宽限期停止则进入 `QUARANTINED`，页面显示原因并提供恢复操作。声明 capability 的插件可使用按绑定 UUID 隔离的 `PluginStorage`、调度器、富消息、本地/远程媒体和多 handler 事件订阅；兼容类型 `RestrictedHttpClient` 始终提供，宿主不再限制目标 URL、网络地址、请求头、重定向、正文、响应或最长超时。
+停用绑定会暂停未完成投递，重新启用后继续；超时执行先合作取消，未在宽限期停止则进入 `QUARANTINED`，页面显示原因并提供恢复操作。声明 capability 的插件可使用按绑定 UUID 隔离的 `PluginStorage`、调度器、富消息、本地/远程媒体和多 handler 事件订阅；`PluginHttpClient` 始终提供，宿主不限制目标 URL、网络地址、请求头、重定向、正文、响应或最长超时。
 
 PF4J 插件与宿主运行在同一 JVM，是运维人员显式信任的进程内代码，不是安全沙箱。绑定目录隔离和 Web 文件接口的路径校验用于防止管理员误操作串目录，不能阻止恶意插件直接访问容器进程身份有权访问的其他文件、网络或资源；不得安装来源不可信的 JAR。
 
-镜像携带 `echo` 示例插件，`stage-compose-extensions.sh` 会把它提取到 `./plugins/qqbot-plugin-echo.jar`。在 Web 插件页把它绑定到机器人后，发送 `/ping` 可验证回复 `pong` 的完整闭环，发送 `/remember` 可验证绑定级存储隔离。已有插件不会因镜像升级自动替换，只有再次显式执行制品提取或手动替换 JAR 才会更新。
+镜像携带 `example` 示例插件，`stage-compose-extensions.sh` 会把它提取到 `./plugins/qqbot-plugin-example.jar`。在 Web 插件页把它绑定到机器人时，可先修改预载的 `config.json`；默认发送 `/example` 可验证回复 `example reply` 的完整闭环。每个机器人绑定保存独立配置。已有插件不会因镜像升级自动替换，只有再次显式执行制品提取或手动替换 JAR 才会更新；从旧版升级时还应删除遗留的 `qqbot-plugin-echo*.jar`，避免同时加载两个示例插件。
 
 后台审计过滤器会记录所有管理变更请求的 HTTP 方法、路径、结果状态、操作者、来源地址和 trace ID，不保存请求体；通过 `GET /api/audit-logs` 分页查询。账户安全区支持旧密码校验后改密；机器人删除会二次确认并清理该机器人 Inbox、Outbox、插件绑定和投递记录。运行状态可通过 `GET /api/bots/runtime/stream` 订阅 SSE，客户端断线会回到轮询。
 

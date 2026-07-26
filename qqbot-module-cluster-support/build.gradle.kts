@@ -1,5 +1,10 @@
 description = "Multi-instance leases, fencing, artifact consistency, and shared state module"
 
+plugins {
+    kotlin("jvm")
+    kotlin("plugin.spring")
+}
+
 dependencies {
     api(project(":qqbot-module-spi"))
     implementation(project(":qqbot-module-database-support"))

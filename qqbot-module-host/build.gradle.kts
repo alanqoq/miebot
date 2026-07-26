@@ -1,5 +1,10 @@
 description = "Framework module dependency, lifecycle, service, and Web contribution host"
 
+plugins {
+    kotlin("jvm")
+    kotlin("plugin.spring")
+}
+
 dependencies {
     api(project(":qqbot-module-spi"))
     implementation("com.fasterxml.jackson.core:jackson-databind")

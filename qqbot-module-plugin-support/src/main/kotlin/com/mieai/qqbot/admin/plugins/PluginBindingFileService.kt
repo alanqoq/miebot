@@ -69,15 +69,15 @@ class PluginBindingFileService(
 
     fun initializeMissingBindings() {
         val unresolvedTombstones = recoverTombstones()
-        bindings.findAll().filterNot { it.id() in unresolvedTombstones }.forEach { binding ->
+        bindings.findAll().filterNot { it.id in unresolvedTombstones }.forEach { binding ->
             try {
-                withBindingLock(binding.id()) {
+                withBindingLock(binding.id) {
                     requireRoot(binding)
                     val configuration = host.configurationFile(binding)
                     if (!Files.exists(configuration, LinkOption.NOFOLLOW_LINKS)) {
                         writeAtomic(
                             configuration,
-                            host.defaultConfiguration(binding.pluginId()).toByteArray(StandardCharsets.UTF_8),
+                            host.defaultConfiguration(binding.pluginId).toByteArray(StandardCharsets.UTF_8),
                         )
                     }
                     requireValidConfigurationUnlocked(binding)
@@ -85,15 +85,15 @@ class PluginBindingFileService(
             } catch (exception: Exception) {
                 val message = "$CONFIGURATION_ERROR: ${exception.javaClass.simpleName}"
                 bindings.setRuntimeState(
-                    binding.id(),
+                    binding.id,
                     PluginBindingRuntimeState.QUARANTINED,
                     message,
                     clock.instant(),
                 )
                 LOGGER.warn(
                     "Unable to initialize plugin data for plugin={} bot={} ({})",
-                    binding.pluginId(),
-                    binding.botId(),
+                    binding.pluginId,
+                    binding.botId,
                     exception.javaClass.simpleName,
                 )
             }
@@ -130,7 +130,7 @@ class PluginBindingFileService(
                 writeAtomic(root.resolve(CONFIGURATION_FILE), configurationJson.toByteArray(StandardCharsets.UTF_8))
                 if (!bindingOwnedBy(binding)) {
                     deleteTree(root)
-                    removeEmptyParents(root.parent, host.pluginDataRoot().toAbsolutePath().normalize())
+                    removeEmptyParents(root.parent, host.pluginDataRoot.toAbsolutePath().normalize())
                     throw failure(
                         HttpStatus.CONFLICT,
                         "BINDING_CREATION_ABORTED",
@@ -166,7 +166,7 @@ class PluginBindingFileService(
         } catch (exception: IOException) {
             throw failure(HttpStatus.INTERNAL_SERVER_ERROR, "PLUGIN_CONFIG_READ_FAILED", "Unable to read plugin configuration")
         }
-        return normalizedConfiguration(binding.pluginId(), value)
+        return normalizedConfiguration(binding.pluginId, value)
     }
 
     fun list(bindingId: UUID, relativeDirectory: String): PluginFileListingResponse {
@@ -244,7 +244,7 @@ class PluginBindingFileService(
 
         val isConfiguration = relative(root, file) == CONFIGURATION_FILE
         val content = if (isConfiguration) {
-            normalizedConfiguration(binding.pluginId(), request.content)
+            normalizedConfiguration(binding.pluginId, request.content)
         } else {
             request.content
         }
@@ -256,7 +256,7 @@ class PluginBindingFileService(
             writeAtomic(file, contentBytes)
         } catch (exception: IOException) {
             val failure = failure(HttpStatus.INTERNAL_SERVER_ERROR, "PLUGIN_FILE_WRITE_FAILED", "Unable to save plugin file")
-            convergeAfterFailedMutation(binding.id(), failure)
+            convergeAfterFailedMutation(binding.id, failure)
             throw failure
         }
         afterMutation(touched, isConfiguration, configurationValid = true)
@@ -280,7 +280,7 @@ class PluginBindingFileService(
             throw failure(HttpStatus.CONFLICT, "PLUGIN_CONFIG_MUST_BE_FILE", "Plugin configuration must be a regular file")
         }
         val configuration = if (isConfiguration) {
-            normalizedConfiguration(binding.pluginId(), host.defaultConfiguration(binding.pluginId()))
+            normalizedConfiguration(binding.pluginId, host.defaultConfiguration(binding.pluginId))
                 .toByteArray(StandardCharsets.UTF_8)
         } else {
             null
@@ -296,11 +296,11 @@ class PluginBindingFileService(
             }
         } catch (exception: java.nio.file.FileAlreadyExistsException) {
             val failure = failure(HttpStatus.CONFLICT, "PLUGIN_FILE_EXISTS", "Plugin file already exists")
-            convergeAfterFailedMutation(binding.id(), failure)
+            convergeAfterFailedMutation(binding.id, failure)
             throw failure
         } catch (exception: IOException) {
             val failure = failure(HttpStatus.INTERNAL_SERVER_ERROR, "PLUGIN_FILE_CREATE_FAILED", "Unable to create plugin file")
-            convergeAfterFailedMutation(binding.id(), failure)
+            convergeAfterFailedMutation(binding.id, failure)
             throw failure
         }
         afterMutation(touched, isConfiguration, configurationValid = isConfiguration)
@@ -353,7 +353,7 @@ class PluginBindingFileService(
                     throw failure(HttpStatus.PAYLOAD_TOO_LARGE, "PLUGIN_CONFIG_TOO_LARGE", "Plugin configuration cannot exceed 64 KiB")
                 }
                 val normalized = normalizedConfiguration(
-                    binding.pluginId(),
+                    binding.pluginId,
                     decodeUtf8(
                         Files.readAllBytes(temporary),
                         HttpStatus.BAD_REQUEST,
@@ -391,11 +391,11 @@ class PluginBindingFileService(
                 }
             } catch (exception: java.nio.file.FileAlreadyExistsException) {
                 val failure = failure(HttpStatus.CONFLICT, "PLUGIN_FILE_EXISTS", "Plugin file already exists")
-                convergeAfterFailedMutation(binding.id(), failure)
+                convergeAfterFailedMutation(binding.id, failure)
                 throw failure
             } catch (exception: IOException) {
                 val failure = failure(HttpStatus.INTERNAL_SERVER_ERROR, "PLUGIN_FILE_UPLOAD_FAILED", "Unable to upload plugin file")
-                convergeAfterFailedMutation(binding.id(), failure)
+                convergeAfterFailedMutation(binding.id, failure)
                 throw failure
             }
             afterMutation(touched, isConfiguration, configurationValid = true)
@@ -434,7 +434,7 @@ class PluginBindingFileService(
             deleteTree(target)
         } catch (exception: IOException) {
             val failure = failure(HttpStatus.INTERNAL_SERVER_ERROR, "PLUGIN_FILE_DELETE_FAILED", "Unable to delete plugin file")
-            convergeAfterFailedMutation(binding.id(), failure)
+            convergeAfterFailedMutation(binding.id, failure)
             throw failure
         }
         afterMutation(touched, isConfiguration, configurationValid = false)
@@ -445,8 +445,8 @@ class PluginBindingFileService(
         return withBindingDataMutationLock(binding) {
         val root = validatedRoot(binding, createIfMissing = false)
         if (!Files.exists(root, LinkOption.NOFOLLOW_LINKS)) return@withBindingDataMutationLock action()
-        val dataRoot = host.pluginDataRoot().toAbsolutePath().normalize()
-        val tombstone = dataRoot.resolve(".tombstone-${binding.id()}-${UUID.randomUUID()}")
+        val dataRoot = host.pluginDataRoot.toAbsolutePath().normalize()
+        val tombstone = dataRoot.resolve(".tombstone-${binding.id}-${UUID.randomUUID()}")
         try {
             Files.move(root, tombstone, StandardCopyOption.ATOMIC_MOVE)
         } catch (exception: IOException) {
@@ -483,25 +483,25 @@ class PluginBindingFileService(
     private fun afterMutation(touched: BotPluginBinding, configuration: Boolean, configurationValid: Boolean) {
         if (configuration && !configurationValid) {
             bindings.setRuntimeState(
-                touched.id(),
+                touched.id,
                 PluginBindingRuntimeState.QUARANTINED,
                 CONFIGURATION_ERROR,
                 clock.instant(),
             )
-            runtime.bindingChanged(touched.id())
+            runtime.bindingChanged(touched.id)
             return
         }
-        if (configuration && touched.runtimeState() == PluginBindingRuntimeState.QUARANTINED &&
-            touched.runtimeError().orElse("").startsWith(CONFIGURATION_ERROR)
+        if (configuration && touched.runtimeState == PluginBindingRuntimeState.QUARANTINED &&
+            touched.runtimeError.orEmpty().startsWith(CONFIGURATION_ERROR)
         ) {
-            runtime.resetQuarantinedBinding(touched.id())
+            runtime.resetQuarantinedBinding(touched.id)
         } else {
-            runtime.bindingChanged(touched.id())
+            runtime.bindingChanged(touched.id)
         }
     }
 
     private fun recoverTombstones(): Set<UUID> {
-        val dataRoot = host.pluginDataRoot().toAbsolutePath().normalize()
+        val dataRoot = host.pluginDataRoot.toAbsolutePath().normalize()
         if (!Files.exists(dataRoot, LinkOption.NOFOLLOW_LINKS)) return emptySet()
         val tombstones = try {
             Files.list(dataRoot).use { paths ->
@@ -530,12 +530,12 @@ class PluginBindingFileService(
             }
             val match = TOMBSTONE_PATTERN.matchEntire(tombstone.fileName.toString()) ?: return@forEach
             val bindingId = UUID.fromString(match.groupValues[1])
-            val recoveryOwner = bindings.findById(bindingId).orElse(null)
+            val recoveryOwner = bindings.findById(bindingId)
             try {
                 if (recoveryOwner == null) {
                     if (Files.exists(tombstone, LinkOption.NOFOLLOW_LINKS)) deleteTree(tombstone)
                 } else withBindingDataLock(recoveryOwner) {
-                    val binding = bindings.findById(bindingId).orElse(null)
+                    val binding = bindings.findById(bindingId)
                     if (binding == null) {
                         if (Files.exists(tombstone, LinkOption.NOFOLLOW_LINKS)) deleteTree(tombstone)
                     } else {
@@ -552,7 +552,7 @@ class PluginBindingFileService(
                     Unit
                 }
             } catch (exception: Exception) {
-                if (bindings.findById(bindingId).isPresent) {
+                if (bindings.findById(bindingId) != null) {
                     unresolved += bindingId
                     bindings.setRuntimeState(
                         bindingId,
@@ -568,7 +568,7 @@ class PluginBindingFileService(
     }
 
     private fun tombstoneBotDirectory(botId: BotId) {
-        val dataRoot = host.pluginDataRoot().toAbsolutePath().normalize()
+        val dataRoot = host.pluginDataRoot.toAbsolutePath().normalize()
         val botRoot = dataRoot.resolve(botId.toString()).normalize()
         if (botRoot.parent != dataRoot) {
             throw failure(HttpStatus.CONFLICT, "PLUGIN_DATA_DIRECTORY_INVALID", "Bot plugin data directory is invalid")
@@ -587,7 +587,7 @@ class PluginBindingFileService(
     }
 
     private fun reserveMutation(binding: BotPluginBinding): BotPluginBinding = try {
-        bindings.touch(binding.id(), binding.revision(), clock.instant())
+        bindings.touch(binding.id, binding.revision, clock.instant())
     } catch (exception: PluginBindingOptimisticLockException) {
         throw failure(HttpStatus.CONFLICT, "REVISION_CONFLICT", exception.message ?: "Binding revision conflict")
     }
@@ -617,7 +617,7 @@ class PluginBindingFileService(
 
     private fun <T> withBindingDataMutationLock(binding: BotPluginBinding, action: () -> T): T =
         withBindingDataLock(binding) {
-            withRuntimeMutationFence(binding.id(), action)
+            withRuntimeMutationFence(binding.id, action)
         }
 
     private fun <T> withRuntimeMutationFence(bindingId: UUID, action: () -> T): T {
@@ -643,8 +643,8 @@ class PluginBindingFileService(
     }
 
     private fun <T> withBindingDataLock(binding: BotPluginBinding, action: () -> T): T =
-        withBotLock(binding.botId()) {
-            val slot = "${binding.botId()}\u0000${binding.pluginId()}"
+        withBotLock(binding.botId) {
+            val slot = "${binding.botId}\u0000${binding.pluginId}"
             val slotHash = sha256(slot.toByteArray(StandardCharsets.UTF_8))
             withInternalLock("slot-$slotHash.lock", action)
         }
@@ -653,7 +653,7 @@ class PluginBindingFileService(
         withInternalLock("bot-${botId}.lock", action)
 
     private fun <T> withInternalLock(lockName: String, action: () -> T): T {
-        val dataRoot = host.pluginDataRoot().toAbsolutePath().normalize()
+        val dataRoot = host.pluginDataRoot.toAbsolutePath().normalize()
         val lockDirectory = dataRoot.resolve(INTERNAL_LOCK_DIRECTORY)
         val lockFile = lockDirectory.resolve(lockName)
         val localLock = LOCAL_LOCKS.computeIfAbsent(lockFile) { ReentrantLock() }
@@ -688,13 +688,12 @@ class PluginBindingFileService(
         }
     }
 
-    private fun binding(id: UUID): BotPluginBinding = bindings.findById(id).orElseThrow {
-        failure(HttpStatus.NOT_FOUND, "BINDING_NOT_FOUND", "Plugin binding does not exist")
-    }
+    private fun binding(id: UUID): BotPluginBinding = bindings.findById(id)
+        ?: throw failure(HttpStatus.NOT_FOUND, "BINDING_NOT_FOUND", "Plugin binding does not exist")
 
     private fun bindingOwnedBy(expected: BotPluginBinding): Boolean {
-        val current = bindings.findById(expected.id()).orElse(null) ?: return false
-        return current.pluginId() == expected.pluginId() && current.botId() == expected.botId()
+        val current = bindings.findById(expected.id) ?: return false
+        return current.pluginId == expected.pluginId && current.botId == expected.botId
     }
 
     private fun requireBindingOwnership(expected: BotPluginBinding) {
@@ -718,7 +717,7 @@ class PluginBindingFileService(
     }
 
     private fun validatedRoot(binding: BotPluginBinding, createIfMissing: Boolean): Path {
-        val dataRoot = host.pluginDataRoot().toAbsolutePath().normalize()
+        val dataRoot = host.pluginDataRoot.toAbsolutePath().normalize()
         val root = host.bindingDataDirectory(binding).toAbsolutePath().normalize()
         if (root == dataRoot || !root.startsWith(dataRoot) || dataRoot.relativize(root).nameCount != 2) {
             throw failure(

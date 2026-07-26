@@ -1,5 +1,10 @@
 description = "Runtime dashboard, health, queue monitoring, and audit module"
 
+plugins {
+    kotlin("jvm")
+    kotlin("plugin.spring")
+}
+
 val moduleWebDist = layout.projectDirectory.dir(
     "../qqbot-admin-web/dist/modules/operations/browser")
 

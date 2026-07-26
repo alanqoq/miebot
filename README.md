@@ -1,10 +1,10 @@
 # Mirai QQ Bot Platform
 
-面向 QQ 机器人 API v2 的 Java 21/Kotlin 接入库和模块化多机器人运行平台，包含框架模块宿主、可信 PF4J 机器人插件宿主与可靠消息队列。
+面向 QQ 机器人 API v2 的 Kotlin/JVM 21 接入库和模块化多机器人运行平台，包含框架模块宿主、可信 PF4J 机器人插件宿主与可靠消息队列。
 
 ## 当前实现
 
-- Java 21 / Kotlin Gradle 编译器 1.9.25（运行时标准库 2.1.21）/ Spring Boot 3.5.16 多模块工程
+- JDK 21 / Kotlin 1.9.25 / Spring Boot 3.5.16 多模块工程；后端生产源码、测试、模块与插件模板均使用 Kotlin
 - 框架核心开放 `qqbot-module-api`、`qqbot-module-spi`，启动前扫描 `/modules/*.jar`，严格校验描述符、版本和依赖图，再由 `qqbot-module-host` 管理生命周期和模块间服务
 - 七个默认外置功能模块：`platform-admin`、`database-support`、`qqbot-runtime`、`plugin-support`、`operations`、`cluster-support`、`onebot11`
 - 功能模块 JAR 可携带 Spring 自动配置、数据库迁移和编译后的同源 Web Component；模块目录、制品文件名和 SHA-256 由 `GET /api/modules` 提供
@@ -14,12 +14,12 @@
 - OneBot 11 C2C/普通群兼容模块，支持正向与反向 Universal WebSocket，并可在每个机器人编辑页独立配置
 - SQLite/MySQL/PostgreSQL 持久化、版本化迁移和安全热切换
 - Angular 22 管理后台工程
-- 插件 SDK 兼容级别 `2.0.0`（Maven 制品 `0.4.1`，API、SPI、testkit）、可复制项目模板和本地分发任务
+- 插件 SDK API 级别 `3.0.0`（Maven 制品 `1.0.0`，API、SPI、testkit）、可复制项目模板和本地分发任务
 - Gateway Dispatch 持久化到 `event_inbox`，并提供管理员 Inbox 查询 API
-- Outbox/DLQ 持久化状态、生产 QQ OpenAPI 发送、管理员查询 API 与后台实时视图
+- Outbox/DLQ 持久化状态、生产 QQ OpenAPI 发送、按插件绑定隔离的真实 QQ 消息回执查询、管理员 API 与后台实时视图
 - PF4J 可信插件宿主、每机器人绑定、配置 Schema 和默认配置校验、绑定级 `PluginStorage`、暂停/恢复、超时取消与隔离、插件投递重试和插件 DLQ
 - 每个机器人/插件独立的 `/data/plugin-data/<botId>/<pluginId>/` 数据目录，文件化 `config.json`，以及 SQLite、图片、音视频等插件自有文件
-- PluginScheduler、无宿主策略限制的兼容 HTTP Client、MediaService、EventService 多 handler 和绑定 ConfigSnapshot
+- PluginScheduler、无宿主策略限制的 PluginHttpClient、MediaService、EventService 多 handler 和绑定 ConfigSnapshot
 - 插件页可信 JAR 选择/上传、校验、同进程无重启热升级、失败回滚和绑定文件管理
 - 管理员改密、机器人删除（含二次确认）、变更审计日志和运行状态 SSE
 - SQL bot/shard 租约与 fencing token；Inbox、插件投递和 Outbox 只由机器人租约持有者领取，插件哈希变化也会使不匹配实例失去续租资格
@@ -35,13 +35,13 @@ QQ Gateway 默认启用。应用启动后会读取当前数据库中的机器人
 
 管理员可通过 `GET /api/bots/runtime` 或 Dashboard 查看已启用数、当前在线数、连接阶段、心跳、事件序号、重连次数和脱敏错误。Dashboard 的“平台服务正常”表示应用及数据库就绪，不等同于 QQ Gateway 已连接；“运行机器人”的已连接数仅统计已进入 `ONLINE` 的运行时。
 
-普通 QQ Gateway Dispatch 会先保留事件类型和原始 JSON，同步写入 `event_inbox` 并按环境、机器人、事件类型和平台事件 ID 去重；写入成功后才推进 Resume 序号。已知的消息、用户/群生命周期、频道/成员、表态、审核、论坛、音频和互动事件可通过 `GatewayDispatch.decodeKnownEvent()` 解码为强类型 DTO，未知事件继续以原始 Payload 向前兼容。管理员登录后可通过 `GET /api/events/inbox` 分页、筛选和搜索事件，通过 `GET /api/events/inbox/{id}` 查看受限长度的原始 Payload。`outbox_jobs` 已提供创建、租约领取、重试、成功、结果未知和死信状态转换；生产 Outbox worker 会按机器人隔离凭据调用 QQ OpenAPI，并将 429/5xx 重试、永久错误死信化。插件产生的消息先写入 Outbox，再由 worker 发送，避免插件线程直接接触网络或密钥。
+普通 QQ Gateway Dispatch 会先保留事件类型和原始 JSON，同步写入 `event_inbox` 并按环境、机器人、事件类型和平台事件 ID 去重；写入成功后才推进 Resume 序号。已知的消息、用户/群生命周期、频道/成员、表态、审核、论坛、音频和互动事件可通过 `GatewayDispatch.decodeKnownEvent()` 解码为强类型 DTO，未知事件继续以原始 Payload 向前兼容。稳定插件事件会直接提供被引用消息的 QQ ID。管理员登录后可通过 `GET /api/events/inbox` 分页、筛选和搜索事件，通过 `GET /api/events/inbox/{id}` 查看受限长度的原始 Payload。`outbox_jobs` 已提供创建、租约领取、重试、成功、结果未知和死信状态转换；生产 Outbox worker 会按机器人隔离凭据调用 QQ OpenAPI，成功时原子保存真实 QQ 消息 ID、序号和平台时间，并将 429/5xx 重试、永久错误死信化。插件产生的消息先写入 Outbox，再由 worker 发送；插件可按绑定持久化查询回执，后台 Outbox 详情显示相同字段。
 
 `onebot11` 模块只转换 QQ 官方 C2C 与普通群的可等价能力，不转换 QQ 频道。它支持正向 `/api`、`/event`、`/` WebSocket 和反向 Universal WebSocket；access token 为必填密文配置。OneBot 数字用户/群/消息 ID 是基于 QQ OpenID 和官方消息 ID 的数据库持久化别名，不是真实 QQ 号。支持的 action、事件、消息段、明确返回 `1404` 的范围及 Docker 端口要求见 [ONEBOT11.md](./ONEBOT11.md)。
 
 机器人编辑页可设置每个机器人的最大媒体上传大小，默认 `16 MiB`、可选 `1-256 MiB`；前端选择文件、上传 API、插件 SDK、入队和发送 worker 都会再次校验。机器人页的发送入口支持文本、四类富消息、本地媒体和远程 HTTPS 媒体。本地媒体暂存在 `QQBOT_MEDIA_STAGING_DIRECTORY`，成功、结果未知或死信后删除；远程媒体会先在服务端按 HTTPS、DNS/私网地址、重定向、超时和机器人大小上限受控下载，再交给 QQ。C2C/群聊使用 QQ `file_data` 预上传，频道/私信只支持图片并使用 multipart `file_image`。
 
-后台“插件”页属于 `plugin-support` 框架模块，通过 `GET /api/plugins` 扫描挂载的 `/plugins` JAR，读取 manifest、大小、修改时间和 SHA-256，并显示宿主加载状态。可信 JAR 通过 PF4J 加载，使用 `ServiceLoader` 暴露纯 Java `BotPluginFactory`；每个 JAR 必须通过 `Plugin-Default-Config` 声明一个符合 Schema 的默认 JSON 对象。页面可选择 `.jar` 并通过 `POST /api/plugins/upload` 上传，服务端完成校验后在当前进程内热升级，不需要应用重启，失败会尝试恢复旧插件。
+后台“插件”页属于 `plugin-support` 框架模块，通过 `GET /api/plugins` 扫描挂载的 `/plugins` JAR，读取 manifest、大小、修改时间和 SHA-256，并显示宿主加载状态。可信 JAR 通过 PF4J 加载，使用 `ServiceLoader` 发现 Kotlin `BotPluginFactory` 实现；每个 JAR 必须通过 `Plugin-Default-Config` 声明一个符合 Schema 的默认 JSON 对象。页面可选择 `.jar` 并通过 `POST /api/plugins/upload` 上传，服务端完成校验后在当前进程内热升级，不需要应用重启，失败会尝试恢复旧插件。
 
 “机器人绑定”先按机器人显示信息、Gateway 状态、插件数和更新时间，进入编辑页后每个插件使用独立栏目，只显示插件名、右侧删除操作和文件管理器。一个插件可绑定多个机器人，但每个绑定都使用 `/data/plugin-data/<botId>/<pluginId>/` 独立目录；`config.json` 只保存在该目录，不写入主数据库。新建绑定时 Web 表单加载制品的默认配置供管理员确认，保存后才创建目录和 `config.json`。文件管理器可浏览、新建、上传、下载和递归删除目录内文件，点击 JSON 文件会打开带 SHA-256 冲突检测的编辑器；同名上传默认返回冲突，Web 只有在管理员明确确认后才请求覆盖。删除插件绑定会永久删除整个绑定目录及其中的 SQLite、媒体和其他文件。多实例部署进行文件写入、解绑或删除机器人前，必须先把目标机器人和管理请求收敛到单个实例，或停掉其他副本并确认远端插件已释放文件句柄；默认单实例部署不需要额外操作。
 
@@ -51,7 +51,7 @@ QQ Gateway 默认启用。应用启动后会读取当前数据库中的机器人
 
 插件宿主只允许管理员安装可信 JAR，PF4J 类加载和每绑定目录划分都不是安全沙箱；插件与宿主运行在同一 JVM，恶意插件可以尝试访问进程身份有权访问的其他文件、网络和资源。插件 API 不直接提供 Spring、主数据库连接、AppSecret 或 Access Token。插件配置按 manifest Schema 校验，异常和可取消超时按有限次数重试，无法在取消宽限期停止的执行会隔离整个绑定。
 
-镜像内置 `echo` 示例插件制品；源码 Compose 使用绑定目录时，`stageRuntimeExtensions` 会把它复制到 `./plugins/qqbot-plugin-echo.jar`。在插件页将它绑定到机器人后，收到 `/ping` 会通过真实 Inbox -> 插件投递 -> Outbox -> QQ OpenAPI 链路回复 `pong`；`/remember` 会写入该绑定自己的存储空间，用于验证多机器人数据隔离。
+镜像内置 `example` 示例插件制品；源码 Compose 使用绑定目录时，`stageRuntimeExtensions` 会把它复制到 `./plugins/qqbot-plugin-example.jar`。在插件页将它绑定到机器人时，弹窗会载入插件 `config.json` 的 `triggerKeyword` 和 `replyContent` 预设，管理员可为每个机器人分别修改。默认收到 `/example` 后，会通过真实 Inbox -> 插件投递 -> Outbox -> QQ OpenAPI 链路回复 `example reply`。
 
 Gateway、Token、OpenAPI、WSS 和恢复会话流程已有自动化测试；其中 Token/OpenAPI 使用模拟 HTTP 端点，WSS 使用 WebSocket transport 与协议测试替身。当前开发环境没有使用真实 QQ AppID/AppSecret 完成线上连接验收。因此文档中的“可运行”和“已实现”不代表真实账号、权限、配额及网络环境已经验证成功；部署后应以运行状态 API、Dashboard 和 QQ 开放平台侧状态为准。
 

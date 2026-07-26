@@ -1,5 +1,7 @@
 plugins {
     id("org.springframework.boot")
+    kotlin("jvm")
+    kotlin("plugin.spring")
 }
 
 val defaultModuleProjects = listOf(
@@ -45,8 +47,8 @@ dependencies {
     implementation("org.flywaydb:flyway-mysql")
     implementation("org.flywaydb:flyway-database-postgresql")
     implementation("org.java-websocket:Java-WebSocket:1.5.7")
-    implementation("org.jetbrains.kotlin:kotlin-stdlib:2.1.21")
-    implementation("org.jetbrains.kotlin:kotlin-reflect:2.1.21")
+    implementation("org.jetbrains.kotlin:kotlin-stdlib:1.9.25")
+    implementation("org.jetbrains.kotlin:kotlin-reflect:1.9.25")
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
     runtimeOnly("org.xerial:sqlite-jdbc")
     runtimeOnly("com.mysql:mysql-connector-j")

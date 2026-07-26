@@ -1,5 +1,9 @@
 description = "Portable SQL persistence, migrations, Inbox, and Outbox"
 
+plugins {
+    kotlin("jvm")
+}
+
 dependencies {
     api(project(":qqbot-domain"))
     implementation("org.springframework:spring-jdbc")

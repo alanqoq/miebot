@@ -14,7 +14,6 @@ import org.springframework.http.HttpStatus
 import org.springframework.dao.DataAccessException
 import org.springframework.stereotype.Service
 import java.time.Clock
-import java.util.Optional
 import java.util.UUID
 
 @Service
@@ -32,19 +31,19 @@ class PluginBindingAdministrationService(
         val parsedBot = botId?.takeIf { it.isNotBlank() }?.let(BotId::parse)
         return bindings.findAll()
             .asSequence()
-            .filter { pluginId.isNullOrBlank() || it.pluginId() == pluginId }
-            .filter { parsedBot == null || it.botId() == parsedBot }
+            .filter { pluginId.isNullOrBlank() || it.pluginId == pluginId }
+            .filter { parsedBot == null || it.botId == parsedBot }
             .map(PluginBindingResponse::from)
             .toList()
     }
 
     fun create(request: CreatePluginBindingRequest): PluginBindingResponse {
         val botId = BotId.parse(request.botId)
-        if (bots.findById(botId).isEmpty) throw notFound("BOT_NOT_FOUND", "Bot does not exist")
-        if (artifacts.findById(request.pluginId).isEmpty || !host.isLoaded(request.pluginId)) {
+        if (bots.findById(botId) == null) throw notFound("BOT_NOT_FOUND", "Bot does not exist")
+        if (artifacts.findById(request.pluginId) == null || !host.isLoaded(request.pluginId)) {
             throw notFound("PLUGIN_NOT_LOADED", "Plugin is not loaded")
         }
-        if (bindings.findByPluginAndBot(request.pluginId, botId).isPresent) {
+        if (bindings.findByPluginAndBot(request.pluginId, botId) != null) {
             throw failure(HttpStatus.CONFLICT, "BINDING_EXISTS", "This plugin is already bound to the bot")
         }
 
@@ -59,7 +58,7 @@ class PluginBindingAdministrationService(
             now,
             now,
             PluginBindingRuntimeState.PAUSED,
-            Optional.empty(),
+            null,
         )
         try {
             bindings.insert(binding)
@@ -74,57 +73,56 @@ class PluginBindingAdministrationService(
             files.initialize(binding, configuration)
         } catch (exception: RuntimeException) {
             runCatching {
-                files.withDataDirectoryTombstoned(binding) { bindings.delete(binding.id()) }
+                files.withDataDirectoryTombstoned(binding) { bindings.delete(binding.id) }
             }.exceptionOrNull()?.let(exception::addSuppressed)
             throw exception
         }
 
         val saved = if (request.enabled) {
             val active = BotPluginBinding(
-                binding.id(),
-                binding.pluginId(),
-                binding.botId(),
+                binding.id,
+                binding.pluginId,
+                binding.botId,
                 true,
-                binding.revision(),
-                binding.createdAt(),
+                binding.revision,
+                binding.createdAt,
                 clock.instant(),
                 PluginBindingRuntimeState.ACTIVE,
-                Optional.empty(),
+                null,
             )
             try {
-                bindings.update(active, binding.revision())
+                bindings.update(active, binding.revision)
             } catch (exception: PluginBindingOptimisticLockException) {
-                runtime.bindingChanged(binding.id())
+                runtime.bindingChanged(binding.id)
                 throw failure(HttpStatus.CONFLICT, "REVISION_CONFLICT", exception.message ?: "Binding revision conflict")
             }
         } else {
             binding
         }
-        runtime.bindingChanged(saved.id())
+        runtime.bindingChanged(saved.id)
         return PluginBindingResponse.from(saved)
     }
 
     fun update(id: UUID, request: UpdatePluginBindingRequest): PluginBindingResponse {
-        val current = bindings.findById(id).orElseThrow {
-            notFound("BINDING_NOT_FOUND", "Plugin binding does not exist")
-        }
+        val current = bindings.findById(id)
+            ?: throw notFound("BINDING_NOT_FOUND", "Plugin binding does not exist")
         val state = when {
             !request.enabled -> PluginBindingRuntimeState.PAUSED
-            current.runtimeState() == PluginBindingRuntimeState.QUARANTINED -> PluginBindingRuntimeState.QUARANTINED
+            current.runtimeState == PluginBindingRuntimeState.QUARANTINED -> PluginBindingRuntimeState.QUARANTINED
             else -> PluginBindingRuntimeState.ACTIVE
         }
         val runtimeError = if (state == PluginBindingRuntimeState.QUARANTINED) {
-            current.runtimeError()
+            current.runtimeError
         } else {
-            Optional.empty()
+            null
         }
         val changed = BotPluginBinding(
-            current.id(),
-            current.pluginId(),
-            current.botId(),
+            current.id,
+            current.pluginId,
+            current.botId,
             request.enabled,
             request.expectedRevision,
-            current.createdAt(),
+            current.createdAt,
             clock.instant(),
             state,
             runtimeError,
@@ -139,9 +137,8 @@ class PluginBindingAdministrationService(
     }
 
     fun delete(id: UUID) {
-        val current = bindings.findById(id).orElseThrow {
-            notFound("BINDING_NOT_FOUND", "Plugin binding does not exist")
-        }
+        val current = bindings.findById(id)
+            ?: throw notFound("BINDING_NOT_FOUND", "Plugin binding does not exist")
         try {
             files.withDataDirectoryTombstoned(current) { bindings.delete(id) }
         } catch (exception: RuntimeException) {
@@ -152,15 +149,14 @@ class PluginBindingAdministrationService(
     }
 
     fun reset(id: UUID): PluginBindingResponse {
-        val current = bindings.findById(id).orElseThrow {
-            notFound("BINDING_NOT_FOUND", "Plugin binding does not exist")
-        }
-        if (!current.enabled()) {
+        val current = bindings.findById(id)
+            ?: throw notFound("BINDING_NOT_FOUND", "Plugin binding does not exist")
+        if (!current.enabled) {
             throw failure(HttpStatus.CONFLICT, "BINDING_DISABLED", "Enable the plugin binding before resetting its quarantine")
         }
         files.requireValidConfiguration(current)
         runtime.resetQuarantinedBinding(id)
-        return PluginBindingResponse.from(bindings.findById(id).orElseThrow())
+        return PluginBindingResponse.from(checkNotNull(bindings.findById(id)))
     }
 
     private fun notFound(code: String, message: String) = failure(HttpStatus.NOT_FOUND, code, message)

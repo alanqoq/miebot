@@ -7,19 +7,20 @@ import com.mieai.qqbot.persistence.plugin.BotPluginBinding
 import com.mieai.qqbot.persistence.plugin.BotPluginBindingRepository
 import com.mieai.qqbot.persistence.plugin.PluginArtifact
 import com.mieai.qqbot.persistence.plugin.PluginArtifactRepository
+import com.mieai.qqbot.persistence.plugin.PluginBindingRuntimeState
 import com.mieai.qqbot.plugin.host.Pf4jPluginHost
 import com.mieai.qqbot.plugin.host.PluginRuntimeService
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
-import org.mockito.ArgumentMatchers.any
 import org.mockito.Mockito.mock
 import org.mockito.Mockito.doThrow
 import org.mockito.Mockito.verify
 import org.mockito.Mockito.verifyNoMoreInteractions
 import org.mockito.Mockito.`when`
 import org.springframework.dao.DuplicateKeyException
-import java.util.Optional
+import java.time.Instant
+import java.util.UUID
 
 class PluginBindingAdministrationServiceTest {
     private val bindings = mock(BotPluginBindingRepository::class.java)
@@ -34,16 +35,28 @@ class PluginBindingAdministrationServiceTest {
     fun `duplicate create loser never initializes or deletes winner directory`() {
         val botId = BotId.parse("550e8400-e29b-41d4-a716-446655440001")
         val request = CreatePluginBindingRequest("echo", botId.toString(), "{}", true)
-        `when`(bots.findById(botId)).thenReturn(Optional.of(mock(StoredBot::class.java)))
-        `when`(artifacts.findById("echo")).thenReturn(Optional.of(mock(PluginArtifact::class.java)))
+        `when`(bots.findById(botId)).thenReturn(mock(StoredBot::class.java))
+        `when`(artifacts.findById("echo")).thenReturn(mock(PluginArtifact::class.java))
         `when`(host.isLoaded("echo")).thenReturn(true)
-        `when`(bindings.findByPluginAndBot("echo", botId)).thenReturn(Optional.empty())
+        `when`(bindings.findByPluginAndBot("echo", botId)).thenReturn(null)
         `when`(files.normalizedConfiguration("echo", "{}")).thenReturn("{}")
-        doThrow(DuplicateKeyException("duplicate")).`when`(bindings).insert(any(BotPluginBinding::class.java))
+        val matcherFallback = BotPluginBinding(
+            UUID.fromString("770e8400-e29b-41d4-a716-446655440001"),
+            "echo",
+            botId,
+            true,
+            0L,
+            Instant.EPOCH,
+            Instant.EPOCH,
+            PluginBindingRuntimeState.ACTIVE,
+            null,
+        )
+        doThrow(DuplicateKeyException("duplicate")).`when`(bindings)
+            .insert(matchAny(BotPluginBinding::class.java, matcherFallback))
 
         val failure = assertThrows<PluginAdministrationException> { service.create(request) }
 
-        assertThat(failure.code()).isEqualTo("BINDING_EXISTS")
+        assertThat(failure.code).isEqualTo("BINDING_EXISTS")
         verify(files).normalizedConfiguration("echo", "{}")
         verifyNoMoreInteractions(files)
     }

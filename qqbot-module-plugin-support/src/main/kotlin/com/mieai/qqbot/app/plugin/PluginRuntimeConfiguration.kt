@@ -44,10 +44,10 @@ class PluginRuntimeConfiguration {
         artifacts,
         bots,
         outbox,
-        storage,
-        mediaAssetStore,
         objectMapper,
         Clock.systemUTC(),
+        storage,
+        mediaAssetStore,
         properties.bindingQueueCapacity,
         properties.shutdownTimeout,
     )

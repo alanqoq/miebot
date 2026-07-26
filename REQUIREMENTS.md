@@ -2,8 +2,8 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 文档状态 | 0.4.1 实现基线 |
-| 版本 | 0.4.1 |
+| 文档状态 | 1.0.0 实现基线 |
+| 版本 | 1.0.0 |
 | 最后更新 | 2026-07-24 |
 | 目标平台 | Debian + Docker Compose |
 
@@ -13,7 +13,7 @@
 
 项目最终交付物不是单一前端或单一 SDK，而是以下组件的组合：
 
-1. 可独立引用的 QQ Bot Java 接入库。
+1. 可由 Kotlin/JVM 21 独立引用的 QQ Bot 接入库，不保留旧 Java 源码或 ABI 兼容层。
 2. 支持多机器人的服务端运行时。
 3. 稳定、版本化的框架模块 API、SPI 和宿主。
 4. 由 `plugin-support` 模块承载的插件 API、SPI、测试工具、加载与绑定能力。
@@ -62,9 +62,9 @@
 ### 4.1 推荐技术栈
 
 - 前端：Angular 22、TypeScript、Angular Router、Reactive Forms、HttpClient。
-- 后端：Java 21、Spring Boot 3.x、Spring Security。
+- 后端：Kotlin/JVM、JDK 21、Spring Boot 3.x、Spring Security；框架生产源码使用 Kotlin。
 - 构建：Gradle Kotlin DSL 多模块工程。
-- 插件运行时：PF4J，插件公共契约使用纯 Java 接口。
+- 插件运行时：PF4J；插件公共契约使用 Kotlin 属性、可空类型和函数类型，不保留旧 Java ABI。
 - 数据访问：Spring JDBC，复杂并发 SQL 使用数据库方言适配器。
 - 数据库迁移：版本化迁移脚本，按公共脚本和数据库方言组织。
 - 测试：JUnit、进程内 HTTP/WebSocket 测试桩和 Angular 单元测试。当前未集成 Testcontainers 或 Angular E2E 测试目标。
@@ -174,6 +174,8 @@ flowchart LR
 
 事件可能重复、重放或乱序。系统必须使用平台事件 ID 或消息 ID 做持久化去重，不得依赖内存去重保证正确性。
 
+稳定插件事件必须提供当前消息的 QQ 消息 ID，并在平台载荷存在 `message_reference.message_id` 时提供被引用消息的真实 QQ ID，使插件无需解析原始 JSON 即可建立引用链。
+
 ### 5.4 消息发送
 
 - 支持单聊、群聊、文字子频道和频道私信的消息发送接口。
@@ -186,6 +188,9 @@ flowchart LR
 - URL 报备、消息权限、主动消息开关等平台限制应形成明确错误信息。
 - 外部媒体 URL 必须限制协议、重定向、下载大小、超时和目标地址，防止 SSRF。
 - 本地媒体上传必须限制文件类型和大小，并保证临时文件在成功、失败或超时后均被清理。
+- Outbox 入队凭据只证明任务已经持久化，不能作为 QQ 发送成功或平台消息 ID 使用。
+- QQ 返回发送成功结果后，核心必须把真实消息 ID、消息序号和平台时间与 Outbox 成功状态原子持久化，并允许创建该任务的插件绑定按 `jobId` 跨重启查询。
+- 超时或无法确认响应时必须进入独立的结果未知终态，不得伪造平台消息 ID 或自动重发可能已经成功的消息。
 
 ## 6. 多机器人运行时
 
@@ -244,7 +249,7 @@ Manifest 至少声明：
 - 所需能力。
 - 所需能力；制品 SHA-256 由宿主读取 JAR 后计算，不由插件自报。
 
-当前插件 API 级别为 `2.0.0`。插件只通过 `BotPluginFactory.create(PluginRuntimeContext)` 创建绑定实例，在 `BotPlugin.start()` 中使用 `EventService` 注册命名 handler；不提供旧工厂或 `BotPlugin.onEvent(...)` 兼容回退。宿主必须在执行插件代码前完成 Manifest、API 兼容性和授权校验。
+当前插件 API 级别为 `3.0.0`。插件只通过 `BotPluginFactory.create(PluginRuntimeContext)` 创建绑定实例，在 `BotPlugin.start()` 中使用 `EventService` 注册命名 handler；不提供旧工厂、旧 Java ABI 或 `BotPlugin.onEvent(...)` 回退。宿主必须在执行插件代码前完成 Manifest、API 版本和授权校验。
 
 ### 7.3 插件能力
 
@@ -255,13 +260,14 @@ Manifest 至少声明：
 - MediaService。
 - PluginStorage。
 - PluginScheduler。
-- 受限 HTTP Client。
+- PluginHttpClient；宿主不附加 URL、网络地址、请求头、重定向、正文、响应或最长超时策略。
 - 插件专用 Logger。
 - 只读 ConfigSnapshot。
+- 当前绑定的独立数据目录；插件可在其中自行管理 SQLite、图片、音频、视频和其他文件。
 
 插件不得获得 AppSecret、Access Token、Spring ApplicationContext、宿主数据库连接或其他机器人实例。
 
-插件公共接口只使用 Java 标准类型、`CompletionStage` 和本项目稳定领域类型，不暴露 Kotlin 协程、Reactor、Jackson、Spring 或 PF4J 类型。
+插件公共接口使用 Kotlin 属性和可空类型；异步边界沿用 `CompletionStage`，不暴露 Reactor、Jackson、Spring 或 PF4J 类型。
 
 ### 7.4 生命周期与隔离
 
@@ -312,10 +318,10 @@ PF4J 类加载隔离不构成安全沙箱。第一版只允许运维人员部署
 
 - 领域层和插件 API 不暴露数据库方言。
 - UUID 使用可移植字符串表示，时间统一使用 UTC。
-- 插件配置和通用 JSON 数据使用文本字段，不依赖 JSONB。
+- 平台通用 JSON 数据使用文本字段，不依赖 JSONB；插件绑定配置作为绑定目录中的独立 `config.json` 保存，不写入平台数据库。
 - 公共迁移和方言迁移脚本分目录维护。
 - 三种数据库必须执行同一套 Repository 契约测试。
-- 插件第一版通过命名空间化的 PluginStorage 保存 JSON 或键值数据，不直接执行任意 SQL。
+- 平台数据库连接不向插件开放。插件可使用命名空间化的 `PluginStorage`，也可在当前绑定私有目录中创建并自行迁移、备份和关闭 SQLite 数据库。
 
 ### 8.4 无 Redis 约束
 
@@ -332,10 +338,10 @@ PF4J 类加载隔离不构成安全沙箱。第一版只允许运维人员部署
 - `bots`：机器人配置、密文凭据、启用状态和 revision。
 - `bot_runtime_state`：连接、Session 和诊断状态。
 - `plugin_artifacts`：插件元数据、版本和哈希。
-- `bot_plugins`：机器人与插件绑定及配置。
+- `bot_plugins`：机器人与插件绑定、revision 和运行状态；配置正文不入库。
 - `event_inbox`：平台事件、去重键和处理状态。
 - `plugin_deliveries`：事件到插件处理器的独立投递记录。
-- `outbox_jobs`：消息发送和可靠异步任务。
+- `outbox_jobs`：消息发送和可靠异步任务，包括产生任务的插件绑定及 QQ 平台发送回执。
 - `dead_letters`：超过重试上限的任务。
 - `bot_leases`：多实例机器人或 Shard 所有权。
 - `audit_logs`：后台配置和插件操作审计。
@@ -360,6 +366,8 @@ PF4J 类加载隔离不构成安全沙箱。第一版只允许运维人员部署
 - 同一会话分区内默认串行，不同会话可并行处理。
 - 失败任务执行有限退避重试，超过上限进入 DLQ。
 - 进程崩溃或容器重启后，未完成任务必须可继续处理。
+- QQ 成功回执与 Outbox 成功状态必须在同一数据库更新中提交；插件只能按当前绑定查询自己产生的任务。
+- 请求超时或响应无法确认时使用 `RESULT_UNKNOWN` 终态，避免自动重试造成重复机器人消息。
 
 ### 9.2 优雅停机
 
@@ -391,7 +399,7 @@ PF4J 类加载隔离不构成安全沙箱。第一版只允许运维人员部署
 - 机器人事件权限与 Intents 配置。
 - 插件列表、机器人绑定、启停和配置。
 - 事件 Inbox、失败投递和 DLQ 查询。
-- 消息发送记录和错误详情。
+- 消息发送记录、插件绑定归属、QQ 真实消息 ID、序号、平台时间和错误详情。
 - 系统配置、数据库连接测试与热切换、活动数据库状态和审计日志。
 - 删除机器人、停用插件和清理数据等破坏性操作必须二次确认。
 
@@ -487,12 +495,14 @@ Compose 不创建 MySQL/PostgreSQL 服务。数据库由外部系统部署和备
 - MySQL/PostgreSQL 多实例租约竞争与失效接管测试。
 - 沙箱与正式环境隔离测试。
 - 媒体 URL 的 SSRF、大小、重定向和超时测试。
+- Outbox 成功回执原子持久化、插件绑定隔离、缺少消息 ID 与请求超时进入结果未知状态的测试。
+- 入站引用消息 ID 映射及插件 SQLite 中 `jobId -> platformMessageId` 恢复流程测试。
 - Angular 机器人和插件管理核心流程测试。
 - 模块 JAR 缺少/错误描述符、重复 ID、缺失依赖、版本过低、依赖环、启动回滚、反序停止、服务访问、SHA-256 和 Web 资源精确归属测试。
 - 应用上下文中七个默认外置框架功能模块全部为 `ACTIVE` 的集成测试。
 - SQLite 默认模式和外部 MySQL/PostgreSQL 连接模式的 Compose 冒烟验证按 [DEPLOYMENT.md](./DEPLOYMENT.md) 人工执行，当前未配置自动化 Compose 测试。
 
-当前仓库未集成 Testcontainers、Angular E2E、OpenAPI/TypeScript Client 生成或 CI 二进制兼容检查；这些能力不能视为 `0.4.1` 的已交付保证。
+当前仓库未集成 Testcontainers、Angular E2E、OpenAPI/TypeScript Client 生成或 CI 二进制兼容检查；这些能力不能视为 `1.0.0` 的已交付保证。
 
 ### 13.2 第一版验收标准
 
@@ -514,6 +524,7 @@ Compose 不创建 MySQL/PostgreSQL 服务。数据库由外部系统部署和备
 16. 七个默认框架功能模块（`platform-admin`、`database-support`、`qqbot-runtime`、`plugin-support`、`operations`、`cluster-support`、`onebot11`）以 `/modules` 中的独立 JAR 存在，通过目录 API 可见且为 `ACTIVE`；缺少必需模块、版本不足或依赖成环时应用在执行模块代码前拒绝启动。
 17. 模块可通过已声明依赖交换类型化服务，并可在自身 JAR 中携带不修改 Angular 主工程路由表的同源 Web Component 页面。
 18. 模块可在自己的命名空间中提供 SQLite/MySQL/PostgreSQL 迁移，并使用独立 Flyway 历史表避免版本号冲突。
+19. 插件可跨重启根据自己保存的 Outbox `jobId` 查询真实 QQ 消息 ID，并用入站引用 ID 连接机器人消息及其上游引用链。
 
 具体机器人数量、消息吞吐量、延迟目标和数据保留周期需要在获得实际使用规模后补充，不在本草案中虚构数值。
 

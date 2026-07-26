@@ -1,5 +1,9 @@
 description = "QQ WebSocket Gateway state machine and transport"
 
+plugins {
+    kotlin("jvm")
+}
+
 dependencies {
     api(project(":qqbot-domain"))
     implementation(project(":qqbot-protocol"))

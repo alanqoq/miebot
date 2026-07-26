@@ -657,6 +657,30 @@
                 <dd>{{ job.leaseUntil | date: 'yyyy-MM-dd HH:mm:ss' }}</dd>
               </div>
             }
+            @if (job.producerBindingId) {
+              <div>
+                <dt>插件绑定 ID</dt>
+                <dd><code>{{ job.producerBindingId }}</code></dd>
+              </div>
+            }
+            @if (job.platformMessageId) {
+              <div>
+                <dt>QQ 消息 ID</dt>
+                <dd><code>{{ job.platformMessageId }}</code></dd>
+              </div>
+            }
+            @if (job.platformMessageSequence) {
+              <div>
+                <dt>QQ 消息序号</dt>
+                <dd>{{ job.platformMessageSequence }}</dd>
+              </div>
+            }
+            @if (job.platformTimestamp) {
+              <div>
+                <dt>QQ 返回时间</dt>
+                <dd>{{ job.platformTimestamp }}</dd>
+              </div>
+            }
           </dl>
           @if (job.lastError) {
             <div class="event-error" role="status">

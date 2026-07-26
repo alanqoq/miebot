@@ -104,6 +104,10 @@ export interface OutboxQueueStats {
 export interface OutboxJobDetail extends OutboxJobSummary {
   dedupKey: string | null;
   leaseUntil: string | null;
+  producerBindingId: string | null;
+  platformMessageId: string | null;
+  platformMessageSequence: number | null;
+  platformTimestamp: string | null;
   payload: string;
   payloadTruncated: boolean;
 }

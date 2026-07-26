@@ -1,0 +1,2 @@
+package com.mieai.qqbot.runtime.security
+data class EncryptedConfigurationValue(val ciphertext: String, val keyId: String) { init { requireText(ciphertext,"ciphertext"); requireText(keyId,"keyId") }; override fun toString() = "EncryptedConfigurationValue[ciphertext=<redacted>, keyId=$keyId]"; companion object { private fun requireText(v:String,n:String):String { require(v.isNotBlank()) { "$n must not be blank" }; return v } } }

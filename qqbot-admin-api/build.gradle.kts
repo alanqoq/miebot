@@ -1,5 +1,10 @@
 description = "Shared administration error contracts and HTTP exception handling"
 
+plugins {
+    kotlin("jvm")
+    kotlin("plugin.spring")
+}
+
 dependencies {
     implementation(project(":qqbot-runtime"))
     implementation(project(":qqbot-persistence"))

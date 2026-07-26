@@ -1,5 +1,10 @@
 description = "Database providers, migrations, persistence, and live configuration module"
 
+plugins {
+    kotlin("jvm")
+    kotlin("plugin.spring")
+}
+
 dependencies {
     api(project(":qqbot-module-spi"))
     api(project(":qqbot-persistence"))
@@ -18,6 +23,7 @@ dependencies {
     implementation("org.flywaydb:flyway-mysql")
     implementation("org.flywaydb:flyway-database-postgresql")
     implementation("org.slf4j:slf4j-api")
+    implementation("org.jetbrains.kotlin:kotlin-reflect:1.9.25")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation(project(":qqbot-module-host"))

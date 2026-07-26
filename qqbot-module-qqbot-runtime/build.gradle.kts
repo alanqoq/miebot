@@ -1,5 +1,10 @@
 description = "QQ API, Gateway, bot supervision, reliable messaging, and media module"
 
+plugins {
+    kotlin("jvm")
+    kotlin("plugin.spring")
+}
+
 val moduleWebDist = layout.projectDirectory.dir(
     "../qqbot-admin-web/dist/modules/qqbot-runtime/browser")
 
@@ -17,6 +22,7 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-web")
     implementation("org.springframework:spring-context")
     implementation("org.slf4j:slf4j-api")
+    implementation("org.jetbrains.kotlin:kotlin-reflect:1.9.25")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation(project(":qqbot-module-platform-admin"))

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import com.mieai.qqbot.domain.bot.BotId
 import com.mieai.qqbot.persistence.plugin.BotPluginBinding
 import com.mieai.qqbot.persistence.plugin.BotPluginBindingRepository
+import com.mieai.qqbot.persistence.plugin.PluginBindingRuntimeState
 import com.mieai.qqbot.plugin.host.Pf4jPluginHost
 import com.mieai.qqbot.plugin.host.PluginRuntimeService
 import org.assertj.core.api.Assertions.assertThat
@@ -12,7 +13,6 @@ import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import org.junit.jupiter.api.assertThrows
-import org.mockito.ArgumentMatchers.any
 import org.mockito.ArgumentMatchers.anyLong
 import org.mockito.Mockito.mock
 import org.mockito.Mockito.doAnswer
@@ -25,7 +25,6 @@ import org.springframework.mock.web.MockMultipartFile
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Instant
-import java.util.Optional
 import java.util.UUID
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
@@ -49,6 +48,8 @@ class PluginBindingFileServiceTest {
         0L,
         Instant.parse("2026-07-23T00:00:00Z"),
         Instant.parse("2026-07-23T00:00:00Z"),
+        PluginBindingRuntimeState.ACTIVE,
+        null,
     )
     private lateinit var dataRoot: Path
     private lateinit var root: Path
@@ -59,22 +60,24 @@ class PluginBindingFileServiceTest {
         dataRoot = temporaryDirectory.resolve("data")
         root = dataRoot.resolve("bot/echo")
         val touched = BotPluginBinding(
-            binding.id(),
-            binding.pluginId(),
-            binding.botId(),
+            binding.id,
+            binding.pluginId,
+            binding.botId,
             true,
             1L,
-            binding.createdAt(),
-            binding.updatedAt().plusSeconds(1),
+            binding.createdAt,
+            binding.updatedAt.plusSeconds(1),
+            PluginBindingRuntimeState.ACTIVE,
+            null,
         )
-        `when`(bindings.findById(binding.id())).thenReturn(Optional.of(binding))
-        `when`(bindings.touch(org.mockito.ArgumentMatchers.eq(binding.id()), anyLong(), any(Instant::class.java)))
+        `when`(bindings.findById(binding.id)).thenReturn(binding)
+        `when`(bindings.touch(matchEq(binding.id), anyLong(), matchAny(Instant::class.java, Instant.EPOCH)))
             .thenReturn(touched)
-        `when`(host.bindingDataDirectory(any(BotPluginBinding::class.java))).thenReturn(root)
-        `when`(host.pluginDataRoot()).thenReturn(dataRoot)
-        `when`(host.configurationFile(any(BotPluginBinding::class.java))).thenReturn(root.resolve("config.json"))
+        `when`(host.bindingDataDirectory(matchAny(BotPluginBinding::class.java, binding))).thenReturn(root)
+        `when`(host.pluginDataRoot).thenReturn(dataRoot)
+        `when`(host.configurationFile(matchAny(BotPluginBinding::class.java, binding))).thenReturn(root.resolve("config.json"))
         `when`(host.defaultConfiguration("echo")).thenReturn("{}")
-        `when`(host.validateConfiguration(org.mockito.ArgumentMatchers.eq("echo"), any(String::class.java)))
+        `when`(host.validateConfiguration(matchEq("echo"), matchAny(String::class.java, "")))
             .thenReturn(emptyList())
         service = PluginBindingFileService(bindings, host, runtime, ObjectMapper())
     }
@@ -84,17 +87,17 @@ class PluginBindingFileServiceTest {
         service.initialize(binding, "{\"enabled\":true}")
 
         assertThat(root.resolve("config.json")).hasContent("{\"enabled\":true}")
-        service.createEntry(binding.id(), CreatePluginFileEntryRequest("notes.json", false))
+        service.createEntry(binding.id, CreatePluginFileEntryRequest("notes.json", false))
         service.saveContent(
-            binding.id(),
+            binding.id,
             UpdatePluginFileContentRequest("notes.json", "{\"value\":1}", null),
         )
 
-        val listing = service.list(binding.id(), "")
+        val listing = service.list(binding.id, "")
         assertThat(listing.entries.map { it.name }).containsExactly("config.json", "notes.json")
-        assertThat(service.content(binding.id(), "notes.json").content).isEqualTo("{\"value\":1}")
-        verify(runtime, org.mockito.Mockito.atLeastOnce()).beforeBindingMutation(binding.id())
-        verify(runtime, org.mockito.Mockito.atLeastOnce()).bindingMutationCompleted(binding.id())
+        assertThat(service.content(binding.id, "notes.json").content).isEqualTo("{\"value\":1}")
+        verify(runtime, org.mockito.Mockito.atLeastOnce()).beforeBindingMutation(binding.id)
+        verify(runtime, org.mockito.Mockito.atLeastOnce()).bindingMutationCompleted(binding.id)
     }
 
     @Test
@@ -102,16 +105,16 @@ class PluginBindingFileServiceTest {
         service.initialize(binding, "{}")
 
         val traversal = assertThrows<PluginAdministrationException> {
-            service.list(binding.id(), "../other")
+            service.list(binding.id, "../other")
         }
-        assertThat(traversal.code()).isEqualTo("PLUGIN_FILE_PATH_INVALID")
+        assertThat(traversal.code).isEqualTo("PLUGIN_FILE_PATH_INVALID")
         val invalidConfiguration = assertThrows<PluginAdministrationException> {
             service.saveContent(
-                binding.id(),
+                binding.id,
                 UpdatePluginFileContentRequest("config.json", "[]", null),
             )
         }
-        assertThat(invalidConfiguration.code()).isEqualTo("INVALID_PLUGIN_CONFIG")
+        assertThat(invalidConfiguration.code).isEqualTo("INVALID_PLUGIN_CONFIG")
     }
 
     @Test
@@ -120,10 +123,10 @@ class PluginBindingFileServiceTest {
         Files.delete(root.resolve("config.json"))
 
         val failure = assertThrows<PluginAdministrationException> {
-            service.createEntry(binding.id(), CreatePluginFileEntryRequest("config.json", true))
+            service.createEntry(binding.id, CreatePluginFileEntryRequest("config.json", true))
         }
 
-        assertThat(failure.code()).isEqualTo("PLUGIN_CONFIG_MUST_BE_FILE")
+        assertThat(failure.code).isEqualTo("PLUGIN_CONFIG_MUST_BE_FILE")
         assertThat(root.resolve("config.json")).doesNotExist()
     }
 
@@ -148,10 +151,10 @@ class PluginBindingFileServiceTest {
         assumeTrue(linkCreated, "Symbolic links are not available to the test process")
 
         val failure = assertThrows<PluginAdministrationException> {
-            service.list(binding.id(), "")
+            service.list(binding.id, "")
         }
 
-        assertThat(failure.code()).isEqualTo("PLUGIN_DATA_DIRECTORY_INVALID")
+        assertThat(failure.code).isEqualTo("PLUGIN_DATA_DIRECTORY_INVALID")
         assertThat(outside.resolve("echo")).doesNotExist()
     }
 
@@ -161,18 +164,18 @@ class PluginBindingFileServiceTest {
         val target = root.resolve("notes.txt")
         Files.writeString(target, "before")
         `when`(bindings.touch(
-            org.mockito.ArgumentMatchers.eq(binding.id()),
-            org.mockito.ArgumentMatchers.eq(binding.revision()),
-            any(Instant::class.java),
-        )).thenThrow(com.mieai.qqbot.persistence.plugin.PluginBindingOptimisticLockException(binding.id(), binding.revision()))
+            matchEq(binding.id),
+            matchEq(binding.revision),
+            matchAny(Instant::class.java, Instant.EPOCH),
+        )).thenThrow(com.mieai.qqbot.persistence.plugin.PluginBindingOptimisticLockException(binding.id, binding.revision))
 
         val failure = assertThrows<PluginAdministrationException> {
-            service.saveContent(binding.id(), UpdatePluginFileContentRequest("notes.txt", "after", null))
+            service.saveContent(binding.id, UpdatePluginFileContentRequest("notes.txt", "after", null))
         }
 
-        assertThat(failure.code()).isEqualTo("REVISION_CONFLICT")
+        assertThat(failure.code).isEqualTo("REVISION_CONFLICT")
         assertThat(target).hasContent("before")
-        verify(host, never()).invalidate(binding.id())
+        verify(host, never()).invalidate(binding.id)
     }
 
     @Test
@@ -186,22 +189,22 @@ class PluginBindingFileServiceTest {
         val multibyteJson = "{\"value\":\"${"界".repeat(2_097_152 / 3)}\"}"
 
         val textFailure = assertThrows<PluginAdministrationException> {
-            service.saveContent(binding.id(), UpdatePluginFileContentRequest("notes.txt", multibyteText, null))
+            service.saveContent(binding.id, UpdatePluginFileContentRequest("notes.txt", multibyteText, null))
         }
         val jsonFailure = assertThrows<PluginAdministrationException> {
-            service.saveContent(binding.id(), UpdatePluginFileContentRequest("notes.json", multibyteJson, null))
+            service.saveContent(binding.id, UpdatePluginFileContentRequest("notes.json", multibyteJson, null))
         }
 
-        assertThat(textFailure.code()).isEqualTo("PLUGIN_FILE_CONTENT_TOO_LARGE")
-        assertThat(jsonFailure.code()).isEqualTo("PLUGIN_FILE_CONTENT_TOO_LARGE")
+        assertThat(textFailure.code).isEqualTo("PLUGIN_FILE_CONTENT_TOO_LARGE")
+        assertThat(jsonFailure.code).isEqualTo("PLUGIN_FILE_CONTENT_TOO_LARGE")
         assertThat(textFile).hasContent("text-before")
         assertThat(jsonFile).hasContent("{\"value\":\"json-before\"}")
         verify(bindings, never()).touch(
-            org.mockito.ArgumentMatchers.eq(binding.id()),
+            matchEq(binding.id),
             anyLong(),
-            any(Instant::class.java),
+            matchAny(Instant::class.java, Instant.EPOCH),
         )
-        verify(host, never()).invalidate(binding.id())
+        verify(host, never()).invalidate(binding.id)
     }
 
     @Test
@@ -211,19 +214,19 @@ class PluginBindingFileServiceTest {
 
         val failure = assertThrows<PluginAdministrationException> {
             service.saveContent(
-                binding.id(),
+                binding.id,
                 UpdatePluginFileContentRequest("config.json", oversizedConfiguration, null),
             )
         }
 
-        assertThat(failure.code()).isEqualTo("PLUGIN_CONFIG_TOO_LARGE")
+        assertThat(failure.code).isEqualTo("PLUGIN_CONFIG_TOO_LARGE")
         assertThat(root.resolve("config.json")).hasContent("{\"value\":\"before\"}")
         verify(bindings, never()).touch(
-            org.mockito.ArgumentMatchers.eq(binding.id()),
+            matchEq(binding.id),
             anyLong(),
-            any(Instant::class.java),
+            matchAny(Instant::class.java, Instant.EPOCH),
         )
-        verify(host, never()).invalidate(binding.id())
+        verify(host, never()).invalidate(binding.id)
     }
 
     @Test
@@ -232,24 +235,24 @@ class PluginBindingFileServiceTest {
         val target = root.resolve("asset.txt")
 
         service.upload(
-            binding.id(),
+            binding.id,
             "",
             MockMultipartFile("file", "asset.txt", "text/plain", "first".toByteArray()),
         )
         val duplicate = assertThrows<PluginAdministrationException> {
             service.upload(
-                binding.id(),
+                binding.id,
                 "",
                 MockMultipartFile("file", "asset.txt", "text/plain", "second".toByteArray()),
             )
         }
 
-        assertThat(duplicate.code()).isEqualTo("PLUGIN_FILE_EXISTS")
+        assertThat(duplicate.code).isEqualTo("PLUGIN_FILE_EXISTS")
         assertThat(target).hasContent("first")
         verify(bindings, times(1)).touch(
-            org.mockito.ArgumentMatchers.eq(binding.id()),
+            matchEq(binding.id),
             anyLong(),
-            any(Instant::class.java),
+            matchAny(Instant::class.java, Instant.EPOCH),
         )
     }
 
@@ -258,11 +261,11 @@ class PluginBindingFileServiceTest {
         service.initialize(binding, "{}")
         val target = root.resolve("asset.txt")
         Files.writeString(target, "first")
-        val currentHash = service.content(binding.id(), "asset.txt").sha256
+        val currentHash = service.content(binding.id, "asset.txt").sha256
 
         val stale = assertThrows<PluginAdministrationException> {
             service.upload(
-                binding.id(),
+                binding.id,
                 "",
                 MockMultipartFile("file", "asset.txt", "text/plain", "stale".toByteArray()),
                 overwrite = true,
@@ -270,19 +273,19 @@ class PluginBindingFileServiceTest {
             )
         }
         service.upload(
-            binding.id(),
+            binding.id,
             "",
             MockMultipartFile("file", "asset.txt", "text/plain", "second".toByteArray()),
             overwrite = true,
             expectedSha256 = currentHash,
         )
 
-        assertThat(stale.code()).isEqualTo("PLUGIN_FILE_CHANGED")
+        assertThat(stale.code).isEqualTo("PLUGIN_FILE_CHANGED")
         assertThat(target).hasContent("second")
         verify(bindings, times(1)).touch(
-            org.mockito.ArgumentMatchers.eq(binding.id()),
+            matchEq(binding.id),
             anyLong(),
-            any(Instant::class.java),
+            matchAny(Instant::class.java, Instant.EPOCH),
         )
     }
 
@@ -291,27 +294,27 @@ class PluginBindingFileServiceTest {
         Files.createDirectories(root)
         val target = root.resolve("notes.txt")
         Files.writeString(target, "before")
-        val staleHash = service.content(binding.id(), "notes.txt").sha256
+        val staleHash = service.content(binding.id, "notes.txt").sha256
         doAnswer {
             Files.writeString(target, "callback-finished")
             null
-        }.`when`(runtime).beforeBindingMutation(binding.id())
+        }.`when`(runtime).beforeBindingMutation(binding.id)
 
         val failure = assertThrows<PluginAdministrationException> {
             service.saveContent(
-                binding.id(),
+                binding.id,
                 UpdatePluginFileContentRequest("notes.txt", "administrator", staleHash),
             )
         }
 
-        assertThat(failure.code()).isEqualTo("PLUGIN_FILE_CHANGED")
+        assertThat(failure.code).isEqualTo("PLUGIN_FILE_CHANGED")
         assertThat(target).hasContent("callback-finished")
         verify(bindings, never()).touch(
-            org.mockito.ArgumentMatchers.eq(binding.id()),
+            matchEq(binding.id),
             anyLong(),
-            any(Instant::class.java),
+            matchAny(Instant::class.java, Instant.EPOCH),
         )
-        verify(runtime).bindingMutationAborted(binding.id())
+        verify(runtime).bindingMutationAborted(binding.id)
     }
 
     @Test
@@ -321,24 +324,24 @@ class PluginBindingFileServiceTest {
         Files.write(root.resolve("broken.json"), invalid)
 
         val previewFailure = assertThrows<PluginAdministrationException> {
-            service.content(binding.id(), "broken.json")
+            service.content(binding.id, "broken.json")
         }
         val uploadFailure = assertThrows<PluginAdministrationException> {
             service.upload(
-                binding.id(),
+                binding.id,
                 "",
                 MockMultipartFile("file", "config.json", "application/json", invalid),
                 overwrite = true,
             )
         }
 
-        assertThat(previewFailure.code()).isEqualTo("PLUGIN_FILE_NOT_UTF8")
-        assertThat(uploadFailure.code()).isEqualTo("PLUGIN_CONFIG_ENCODING_INVALID")
+        assertThat(previewFailure.code).isEqualTo("PLUGIN_FILE_NOT_UTF8")
+        assertThat(uploadFailure.code).isEqualTo("PLUGIN_CONFIG_ENCODING_INVALID")
         assertThat(root.resolve("config.json")).hasContent("{}")
         verify(bindings, never()).touch(
-            org.mockito.ArgumentMatchers.eq(binding.id()),
+            matchEq(binding.id),
             anyLong(),
-            any(Instant::class.java),
+            matchAny(Instant::class.java, Instant.EPOCH),
         )
     }
 
@@ -347,20 +350,20 @@ class PluginBindingFileServiceTest {
         Files.createDirectories(root)
         val target = root.resolve("notes.txt")
         Files.writeString(target, "before")
-        doThrow(IllegalStateException("busy")).`when`(runtime).beforeBindingMutation(binding.id())
+        doThrow(IllegalStateException("busy")).`when`(runtime).beforeBindingMutation(binding.id)
 
         val failure = assertThrows<PluginAdministrationException> {
-            service.saveContent(binding.id(), UpdatePluginFileContentRequest("notes.txt", "after", null))
+            service.saveContent(binding.id, UpdatePluginFileContentRequest("notes.txt", "after", null))
         }
 
-        assertThat(failure.code()).isEqualTo("PLUGIN_BINDING_BUSY")
+        assertThat(failure.code).isEqualTo("PLUGIN_BINDING_BUSY")
         assertThat(target).hasContent("before")
         verify(bindings, never()).touch(
-            org.mockito.ArgumentMatchers.eq(binding.id()),
+            matchEq(binding.id),
             anyLong(),
-            any(Instant::class.java),
+            matchAny(Instant::class.java, Instant.EPOCH),
         )
-        verify(runtime).bindingMutationAborted(binding.id())
+        verify(runtime).bindingMutationAborted(binding.id)
     }
 
     @Test
@@ -372,20 +375,20 @@ class PluginBindingFileServiceTest {
         val firstReserved = CountDownLatch(1)
         val releaseFirst = CountDownLatch(1)
         val reservations = AtomicInteger()
-        `when`(bindings.findById(binding.id())).thenAnswer { Optional.of(current.get()) }
+        `when`(bindings.findById(binding.id)).thenAnswer { current.get() }
         `when`(bindings.touch(
-            org.mockito.ArgumentMatchers.eq(binding.id()),
+            matchEq(binding.id),
             anyLong(),
-            any(Instant::class.java),
+            matchAny(Instant::class.java, Instant.EPOCH),
         )).thenAnswer { invocation ->
             val expected = invocation.getArgument<Long>(1)
             val existing = current.get()
-            if (existing.revision() != expected) {
-                throw com.mieai.qqbot.persistence.plugin.PluginBindingOptimisticLockException(binding.id(), expected)
+            if (existing.revision != expected) {
+                throw com.mieai.qqbot.persistence.plugin.PluginBindingOptimisticLockException(binding.id, expected)
             }
             val next = BotPluginBinding(
-                existing.id(), existing.pluginId(), existing.botId(), existing.enabled(), expected + 1,
-                existing.createdAt(), existing.updatedAt().plusSeconds(1), existing.runtimeState(), existing.runtimeError(),
+                existing.id, existing.pluginId, existing.botId, existing.enabled, expected + 1,
+                existing.createdAt, existing.updatedAt.plusSeconds(1), existing.runtimeState, existing.runtimeError,
             )
             current.set(next)
             if (reservations.incrementAndGet() == 1) {
@@ -398,25 +401,25 @@ class PluginBindingFileServiceTest {
         val executor = Executors.newFixedThreadPool(2)
         try {
             val first = executor.submit<PluginFileContentResponse> {
-                service.saveContent(binding.id(), UpdatePluginFileContentRequest("notes.txt", "first", null))
+                service.saveContent(binding.id, UpdatePluginFileContentRequest("notes.txt", "first", null))
             }
             assertThat(firstReserved.await(5, TimeUnit.SECONDS)).isTrue()
             val second = executor.submit<PluginFileContentResponse> {
-                service.saveContent(binding.id(), UpdatePluginFileContentRequest("notes.txt", "second", null))
+                service.saveContent(binding.id, UpdatePluginFileContentRequest("notes.txt", "second", null))
             }
 
             assertThrows<TimeoutException> { second.get(200, TimeUnit.MILLISECONDS) }
             verify(bindings, times(1)).touch(
-                org.mockito.ArgumentMatchers.eq(binding.id()),
+                matchEq(binding.id),
                 anyLong(),
-                any(Instant::class.java),
+                matchAny(Instant::class.java, Instant.EPOCH),
             )
             releaseFirst.countDown()
             first.get(5, TimeUnit.SECONDS)
             second.get(5, TimeUnit.SECONDS)
 
             assertThat(target).hasContent("second")
-            assertThat(current.get().revision()).isEqualTo(2L)
+            assertThat(current.get().revision).isEqualTo(2L)
         } finally {
             releaseFirst.countDown()
             executor.shutdownNow()
@@ -442,7 +445,7 @@ class PluginBindingFileServiceTest {
     @Test
     fun `restores a live binding tombstone before applying startup defaults`() {
         service.initialize(binding, "{\"custom\":true}")
-        val tombstone = dataRoot.resolve(".tombstone-${binding.id()}-${UUID.randomUUID()}")
+        val tombstone = dataRoot.resolve(".tombstone-${binding.id}-${UUID.randomUUID()}")
         Files.move(root, tombstone, java.nio.file.StandardCopyOption.ATOMIC_MOVE)
         `when`(bindings.findAll()).thenReturn(listOf(binding))
 

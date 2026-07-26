@@ -1,0 +1,2 @@
+package com.mieai.qqbot.runtime.supervisor
+data class BotSessionSnapshot(val sessionId:String,val sequence:Long) { init { require(sessionId.isNotBlank()); require(sessionId==sessionId.trim()); require(sessionId.codePoints().noneMatch(Character::isISOControl)); require(sequence>=0) }; fun withSequence(nextSequence:Long):BotSessionSnapshot { require(nextSequence>=sequence); return if(nextSequence==sequence)this else BotSessionSnapshot(sessionId,nextSequence) } }

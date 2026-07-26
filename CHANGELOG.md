@@ -1,11 +1,23 @@
 # Changelog
 
-本文件记录面向使用者的发布变更。插件 API 兼容级别与 Maven 制品版本分别维护；请同时阅读对应 SDK 指南。
+本文件记录面向使用者的发布变更。插件 API 级别与 Maven 制品版本分别维护；请同时阅读对应 SDK 指南。
+
+## 1.0.0 - 2026-07-26
+
+### Changed
+
+- 将内置 `echo` 插件重做为 `example`，制品改名为 `qqbot-plugin-example.jar`；新增可在机器人绑定弹窗中预设的 `config.json`，按 `triggerKeyword` 精确匹配消息并回复 `replyContent`。
+- 将框架、默认模块、Compose 默认镜像、SDK 模板和 OneBot `get_version_info` 的发行版本统一为 `1.0.0`。
 
 ## 0.4.1 - 2026-07-24
 
 ### Changed
 
+- 将框架、默认模块、接入库、持久化、管理 API、测试和插件模板的源码统一迁移为 Kotlin/JVM。
+- 插件 API 提升为 `3.0.0`，删除旧 Java ABI：record 风格访问器改为属性，`Optional<T>` 改为 Kotlin 可空类型，`RestrictedHttpClient` 更名为无限制的 `PluginHttpClient`，消息、媒体和生命周期实现不再继承旧默认回退。
+- 模块 SPI 的描述符、模块 ID 和服务注册状态改为 Kotlin 属性，并删除旧运行时 Dispatch 序号适配回调。
+- 原生插件消息 Outbox 在成功发送时原子保存 QQ 消息 ID、消息序号和平台时间，并通过按绑定隔离的 `MessageSender.findDelivery(jobId)` 提供持久化查询。
+- 稳定 `InboundMessage` 增加 `referencedMessageId`，直接暴露 QQ 引用消息 ID，便于插件建立可跨重启恢复的引用链。
 - 将应用、默认框架模块、Compose 默认镜像、SDK 模板和 OneBot `get_version_info` 的发行版本统一为 `0.4.1`。
 - 更正项目文档中的 Kotlin 编译器/运行时版本、Node.js 支持范围、模块数量和前端模块页面包范围。
 - 明确当前未集成 Testcontainers、Angular E2E、OpenAPI/TypeScript Client 自动生成和 CI 二进制兼容检查。

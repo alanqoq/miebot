@@ -1,0 +1,2 @@
+package com.mieai.qqbot.runtime.supervisor
+data class BotRuntimeFailure(val code:String,val message:String,val retryable:Boolean) { init { requireText(code,"code",128); requireText(message,"message",1024) }; companion object { private fun requireText(v:String,n:String,m:Int):String { require(v.isNotBlank()) { "$n must not be blank" }; require(v==v.trim()) { "$n must not have surrounding whitespace" }; require(v.length<=m) { "$n is too long" }; require(v.codePoints().noneMatch(Character::isISOControl)) { "$n must not contain control characters" }; return v } } }

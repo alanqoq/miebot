@@ -1,5 +1,9 @@
 description = "PF4J plugin discovery, validation, and isolated execution"
 
+plugins {
+    kotlin("jvm")
+}
+
 dependencies {
     api(project(":qqbot-plugin-spi"))
     implementation(project(":qqbot-runtime"))

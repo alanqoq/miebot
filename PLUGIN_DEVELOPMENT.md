@@ -4,7 +4,7 @@
 
 ## 1. 运行模型
 
-插件是由运维人员部署的可信 JAR。宿主使用 PF4J 加载 JAR，但插件作者只实现纯 Java SPI，不需要依赖 PF4J 或 Spring。
+插件是由运维人员部署的可信 JAR。宿主使用 PF4J 加载 JAR；API、SPI 和插件模板均为 Kotlin/JVM，插件不需要依赖 PF4J 或 Spring。
 
 ```text
 QQ Gateway 事件
@@ -27,7 +27,7 @@ QQ Gateway 事件
 
 ## 2. 开发环境
 
-插件需要 Java 21。仓库内开发时，只依赖以下两个模块：
+插件使用 Kotlin/JVM 开发，并以 Java 21 作为目标运行时。仓库内开发时，只依赖以下两个模块：
 
 ```kotlin
 dependencies {
@@ -37,16 +37,16 @@ dependencies {
 }
 ```
 
-外部插件项目应依赖与宿主完全相同的 Maven 制品版本。当前平台制品版本为 `0.4.1`，Manifest 的插件 API 兼容级别为 `2.0.0`。根项目的 `pluginSdkRepository` 任务会生成可复制的本地 Maven SDK 仓库，`pluginSdkDistribution` 会把仓库、模板和本指南打成 ZIP；不需要把宿主模块或 PF4J 放进插件项目。
+外部插件项目应依赖与宿主完全相同的 Maven 制品版本。当前平台制品版本为 `1.0.0`，Manifest 的插件 API 级别为 `3.0.0`。根项目的 `pluginSdkRepository` 任务会生成可复制的本地 Maven SDK 仓库，`pluginSdkDistribution` 会把仓库、模板和本指南打成 ZIP；不需要把宿主模块或 PF4J 放进插件项目。
 
 平台 API/SPI 必须使用 `compileOnly` 或 Maven 的 `provided` scope。不要把 API/SPI、PF4J、Spring 或宿主模块打入插件 JAR，否则可能出现类型不相等、类加载冲突或越过宿主边界的问题。插件自己的 JSON、SQLite JDBC 或其他实现依赖可以打入 JAR，但应评估体积、原生库加载、ClassLoader 卸载和依赖冲突；需要与宿主同名库并存时应做 shading/relocation。
 
-仓库内可复制 `plugin-template` 作为起点；`qqbot-plugin-example` 是宿主端到端测试使用的 API 2.0 参考实现。建议目录如下：
+仓库内可复制 `plugin-template` 作为起点；`qqbot-plugin-example` 是宿主端到端测试使用的 API 3.0 参考实现。建议目录如下：
 
 ```text
 my-plugin/
   build.gradle.kts
-  src/main/java/com/example/MyPluginFactory.java
+  src/main/kotlin/com/example/HelloPluginFactory.kt
   src/main/resources/qqbot-plugin-schema.json
   src/main/resources/qqbot-plugin-default.json
   src/main/resources/META-INF/services/
@@ -57,55 +57,40 @@ my-plugin/
 
 插件 JAR 必须通过 `ServiceLoader` 提供且只提供一个 `BotPluginFactory`。
 
-```java
-package com.example;
+```kotlin
+package com.example
 
-import com.mieai.qqbot.plugin.api.EventSubscription;
-import com.mieai.qqbot.plugin.api.PluginEvent;
-import com.mieai.qqbot.plugin.api.PluginRuntimeContext;
-import com.mieai.qqbot.plugin.api.TextMessage;
-import com.mieai.qqbot.plugin.spi.BotPlugin;
-import com.mieai.qqbot.plugin.spi.BotPluginFactory;
-import java.util.Set;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionStage;
+import com.mieai.qqbot.plugin.api.EventSubscription
+import com.mieai.qqbot.plugin.api.PluginEvent
+import com.mieai.qqbot.plugin.api.PluginRuntimeContext
+import com.mieai.qqbot.plugin.api.TextMessage
+import com.mieai.qqbot.plugin.spi.BotPlugin
+import com.mieai.qqbot.plugin.spi.BotPluginFactory
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.CompletionStage
 
-public final class HelloPluginFactory implements BotPluginFactory {
-    @Override
-    public String pluginId() {
-        return "hello";
-    }
+class HelloPluginFactory : BotPluginFactory {
+    override val pluginId: String = "hello"
 
-    @Override
-    public BotPlugin create(PluginRuntimeContext context) {
-        return new BotPlugin() {
-            private EventSubscription commands;
+    override fun create(context: PluginRuntimeContext): BotPlugin = object : BotPlugin {
+        private var commands: EventSubscription? = null
 
-            @Override
-            public void start() {
-                commands = context.events().subscribe(
-                        "commands", Set.of(), event -> handle(context, event));
-            }
-
-            @Override
-            public void stop() {
-                if (commands != null) commands.close();
-            }
-        };
-    }
-
-    private static CompletionStage<Void> handle(
-            PluginRuntimeContext context, PluginEvent event) {
-        String content = event.message()
-                .flatMap(message -> message.content())
-                .map(String::strip)
-                .orElse("");
-        if (!"/hello".equalsIgnoreCase(content)) {
-            return CompletableFuture.completedFuture(null);
+        override fun start() {
+            commands = context.events.subscribe("commands", emptySet(), ::handle)
         }
-        return context.base().messageSender()
-                .enqueue(TextMessage.reply(event, "hello"))
-                .thenApply(receipt -> null);
+
+        override fun stop() {
+            commands?.close()
+        }
+
+        private fun handle(event: PluginEvent): CompletionStage<Void> {
+            val content = event.message?.content?.trim().orEmpty()
+            if (!content.equals("/hello", ignoreCase = true)) {
+                return CompletableFuture.completedFuture(null)
+            }
+            return context.base.messageSender.enqueue(TextMessage.reply(event, "hello"))
+                .thenApply<Void> { null }
+        }
     }
 }
 ```
@@ -124,10 +109,10 @@ com.example.HelloPluginFactory
 
 | 属性 | 必需 | 说明 |
 | --- | --- | --- |
-| `Plugin-Id` | 是 | 稳定插件 ID，必须与 `BotPluginFactory.pluginId()` 完全一致 |
+| `Plugin-Id` | 是 | 稳定插件 ID，必须与 `BotPluginFactory.pluginId` 完全一致 |
 | `Plugin-Name` | 建议 | 后台显示名称；未提供时使用插件 ID |
 | `Plugin-Version` | 是 | 插件版本 |
-| `Plugin-Requires` | 建议 | 宿主插件 API 兼容版本；缺省时宿主按当前 `2.0.0` 处理 |
+| `Plugin-Requires` | 建议 | 宿主插件 API 版本；缺省时宿主按当前 `3.0.0` 处理 |
 | `Plugin-Class` | 是 | 固定为 `com.mieai.qqbot.plugin.host.Pf4jPluginBridge` |
 | `Plugin-Config-Schema` | 是 | JAR 内 JSON Schema 资源路径 |
 | `Plugin-Default-Config` | 是 | JAR 内默认 JSON 配置资源路径，必须符合 Schema |
@@ -142,7 +127,7 @@ tasks.jar {
             "Plugin-Id" to "hello",
             "Plugin-Name" to "Hello Plugin",
             "Plugin-Version" to project.version.toString(),
-            "Plugin-Requires" to "2.0.0",
+            "Plugin-Requires" to "3.0.0",
             "Plugin-Class" to "com.mieai.qqbot.plugin.host.Pf4jPluginBridge",
             "Plugin-Config-Schema" to "qqbot-plugin-schema.json",
             "Plugin-Default-Config" to "qqbot-plugin-default.json",
@@ -207,9 +192,9 @@ Web 新建绑定时，`GET /api/plugins` 返回默认配置 `defaultConfigJson`�
 
 同一个插件绑定到两个机器人时会得到两个不同目录；同一机器人绑定不同插件时也不会共享目录。应用启动和数据库切换后会为数据库中已有但目录或 `config.json` 缺失的绑定写入当前插件默认配置。运行期间配置被删除、不是 JSON 对象、超过大小限制或不符合 Schema 时，绑定会拒绝启动或进入 `QUARANTINED`，不能回退到数据库配置。
 
-插件通过 `PluginRuntimeContext.configuration().json()` 取得创建实例时从 `config.json` 读取的原始 JSON 字符串，也可从同一 `ConfigSnapshot` 读取绑定 revision 和加载时间。`context.base().configurationJson()` 保留同一份原始 JSON。配置文件变化会停止旧实例并使后续事件创建使用新配置的实例，插件不能长期持有可变配置对象。
+插件通过 `PluginRuntimeContext.configuration.json` 取得创建实例时从 `config.json` 读取的原始 JSON 字符串，也可从同一 `ConfigSnapshot` 读取绑定 revision 和加载时间。`context.base.configurationJson` 保留同一份原始 JSON。配置文件变化会停止旧实例并使后续事件创建使用新配置的实例，插件不能长期持有可变配置对象。
 
-`context.base().dataDirectory()` 返回该绑定的绝对规范化 `Path`。插件可用标准文件 API 在其中任意创建、读取、修改和删除 SQLite 数据库、图片、音频、视频及其他文件，不需要经过 `PluginStorage` 或宿主媒体暂存服务。例如 SQLite 数据库路径应从 `dataDirectory().resolve("plugin.db")` 派生，不能写死机器人或容器路径。文件格式、数据库 schema/事务、连接关闭、迁移、并发、备份和清理由插件负责；`PluginStorage` 仍是另一套按绑定 UUID 隔离、存放在平台数据库中的键值能力。
+`context.base.dataDirectory` 返回该绑定的绝对规范化 `Path`。插件可用标准文件 API 在其中任意创建、读取、修改和删除 SQLite 数据库、图片、音频、视频及其他文件，不需要经过 `PluginStorage` 或宿主媒体暂存服务。例如 SQLite 数据库路径应从 `dataDirectory.resolve("plugin.db")` 派生，不能写死机器人或容器路径。文件格式、数据库 schema/事务、连接关闭、迁移、并发、备份和清理由插件负责；`PluginStorage` 仍是另一套按绑定 UUID 隔离、存放在平台数据库中的键值能力。
 
 绑定目录划分用于避免不同机器人和插件意外共用文件，不是针对恶意代码的文件系统沙箱。PF4J 插件与宿主同进程运行，插件代码仍可能直接访问进程身份有权访问的其他路径。只能部署可信插件，并按最小权限配置容器和宿主文件系统。
 
@@ -217,12 +202,18 @@ Web 新建绑定时，`GET /api/plugins` 返回默认配置 `defaultConfigJson`�
 
 ## 6. 生命周期与并发
 
-插件 API 2.0 只有一个工厂和一套生命周期：
+插件 API 3.0 只有一个工厂和一套生命周期：
 
-```java
-BotPlugin create(PluginRuntimeContext context);
-default void start() {}
-default void stop() {}
+```kotlin
+interface BotPluginFactory {
+    val pluginId: String
+    fun create(context: PluginRuntimeContext): BotPlugin
+}
+
+interface BotPlugin {
+    fun start()
+    fun stop()
+}
 ```
 
 - 插件绑定实例按需创建：第一条待处理事件到来时执行 `create(context)`，随后立即调用 `start()`。
@@ -230,11 +221,11 @@ default void stop() {}
 - 当前每个绑定使用独立有界执行队列；插件不应把单线程执行当作 API 保证，内部可变状态仍应自行保证线程安全。
 - 事件只能通过 `EventService` 命名 handler 接收；handler 不能返回 `null`。
 - 不要在 handler 中长时间阻塞。默认执行超时为 20 秒。
-- handler 开始时可读取 `context.cancellationToken()`；异步链必须保存该对象，超时后检查 `isCancellationRequested()` 或调用 `throwIfCancellationRequested()`，不能在其他线程重新读取 ThreadLocal。
+- handler 开始时可读取 `context.cancellationToken()`；异步链必须保存该对象，超时后检查 `isCancellationRequested` 或调用 `throwIfCancellationRequested()`，不能在其他线程重新读取 ThreadLocal。
 - 配置变化、绑定删除、插件重载、数据库热切换和应用停止都可能调用 `stop()`。
 - `stop()` 应快速、幂等地释放插件自行创建的资源，且不应抛出异常。
 
-插件应在 `start()` 中通过 `EventService` 注册至少一个命名 handler；每个匹配事件会创建独立的 `(event, binding, handlerId)` 投递记录。API 2.0 不再提供 `BotPlugin.onEvent(...)`、`handlerId()` 或旧工厂回退路径。
+插件应在 `start()` 中通过 `EventService` 注册至少一个命名 handler；每个匹配事件会创建独立的 `(event, binding, handlerId)` 投递记录。API 3.0 不提供 `BotPlugin.onEvent(...)`、旧 Java 访问器或旧工厂回退路径。
 
 ## 7. 事件 API
 
@@ -251,14 +242,14 @@ default void stop() {}
 | `receivedAt` | Inbox 接收时间 |
 | `message` | 能被稳定映射为消息时存在 |
 
-`InboundMessage` 提供回复目标、消息 ID、事件 ID、作者 ID和文本内容。当前稳定映射覆盖：
+`InboundMessage` 提供回复目标、当前消息 ID、事件 ID、作者 ID、文本内容和被引用消息 ID。`referencedMessageId` 对应 QQ Gateway 的 `message_reference.message_id`；没有引用时为 `null`。当前稳定映射覆盖：
 
 - `C2C_MESSAGE...` -> `C2C`
 - 同时包含 `GROUP` 和 `MESSAGE` -> `GROUP`
 - `DIRECT_MESSAGE...` -> `DIRECT`
 - 其他消息事件 -> `CHANNEL`
 
-非消息事件、字段缺失或无法解析的载荷会得到 `Optional.empty()`。因此所有插件都必须先检查 `event.message()`，不能假设每个事件都可回复。
+非消息事件、字段缺失或无法解析的载荷会得到 `null`。因此所有插件都必须先检查 `event.message`，不能假设每个事件都可回复。
 
 `rawPayload` 是兼容逃生口，不是稳定 DTO。直接依赖其中的 QQ 字段时，应容忍字段新增、缺失和未知事件类型。
 
@@ -266,10 +257,9 @@ default void stop() {}
 
 最安全的被动回复方式是：
 
-```java
-return context.base().messageSender()
-        .enqueue(TextMessage.reply(event, "pong"))
-        .thenApply(receipt -> null);
+```kotlin
+return context.base.messageSender.enqueue(TextMessage.reply(event, "pong"))
+    .thenApply<Void> { null }
 ```
 
 `TextMessage.reply(...)` 会自动使用原事件的回复目标、`msg_id`/`event_id`、`msg_seq=1`、来源事件 UUID 和稳定去重键。
@@ -280,52 +270,134 @@ return context.base().messageSender()
 - `messageSequence` 必须大于 0。
 - `deduplicationKey` 可选，最大 512 字符且不能含空白。
 - 对同一业务副作用使用稳定去重键，重试时不要生成随机键。
-- `sourceEventId` 应填入触发消息的 `event.id()`，便于追踪。
+- `sourceEventId` 应填入触发消息的 `event.id`，便于追踪。
 
-`enqueue()` 完成只表示任务已经可靠写入 `outbox_jobs`。返回的 `MessageEnqueueReceipt` 包含任务 ID、是否命中已有去重任务及入队时间；它不表示 QQ 已经接收或发送成功。最终结果应在后台 Outbox/DLQ 中查看。
+`enqueue()` 完成只表示任务已经可靠写入 `outbox_jobs`。返回的 `MessageEnqueueReceipt` 包含任务 ID、是否命中已有去重任务及入队时间；它不表示 QQ 已经接收或发送成功。
+
+### 三个消息 ID 与引用关系
+
+插件保存消息历史时必须区分以下三个 ID：
+
+| ID | 来源 | 用途 |
+| --- | --- | --- |
+| `sourceMessageId` | `event.message?.messageId` | 群友触发消息的 QQ 真实消息 ID；发送被动回复时作为上游引用 |
+| `jobId` | `MessageEnqueueReceipt.jobId` | 框架 Outbox 任务 UUID，只用于去重、跟踪和查询发送状态，不会出现在 QQ 引用事件里 |
+| `platformMessageId` | `MessageDeliveryReceipt.platformMessageId` | QQ 在发送成功响应中返回的机器人消息真实 ID；群友以后引用机器人消息时使用的就是这个 ID |
+
+群友以后引用机器人消息时，新入站事件的 `InboundMessage.referencedMessageId` 会等于原机器人消息的 `platformMessageId`，不会等于 `jobId`。`PluginEvent.id` 是框架 Inbox UUID，`PluginEvent.platformEventId` 是 Gateway 事件 ID，它们也都不能代替 QQ 消息 ID。
+
+### 查询持久化发送回执
+
+插件应先持久化 `queued.jobId`，再在当前实例或重启后的实例中查询结果。不要假设入队后立即查询就已经发送完成：
+
+```kotlin
+private fun replyAndTrack(event: PluginEvent): CompletionStage<Void> {
+    val sourceMessageId = event.message?.messageId
+    return context.base.messageSender
+        .enqueue(TextMessage.reply(event, "这是 AI 的回答"))
+        .thenCompose { queued ->
+            saveQueuedToSqlite(queued.jobId, sourceMessageId, "这是 AI 的回答")
+            context.base.messageSender.findDelivery(queued.jobId)
+        }
+        .thenAccept { current -> current?.let(::handleDeliverySnapshot) }
+}
+```
+
+其中 `saveQueuedToSqlite(...)` 和 `handleDeliverySnapshot(...)` 是插件自己的持久化方法。上例只演示非阻塞组合与第一次快照查询；如果状态尚未终结，`handleDeliverySnapshot(...)` 应通过调度器安排下一次查询，而不是递归忙等。
+
+`findDelivery(jobId)` 返回当前数据库中的持久化快照，不是一次性回调。返回 `null` 表示当前绑定没有该任务，常见原因是 UUID 错误、任务由管理员或其他插件绑定创建，或原绑定已经删除；它不表示任务仍在排队。
+
+`MessageDeliveryReceipt` 包含 `jobId`、状态、QQ 返回的真实 `platformMessageId`、消息序号、平台时间、完成时间和最终错误：
+
+| 状态 | 是否终态 | 插件处理方式 |
+| --- | --- | --- |
+| `PENDING` | 否 | 已入队，稍后再次查询 |
+| `IN_PROGRESS` | 否 | Worker 已领取，稍后再次查询 |
+| `RETRY_WAIT` | 否 | 可重试错误正在退避，稍后再次查询；可记录 `lastError` 用于诊断 |
+| `SUCCEEDED` | 是 | 将 `platformMessageId` 更新到插件数据库；新发送任务成功时该字段存在 |
+| `RESULT_UNKNOWN` | 是 | 请求可能已经发出，但框架没有可确认的 QQ 消息 ID；不要直接重发，否则可能产生重复消息 |
+| `DEAD_LETTER` | 是 | 最终失败，不存在平台消息 ID；根据 `lastError` 决定人工处理 |
+
+轮询应使用声明了 `scheduler` capability 的 `PluginScheduler`，采用例如 1-5 秒间隔或有上限退避，不要在事件 handler 中忙等。插件启动时应从自己的 SQLite 扫描尚未终结的 `jobId` 并恢复查询；到达任一终态后停止轮询。查询失败属于本次同步失败，应稍后重试，不能据此把发送任务标记为失败。
+
+查询由宿主按插件绑定 UUID 隔离。即使知道其他任务 UUID，插件也只能读取当前绑定自己创建的任务；管理员或其他插件创建的任务返回空结果。正常成功响应的状态和 QQ 回执由同一次数据库更新原子保存，因此插件可以安全地在自己的 SQLite 中建立 `job_id -> platform_message_id` 映射。后台 Outbox 详情也会显示同一回执。
+
+### SQLite 保存示例
+
+插件可以在 `context.base.dataDirectory.resolve("history.db")` 创建自己的 SQLite。下面是可按业务扩展的最小关系表；框架不会替插件创建或迁移该数据库：
+
+```sql
+CREATE TABLE message_records (
+    local_id                     INTEGER PRIMARY KEY,
+    job_id                       TEXT UNIQUE,
+    platform_message_id          TEXT UNIQUE,
+    reply_to_platform_message_id TEXT,
+    content                      TEXT NOT NULL,
+    created_at                   TEXT NOT NULL
+);
+```
+
+发送 AI 回复入队后，先保存：
+
+```text
+job_id = job-001
+platform_message_id = NULL
+reply_to_platform_message_id = user-100
+content = 这是 AI 的回答
+```
+
+查询到 `SUCCEEDED` 后按 `job_id` 更新真实 ID：
+
+```sql
+UPDATE message_records
+SET platform_message_id = ?
+WHERE job_id = ?;
+```
+
+以后入站事件出现 `referencedMessageId=bot-900` 时，以它查询 `platform_message_id`，即可找到机器人消息，再沿 `reply_to_platform_message_id=user-100` 继续追溯：
+
+```sql
+SELECT *
+FROM message_records
+WHERE platform_message_id = ?;
+```
+
+QQ 请求超时后可能已经发送成功，但框架没有收到响应，此时状态为 `RESULT_UNKNOWN` 且没有 `platformMessageId`。如果业务要求对这种极端情况继续对账，需要另行使用 QQ 消息回流事件或平台查询能力；发送回执 API 不会猜测或伪造 ID。
 
 ## 9. 发送富消息与媒体消息
 
 `MessageSender.enqueue(RichMessage)` 支持 `MARKDOWN`、`KEYBOARD`、`ARK` 和 `EMBED`。除 `KEYBOARD` 外，`payload` 是对应 QQ OpenAPI 字段内部的 JSON 对象，宿主会把它放入同名小写字段并补充回复 ID、事件 ID、序号和 C2C/群聊所需的消息类型：
 
-```java
-RichMessage markdown = new RichMessage(
-        inbound.replyTarget(),
-        RichMessageKind.MARKDOWN,
-        Map.of("content", "**处理完成**"),
-        inbound.messageId(),
-        inbound.eventId(),
-        1,
-        Optional.of("markdown:" + event.id()),
-        Optional.of(event.id()));
-return context.base().messageSender().enqueue(markdown).thenApply(receipt -> null);
+```kotlin
+val markdown = RichMessage(
+    inbound.replyTarget, RichMessageKind.MARKDOWN,
+    mapOf("content" to "**处理完成**"), inbound.messageId, inbound.eventId, 1,
+    "markdown:${event.id}", event.id,
+)
+return context.base.messageSender.enqueue(markdown).thenApply<Void> { null }
 ```
 
 QQ 不支持独立 Keyboard 消息。`KEYBOARD` 是 SDK 提供的组合类型，payload 必须同时包含非空 `markdown` 和 `keyboard` 对象，发送时使用官方 Markdown 类型 `msg_type=2`：
 
-```java
-Map<String, Object> payload = Map.of(
-        "markdown", Map.of("content", "请选择操作"),
-        "keyboard", Map.of("id", "已审核的按钮模板 ID"));
+```kotlin
+val payload = mapOf(
+    "markdown" to mapOf("content" to "请选择操作"),
+    "keyboard" to mapOf("id" to "已审核的按钮模板 ID"),
+)
 ```
 
 自定义按钮使用 `keyboard.content.rows`，其中每个 row 是包含 `buttons` 数组的对象；不要把 row 写成裸按钮数组。Web 机器人页选择 Keyboard 时会填入一个可编辑的完整骨架。
 
 插件可通过 `MessageSender` 入队远程 `MediaMessage`：
 
-```java
-MediaMessage message = new MediaMessage(
-        inbound.replyTarget(),
-        MediaKind.IMAGE,
-        URI.create("https://cdn.example/image.png"),
-        Optional.of("图片说明"),
-        inbound.messageId(),
-        inbound.eventId(),
-        1,
-        Optional.of("image:" + event.id()),
-        Optional.of(event.id()));
+```kotlin
+val message = MediaMessage(
+    inbound.replyTarget, MediaKind.IMAGE, URI.create("https://cdn.example/image.png"),
+    "图片说明", inbound.messageId, inbound.eventId, 1,
+    "image:${event.id}", event.id,
+)
 
-return context.base().messageSender().enqueue(message).thenApply(receipt -> null);
+return context.base.messageSender.enqueue(message).thenApply<Void> { null }
 ```
 
 限制如下：
@@ -338,15 +410,16 @@ return context.base().messageSender().enqueue(message).thenApply(receipt -> null
 
 插件不能传入本地文件路径或自行生成 `file_info`，但声明 `media.send` 后可以把本地字节交给宿主暂存：
 
-```java
-StagedMedia staged = context.mediaService().stage(new MediaUpload(
-        MediaKind.IMAGE, "result.png", "image/png", imageBytes))
-        .toCompletableFuture().join();
-return context.mediaService().enqueue(new StagedMediaMessage(
-        inbound.replyTarget(), staged, Optional.of("处理结果"),
-        inbound.messageId(), inbound.eventId(), 1,
-        Optional.of("result:" + event.id()), Optional.of(event.id())))
-        .thenApply(receipt -> null);
+```kotlin
+val staged = context.mediaService.stage(
+    MediaUpload(MediaKind.IMAGE, "result.png", "image/png", imageBytes),
+).toCompletableFuture().join()
+return context.mediaService.enqueue(
+    StagedMediaMessage(
+        inbound.replyTarget, staged, "处理结果", inbound.messageId, inbound.eventId, 1,
+        "result:${event.id}", event.id,
+    ),
+).thenApply<Void> { null }
 ```
 
 暂存句柄只包含 UUID、类型、文件名和大小，不暴露宿主路径。上传最大值来自当前机器人配置（默认 `16 MiB`，范围 `1-256 MiB`）；MIME 必须与媒体类型匹配，入队和实际发送时会再次核对元数据。Outbox 到达成功、结果未知或死信终态后删除对应暂存文件。
@@ -355,11 +428,11 @@ return context.mediaService().enqueue(new StagedMediaMessage(
 
 声明 `storage` 能力后，可使用按绑定隔离的持久化键值存储：
 
-```java
-context.base().storage().put("settings", "last-user", userId);
-Optional<String> value = context.base().storage().get("settings", "last-user");
-Map<String, String> all = context.base().storage().list("settings");
-context.base().storage().delete("settings", "last-user");
+```kotlin
+context.base.storage.put("settings", "last-user", userId)
+val value = context.base.storage.get("settings", "last-user")
+val all = context.base.storage.list("settings")
+context.base.storage.delete("settings", "last-user")
 ```
 
 约束：
@@ -378,45 +451,47 @@ context.base().storage().delete("settings", "last-user");
 
 `BotPluginFactory.create(PluginRuntimeContext)` 会收到以下绑定级能力：
 
-```java
-PluginRuntimeContext context = ...;
-context.configuration();  // ConfigSnapshot
-context.events();         // EventService
-context.scheduler();      // PluginScheduler
-context.httpClient();     // RestrictedHttpClient
-context.mediaService();   // MediaService
-context.base();           // 消息、存储、日志、绑定身份和私有数据目录
+```kotlin
+val context: PluginRuntimeContext = ...
+context.configuration  // ConfigSnapshot
+context.events         // EventService
+context.scheduler      // PluginScheduler
+context.httpClient     // PluginHttpClient
+context.mediaService   // MediaService
+context.base           // 消息、存储、日志、绑定身份和私有数据目录
 ```
 
 ### EventService 与多 handler
 
-```java
-EventSubscription subscription = context.events().subscribe(
-        "commands", Set.of("C2C_MESSAGE_CREATE"), this::handleCommand);
+```kotlin
+val subscription = context.events.subscribe(
+    "commands", setOf("C2C_MESSAGE_CREATE"), ::handleCommand,
+)
 ```
 
 handler ID 必须是非空、无空白且不超过 128 个字符；同一绑定内不能重复注册。空事件类型集合匹配所有事件。订阅属于绑定资源，宿主停止插件时会自动关闭；插件仍应在 `stop()` 中关闭自己保存的句柄。事件类型不匹配时不会创建投递记录。
 
 ### PluginScheduler
 
-```java
-PluginTask once = context.scheduler().schedule(Duration.ofSeconds(10), this::refresh);
-PluginTask repeated = context.scheduler().scheduleWithFixedDelay(
-        Duration.ZERO, Duration.ofMinutes(5), this::refresh);
+```kotlin
+val once = context.scheduler.schedule(Duration.ofSeconds(10), ::refresh)
+val repeated = context.scheduler.scheduleWithFixedDelay(
+    Duration.ZERO, Duration.ofMinutes(5), ::refresh,
+)
 ```
 
 任务回调会进入当前绑定的有界执行队列，不会在 Gateway 或数据库线程执行。`PluginTask.close()` 等价于取消；绑定停止时所有任务都会取消。队列饱和时任务可能被丢弃，插件不应把调度器当作持久化队列。
 
-### RestrictedHttpClient
+### PluginHttpClient
 
-`RestrictedHttpClient` 是为兼容现有插件保留的历史类型名。当前宿主始终向每个插件绑定提供该客户端，不要求 Manifest 声明 `http`，也不增加 URL、公开/私有网络、请求头、重定向、请求体大小、响应体大小或最长超时限制。客户端会跟随重定向，并允许插件自行设置 `Authorization`、Cookie 等凭据。JDK `HttpClient` 对非法 URI、非法方法和部分保留请求头的底层校验仍然有效。
+宿主始终向每个插件绑定提供 `PluginHttpClient`，不要求 Manifest 声明 `http`，也不增加 URL、公开/私有网络、请求头、重定向、请求体大小、响应体大小或最长超时限制。客户端会跟随重定向，并允许插件自行设置 `Authorization`、Cookie 等凭据。JDK `HttpClient` 对非法 URI、非法方法和部分保留请求头的底层校验仍然有效。
 
 插件是可信代码，必须自行控制目标地址、凭据、响应大小、超时和并发，避免泄露密钥、SSRF、内存耗尽或阻塞插件工作队列。宿主不会自动添加 QQ 凭据。
 
-```java
-PluginHttpResponse response = context.httpClient()
-        .send(PluginHttpRequest.get(URI.create("https://example.com/status")))
-        .toCompletableFuture().join();
+```kotlin
+val response = context.httpClient
+    .send(PluginHttpRequest.get(URI.create("https://example.com/status")))
+    .toCompletableFuture().join()
 ```
 
 ### MediaService 与 ConfigSnapshot
@@ -425,12 +500,12 @@ PluginHttpResponse response = context.httpClient()
 
 ## 12. 日志
 
-使用 `context.base().logger()`，不要依赖宿主的 SLF4J：
+使用 `context.base.logger`，不要依赖宿主的 SLF4J：
 
-```java
-context.base().logger().info("plugin started");
-context.base().logger().warn("configuration fallback used");
-context.base().logger().error("processing failed", exception);
+```kotlin
+context.base.logger.info("plugin started")
+context.base.logger.warn("configuration fallback used")
+context.base.logger.error("processing failed", exception)
 ```
 
 宿主会附加 `pluginId` 和 `botId`，移除换行并把单条消息截断为 512 字符。不要记录 AppSecret、Access Token、完整个人信息或完整消息载荷。
@@ -473,10 +548,13 @@ context.base().logger().error("processing failed", exception);
 - 配置合法与非法边界。
 - `start`/`stop` 可重复执行，资源能够释放。
 - 使用 storage 时验证不同绑定之间隔离。
-- 使用文件或 SQLite 时验证路径只从 `dataDirectory()` 派生、不同绑定互不可见，并在 `stop()` 后可以移动或删除数据库文件。
+- 使用文件或 SQLite 时验证路径只从 `dataDirectory` 派生、不同绑定互不可见，并在 `stop()` 后可以移动或删除数据库文件。
+- 入队后先得到可查询的 `PENDING` 回执，插件重启后仍能根据已保存的 `jobId` 恢复同步。
+- 使用 `fixture.messages.succeed(jobId, platformMessageId)` 验证成功映射，使用 `setDelivery(...)` 覆盖 `RETRY_WAIT`、`RESULT_UNKNOWN` 和 `DEAD_LETTER` 分支。
+- 收到 `referencedMessageId` 时能按 `platform_message_id` 找到机器人消息及其上游引用。
 - 异步失败会通过 CompletionStage 传播，而不是被吞掉。
 
-仓库内的端到端宿主测试位于 `qqbot-plugin-host/src/test/.../Pf4jPluginHostTest.java`，会真实加载示例 JAR、执行事件、检查 Outbox、绑定存储和无重启升级。`qqbot-plugin-testkit` 提供 `PluginTestContext`、消息/媒体/事件/HTTP/存储/日志 fake 和可手动推进的调度器，可直接用于插件单元测试。
+仓库内的端到端宿主测试位于 `qqbot-plugin-host/src/test/kotlin/.../Pf4jPluginHostTest.kt`，会真实加载示例 JAR、执行事件、检查 Outbox、绑定存储和无重启升级。`qqbot-plugin-testkit` 提供 `PluginTestContext`、消息/媒体/事件/HTTP/存储/日志 fake 和可手动推进的调度器，可直接用于插件单元测试。
 
 构建仓库示例插件：
 
@@ -486,7 +564,7 @@ context.base().logger().error("processing failed", exception);
   --no-daemon
 ```
 
-产物位于 `qqbot-plugin-example/build/libs/qqbot-plugin-echo-*.jar`。
+产物位于 `qqbot-plugin-example/build/libs/qqbot-plugin-example-*.jar`。
 
 发布可复制 SDK 仓库和完整模板：
 
@@ -534,7 +612,7 @@ Docker Compose 默认把宿主 `./plugins` 绑定到容器 `/plugins`，并把�
 
 绑定文件的新建、覆盖、上传、删除，以及删除绑定或机器人，都会先停止并等待处理该 Web 请求实例内的相关插件回调；这不构成跨实例停机确认。HA 部署执行这些维护操作前，必须先把目标机器人租约和 Web 请求收敛到同一个实例，或停掉其他应用副本，并确认远端插件回调已经结束。否则另一实例仍可能持有 SQLite 连接或文件句柄，不得把共享目录上的文件管理操作视为跨实例原子操作。
 
-镜像内置的 `echo` 插件可作为部署烟测：`/ping` 回复 `pong`，`/remember` 写入当前绑定自己的存储空间。已有 Docker 命名卷不会因重建镜像自动覆盖同名 JAR。
+镜像内置的 `example` 插件可作为部署烟测。它把 `config.json` 中的 `triggerKeyword` 作为精确触发消息，并回复同一文件中的 `replyContent`；默认 `/example` 回复 `example reply`。绑定弹窗会预载这两个字段，每个机器人保存独立配置。已有 Docker 命名卷不会因重建镜像自动覆盖同名 JAR。
 
 ## 16. 常见故障
 
@@ -543,24 +621,27 @@ Docker Compose 默认把宿主 `./plugins` 绑定到容器 `/plugins`，并把�
 | 插件显示但未加载 | Manifest、`Plugin-Class`、Schema/默认配置资源、默认配置校验、API 版本、未知 capability |
 | 报工厂数量错误 | ServiceLoader 文件缺失、类名错误或注册了多个工厂 |
 | 插件上传被拒绝 | 文件扩展名/大小、可信确认、管理员会话和服务端校验错误 |
-| 插件 ID 不一致 | `Plugin-Id` 与 `BotPluginFactory.pluginId()` 必须相同 |
+| 插件 ID 不一致 | `Plugin-Id` 与 `BotPluginFactory.pluginId` 必须相同 |
 | 绑定保存或启动失败 | 检查绑定目录、`config.json`、JSON 对象格式和 Schema 校验错误 |
 | 切换数据库后配置不符 | 配置不在数据库中；检查新库绑定的 bot/plugin ID 与共享的 `QQBOT_PLUGINS_DATA_DIR` |
 | SQLite 或媒体文件消失 | 检查是否删除了绑定、是否持久化 `/data/plugin-data`、多实例是否挂载同一目录 |
 | JSON 保存提示文件已变化 | 其他管理员或插件在打开后修改了文件；重新打开并合并，不要绕过 SHA-256 冲突 |
 | 收不到事件 | 机器人 Gateway 状态、Intents、Inbox、绑定启用状态、handler 事件类型和插件投递队列 |
 | 能收到但不回复 | 是否声明 `message.send`、事件是否有回复目标、Outbox/DLQ 状态 |
+| `findDelivery` 返回空 | `jobId` 是否正确、是否由当前插件绑定创建、绑定是否已删除；空结果不等于仍在排队 |
+| 群友引用机器人消息但查不到历史 | 是否把 `platformMessageId` 写入 SQLite；不要用 Outbox `jobId` 作为 QQ 消息 ID |
+| 回执长期停在 `RESULT_UNKNOWN` | QQ 请求结果无法确认且该状态为终态；检查后台错误并通过消息回流或平台查询人工对账，不要盲目重发 |
 | storage/调度器被拒绝 | Manifest 是否声明对应 capability；HTTP 客户端不受 capability 限制 |
 | 重复执行 | 属于至少一次语义；检查去重键及外部副作用幂等性 |
 | 新 JAR 未生效 | 核对上传结果、版本和 SHA-256；确认当前请求没有落到旧的多实例副本 |
 
 ## 17. 安全边界
 
-PF4J 类加载隔离不是安全沙箱。插件与宿主运行在同一 JVM，`dataDirectory()` 只是约定的绑定私有根目录，不构成操作系统访问控制；插件可使用 Java 文件和网络 API 访问容器身份有权访问的其他资源。兼容 HTTP Client 同样不限制 URL、内外网地址、请求头、重定向、正文、响应或最长超时。第一版只允许运维人员部署可信插件 JAR；网页上传会执行插件代码，因此必须限制管理员权限、插件目录、数据目录和镜像运行身份。不可信第三方插件必须改为独立进程或容器，通过受控 RPC 接入。插件 API 不直接提供 Spring、主数据库连接、AppSecret 或 Access Token。
+PF4J 类加载隔离不是安全沙箱。插件与宿主运行在同一 JVM，`dataDirectory` 只是约定的绑定私有根目录，不构成操作系统访问控制；插件可使用 JVM 标准文件和网络 API 访问容器身份有权访问的其他资源。`PluginHttpClient` 同样不限制 URL、内外网地址、请求头、重定向、正文、响应或最长超时。第一版只允许运维人员部署可信插件 JAR；网页上传会执行插件代码，因此必须限制管理员权限、插件目录、数据目录和镜像运行身份。不可信第三方插件必须改为独立进程或容器，通过受控 RPC 接入。插件 API 不直接提供 Spring、主数据库连接、AppSecret 或 Access Token。
 
 ## 18. 参考实现
 
-- `plugin-template`：可复制的 API 2.0 项目模板和多 handler 示例。
+- `plugin-template`：可复制的 API 3.0 项目模板和多 handler 示例。
 - `qqbot-plugin-example`：宿主端到端测试使用的最小可运行插件。
 - `qqbot-plugin-testkit`：插件单元测试替身。
 - `qqbot-plugin-api`：插件可调用的稳定接口。

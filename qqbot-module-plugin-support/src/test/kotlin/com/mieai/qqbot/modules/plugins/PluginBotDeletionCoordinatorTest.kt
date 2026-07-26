@@ -22,7 +22,6 @@ import org.mockito.Mockito.`when`
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
-import java.util.Optional
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -39,7 +38,7 @@ class PluginBotDeletionCoordinatorTest {
     fun setUp() {
         bots = mock(BotRepository::class.java)
         host = mock(Pf4jPluginHost::class.java)
-        `when`(host.pluginDataRoot()).thenReturn(dataRoot)
+        `when`(host.pluginDataRoot).thenReturn(dataRoot)
         coordinator = PluginBotDeletionCoordinator(bots, host)
     }
 
@@ -72,11 +71,15 @@ class PluginBotDeletionCoordinatorTest {
 
             override fun onCommitted(change: BotConfigurationChange) = Unit
         }
-        val service = BotConfigurationService(bots, mock(AppSecretCipher::class.java), listener)
+        val service = BotConfigurationService(
+            bots,
+            mock(AppSecretCipher::class.java),
+            changeListener = listener,
+        )
 
         assertThatThrownBy { service.delete(botId) }
             .isInstanceOfSatisfying(PluginAdministrationException::class.java) { failure ->
-                assertThat(failure.code()).isEqualTo("PLUGIN_DATA_DIRECTORY_INVALID")
+                assertThat(failure.code).isEqualTo("PLUGIN_DATA_DIRECTORY_INVALID")
             }
 
         verify(bots, never()).delete(botId)
@@ -86,7 +89,7 @@ class PluginBotDeletionCoordinatorTest {
 
     @Test
     fun `does not restore data when a failed database call actually committed`() {
-        `when`(bots.findById(botId)).thenReturn(presentBot(), Optional.empty())
+        `when`(bots.findById(botId)).thenReturn(presentBot()).thenReturn(null)
         createBotData()
 
         coordinator.prepare(botId)
@@ -102,7 +105,7 @@ class PluginBotDeletionCoordinatorTest {
         val exists = AtomicBoolean(true)
         val stored = mock(StoredBot::class.java)
         `when`(bots.findById(botId)).thenAnswer {
-            if (exists.get()) Optional.of(stored) else Optional.empty()
+            if (exists.get()) stored else null
         }
         `when`(bots.delete(botId)).thenAnswer {
             exists.set(false)
@@ -111,7 +114,11 @@ class PluginBotDeletionCoordinatorTest {
         createBotData()
         val runtime = mock(PluginRuntimeService::class.java)
         val listener = PluginSupportModuleConfiguration().pluginBotDeletionListener(runtime, coordinator)
-        val service = BotConfigurationService(bots, mock(AppSecretCipher::class.java), listener)
+        val service = BotConfigurationService(
+            bots,
+            mock(AppSecretCipher::class.java),
+            changeListener = listener,
+        )
 
         assertThatThrownBy { service.delete(botId) }
             .isInstanceOf(IllegalStateException::class.java)
@@ -125,7 +132,7 @@ class PluginBotDeletionCoordinatorTest {
 
     @Test
     fun `removes the tombstone only after the durable bot row is gone`() {
-        `when`(bots.findById(botId)).thenReturn(presentBot(), Optional.empty())
+        `when`(bots.findById(botId)).thenReturn(presentBot()).thenReturn(null)
         createBotData()
 
         coordinator.prepare(botId)
@@ -137,7 +144,7 @@ class PluginBotDeletionCoordinatorTest {
 
     @Test
     fun `failed committed cleanup is reported and remains recoverable`() {
-        `when`(bots.findById(botId)).thenReturn(presentBot(), Optional.empty())
+        `when`(bots.findById(botId)).thenReturn(presentBot()).thenReturn(null)
         coordinator = PluginBotDeletionCoordinator(bots, host) {
             throw IOException("file is still open")
         }
@@ -147,7 +154,7 @@ class PluginBotDeletionCoordinatorTest {
 
         assertThatThrownBy { coordinator.commit(botId) }
             .isInstanceOfSatisfying(PluginAdministrationException::class.java) { failure ->
-                assertThat(failure.code()).isEqualTo("BOT_PLUGIN_DATA_DELETE_FAILED")
+                assertThat(failure.code).isEqualTo("BOT_PLUGIN_DATA_DELETE_FAILED")
             }
         assertThat(botRoot()).doesNotExist()
         assertThat(tombstones()).hasSize(1)
@@ -171,7 +178,7 @@ class PluginBotDeletionCoordinatorTest {
 
     @Test
     fun `startup recovery retries cleanup for a committed deletion`() {
-        `when`(bots.findById(botId)).thenReturn(Optional.empty())
+        `when`(bots.findById(botId)).thenReturn(null)
         val tombstone = createTombstone()
         Files.writeString(tombstone.resolve("large.bin"), "content")
 
@@ -186,7 +193,7 @@ class PluginBotDeletionCoordinatorTest {
         `when`(bots.findById(botId)).thenReturn(presentBot())
     }
 
-    private fun presentBot(): Optional<StoredBot> = Optional.of(mock(StoredBot::class.java))
+    private fun presentBot(): StoredBot = mock(StoredBot::class.java)
 
     private fun createBotData(): Path = Files.createDirectories(botRoot().resolve("echo-plugin"))
 
