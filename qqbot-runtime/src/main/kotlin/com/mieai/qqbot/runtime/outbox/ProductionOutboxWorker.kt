@@ -9,6 +9,7 @@ import com.mieai.qqbot.client.QqClientException
 import com.mieai.qqbot.client.QqClientFailure
 import com.mieai.qqbot.client.QqClientOptions
 import com.mieai.qqbot.client.QqMediaMessageRequest
+import com.mieai.qqbot.client.QqMessageSendOptions
 import com.mieai.qqbot.client.QqMessageSendResult
 import com.mieai.qqbot.client.QqOpenApiClient
 import com.mieai.qqbot.client.QqRichMessageRequest
@@ -22,6 +23,7 @@ import com.mieai.qqbot.persistence.lease.BotLeaseRepository
 import com.mieai.qqbot.persistence.outbox.OutboxJob
 import com.mieai.qqbot.persistence.outbox.OutboxRepository
 import com.mieai.qqbot.persistence.outbox.OutboxSendReceipt
+import com.mieai.qqbot.protocol.openapi.QqMessageModels
 import com.mieai.qqbot.runtime.security.AppSecretCipher
 import com.mieai.qqbot.runtime.security.BotCredentialDecryptor
 import java.io.IOException
@@ -203,6 +205,7 @@ class ProductionOutboxWorker(
     @Throws(InterruptedException::class, ExecutionException::class, TimeoutException::class)
     private fun sendText(bot: StoredBot, job: OutboxJob): QqMessageSendResult {
         val payload = mapper.readValue(job.payload, OutboundTextPayload::class.java)
+        val sendOptions = sendOptions(payload.messageReference)
         val request = QqTextMessageRequest(
             payload.targetType,
             payload.targetId,
@@ -211,7 +214,7 @@ class ProductionOutboxWorker(
             payload.replyEventId,
             payload.messageSequence,
         )
-        return client(bot).sendText(request).toCompletableFuture()
+        return client(bot).sendText(request, sendOptions).toCompletableFuture()
             .get(requestWait.toMillis(), TimeUnit.MILLISECONDS)
     }
 
@@ -222,6 +225,7 @@ class ProductionOutboxWorker(
         onStagedAsset: (MediaAsset) -> Unit,
     ): QqMessageSendResult {
         val payload = mapper.readValue(job.payload, OutboundMediaPayload::class.java)
+        val sendOptions = sendOptions(payload.messageReference)
         val request = QqMediaMessageRequest(
             payload.targetType,
             payload.targetId,
@@ -234,9 +238,9 @@ class ProductionOutboxWorker(
         )
         if (payload.mediaAssetId == null) {
             val sending: CompletionStage<QqMessageSendResult> = if (mediaStore == null) {
-                client(bot).sendMedia(request)
+                client(bot).sendMedia(request, sendOptions)
             } else {
-                client(bot).sendMediaBounded(request)
+                client(bot).sendMediaBounded(request, sendOptions)
             }
             return sending.toCompletableFuture().get(requestWait.toMillis(), TimeUnit.MILLISECONDS)
         }
@@ -257,13 +261,14 @@ class ProductionOutboxWorker(
         if (bytes.size > bot.definition.maxMediaUploadBytes) {
             throw PermanentFailure("Staged media exceeds the bot upload limit")
         }
-        return client(bot).sendMedia(request, bytes).toCompletableFuture()
+        return client(bot).sendMedia(request, bytes, sendOptions).toCompletableFuture()
             .get(requestWait.toMillis(), TimeUnit.MILLISECONDS)
     }
 
     @Throws(InterruptedException::class, ExecutionException::class, TimeoutException::class)
     private fun sendRich(bot: StoredBot, job: OutboxJob): QqMessageSendResult {
         val payload = mapper.readValue(job.payload, OutboundRichPayload::class.java)
+        val sendOptions = sendOptions(payload.messageReference)
         val request = QqRichMessageRequest(
             payload.targetType,
             payload.targetId,
@@ -273,9 +278,16 @@ class ProductionOutboxWorker(
             payload.replyEventId,
             payload.messageSequence,
         )
-        return client(bot).sendRich(request).toCompletableFuture()
+        return client(bot).sendRich(request, sendOptions).toCompletableFuture()
             .get(requestWait.toMillis(), TimeUnit.MILLISECONDS)
     }
+
+    private fun sendOptions(reference: OutboundMessageReference?): QqMessageSendOptions =
+        QqMessageSendOptions(
+            messageReference = reference?.let {
+                QqMessageModels.MessageReference(it.messageId, it.ignoreGetMessageError)
+            },
+        )
 
     private fun client(bot: StoredBot): QqOpenApiClient {
         val id = bot.definition.id

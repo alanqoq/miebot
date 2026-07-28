@@ -2,7 +2,7 @@
 set -eu
 
 project_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-image=${QQBOT_IMAGE:-mirai-qqbot:1.0.0}
+image=${QQBOT_IMAGE:-mirai-qqbot:1.0.1}
 container_id=
 
 cleanup() {

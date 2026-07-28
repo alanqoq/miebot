@@ -2,6 +2,23 @@
 
 本文件记录面向使用者的发布变更。插件 API 级别与 Maven 制品版本分别维护；请同时阅读对应 SDK 指南。
 
+## 1.0.1 - 2026-07-28
+
+### Added
+
+- 插件 API `3.1.0` 新增 `MessageSendOptions` 和显式 `MessageReference`，文本、媒体、暂存媒体和富消息都可经持久化 Outbox 发送 QQ `message_reference`；原有 `msg_id`/`event_id` 被动回复保持不变。
+- 管理后台的测试消息表单和发送接口支持显式引用消息 ID，并在 Outbox 任务 Payload 中展示引用选项。
+
+### Changed
+
+- 插件 API 兼容检查改为接受同一主版本且不高于宿主版本的接口级别，因此现有 `3.0.0` 插件可继续由 `3.1.0` 宿主加载。
+
+### Fixed
+
+- 普通群消息现在从 QQ `author.member_role` 解码并向原生插件暴露稳定的 `GroupMemberRole`；OneBot 第三方 WebSocket 事件不再把群主和管理员固定降级为普通成员。
+- 明确 OneBot 11 只用于外部第三方 WebSocket 接入，与 PF4J 机器人插件开发无关。
+- `stageDefaultModules` 现在会清理七个默认模块的旧版本 JAR，避免框架升级后因本地 `/modules` 残留版本而拒绝启动。
+
 ## 1.0.0 - 2026-07-26
 
 ### Changed

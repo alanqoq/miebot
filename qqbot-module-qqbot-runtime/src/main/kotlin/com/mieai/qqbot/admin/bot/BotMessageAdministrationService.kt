@@ -15,6 +15,7 @@ import com.mieai.qqbot.persistence.bot.BotRepository
 import com.mieai.qqbot.persistence.outbox.NewOutboxJob
 import com.mieai.qqbot.persistence.outbox.OutboxRepository
 import com.mieai.qqbot.runtime.outbox.OutboundMediaPayload
+import com.mieai.qqbot.runtime.outbox.OutboundMessageReference
 import com.mieai.qqbot.runtime.outbox.OutboundRichPayload
 import com.mieai.qqbot.runtime.outbox.OutboundTextPayload
 import java.net.URI
@@ -48,6 +49,12 @@ class BotMessageAdministrationService(
             val targetType = requireNotNull(request.targetType) { "targetType must not be null" }
             val targetId = requireNotNull(request.targetId) { "targetId must not be null" }
             val sequence = request.messageSequence ?: 1
+            val messageReference = request.messageReference?.let { reference ->
+                OutboundMessageReference(
+                    requireNotNull(reference.messageId) { "messageReference.messageId must not be null" },
+                    reference.ignoreGetMessageError,
+                )
+            }
             val messageKind = request.kind
             when (messageKind) {
                 BotMessageKind.TEXT -> {
@@ -71,6 +78,7 @@ class BotMessageAdministrationService(
                                 request.replyMessageId,
                                 request.replyEventId,
                                 sequence,
+                                messageReference,
                             ),
                         ),
                     )
@@ -124,6 +132,7 @@ class BotMessageAdministrationService(
                                 request.replyEventId,
                                 sequence,
                                 assetId,
+                                messageReference,
                             ),
                         ),
                     )
@@ -156,6 +165,7 @@ class BotMessageAdministrationService(
                                 request.replyMessageId,
                                 request.replyEventId,
                                 sequence,
+                                messageReference,
                             ),
                         ),
                     )

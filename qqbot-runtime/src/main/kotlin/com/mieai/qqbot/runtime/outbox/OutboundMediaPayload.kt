@@ -17,6 +17,7 @@ data class OutboundMediaPayload @JsonCreator(mode = JsonCreator.Mode.PROPERTIES)
     @JsonProperty("replyEventId") val replyEventId: String?,
     @JsonProperty("messageSequence") val messageSequence: Int,
     @JsonProperty("mediaAssetId") val mediaAssetId: UUID? = null,
+    @JsonProperty("messageReference") val messageReference: OutboundMessageReference? = null,
 ) {
     companion object {
         const val JOB_TYPE = "QQ_SEND_MEDIA"

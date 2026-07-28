@@ -180,10 +180,15 @@ export class BotsPage implements OnInit {
     payloadJson: ['{}'],
     replyMessageId: [''],
     replyEventId: [''],
+    messageReferenceId: ['', [Validators.maxLength(255), tokenText]],
+    ignoreGetMessageError: [{ value: false, disabled: true }],
   });
 
   ngOnInit(): void {
     this.loadBots();
+    this.messageForm.controls.messageReferenceId.valueChanges
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((messageId) => this.updateMessageReferenceOption(messageId));
     this.api.observeRuntime()
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((summary) => this.applyRuntimeSummary(summary));
@@ -260,6 +265,7 @@ export class BotsPage implements OnInit {
     this.messageForm.reset({
       kind: 'TEXT', targetType: 'C2C', targetId: '', content: '', mediaKind: 'IMAGE',
       mediaUrl: '', payloadJson: '{}', replyMessageId: '', replyEventId: '',
+      messageReferenceId: '', ignoreGetMessageError: false,
     });
   }
 
@@ -269,6 +275,16 @@ export class BotsPage implements OnInit {
     this.messageError.set(null);
     this.messageResult.set(null);
     this.selectedMedia.set(null);
+  }
+
+  private updateMessageReferenceOption(messageId: string): void {
+    const control = this.messageForm.controls.ignoreGetMessageError;
+    if (messageId.length > 0 && this.messageForm.controls.messageReferenceId.valid) {
+      control.enable({ emitEvent: false });
+      return;
+    }
+    control.setValue(false, { emitEvent: false });
+    control.disable({ emitEvent: false });
   }
 
   protected chooseMedia(event: Event): void {
@@ -341,6 +357,14 @@ export class BotsPage implements OnInit {
       ...(payload ? { payload } : {}),
       ...(value.replyMessageId ? { replyMessageId: value.replyMessageId } : {}),
       ...(value.replyEventId ? { replyEventId: value.replyEventId } : {}),
+      ...(value.messageReferenceId
+        ? {
+            messageReference: {
+              messageId: value.messageReferenceId,
+              ignoreGetMessageError: value.ignoreGetMessageError,
+            },
+          }
+        : {}),
       messageSequence: 1,
     };
     const file = value.kind === 'MEDIA' ? this.selectedMedia() : null;

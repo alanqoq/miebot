@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: mirai-qqbot:1.0.0
+    image: mirai-qqbot:1.0.1
     platform: linux/amd64
     restart: unless-stopped
     stop_grace_period: 30s

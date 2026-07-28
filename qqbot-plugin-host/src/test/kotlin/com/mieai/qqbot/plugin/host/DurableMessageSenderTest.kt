@@ -8,19 +8,26 @@ import com.mieai.qqbot.client.QqMediaKind
 import com.mieai.qqbot.domain.bot.BotEnvironment
 import com.mieai.qqbot.domain.bot.BotId
 import com.mieai.qqbot.persistence.outbox.OutboxJob
+import com.mieai.qqbot.persistence.outbox.NewOutboxJob
 import com.mieai.qqbot.persistence.outbox.OutboxRepository
 import com.mieai.qqbot.persistence.outbox.OutboxStatus
 import com.mieai.qqbot.plugin.api.MediaKind
 import com.mieai.qqbot.plugin.api.MessageDeliveryState
+import com.mieai.qqbot.plugin.api.MessageReference
+import com.mieai.qqbot.plugin.api.MessageSendOptions
 import com.mieai.qqbot.plugin.api.MessageTarget
 import com.mieai.qqbot.plugin.api.MessageTargetType
 import com.mieai.qqbot.plugin.api.StagedMedia
 import com.mieai.qqbot.plugin.api.StagedMediaMessage
+import com.mieai.qqbot.plugin.api.TextMessage
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.ExtendWith
 import org.mockito.Mock
+import org.mockito.ArgumentCaptor
+import org.mockito.Mockito.mock
+import org.mockito.Mockito.verify
 import org.mockito.Mockito.verifyNoInteractions
 import org.mockito.Mockito.`when`
 import org.mockito.junit.jupiter.MockitoExtension
@@ -63,6 +70,31 @@ class DurableMessageSenderTest {
             .isInstanceOf(CompletionException::class.java)
             .hasCauseInstanceOf(IllegalArgumentException::class.java)
         verifyNoInteractions(outbox)
+    }
+
+    @Test
+    fun persistsExplicitMessageReferenceInTheOutboxPayload() {
+        val sender = DurableMessageSender(
+            UUID.randomUUID(),
+            BOT_ID,
+            BotEnvironment.SANDBOX,
+            outbox,
+            ObjectMapper(),
+            Clock.fixed(NOW, ZoneOffset.UTC),
+        )
+
+        sender.enqueue(
+            TextMessage(MessageTarget(MessageTargetType.GROUP, "group-1"), "hello"),
+            MessageSendOptions(MessageReference("bot-message-900", true)),
+        ).toCompletableFuture().join()
+
+        val captor = ArgumentCaptor.forClass(NewOutboxJob::class.java)
+        val fallback = mock(NewOutboxJob::class.java)
+        verify(outbox).create(captor.capture() ?: fallback)
+        assertThat(captor.value.payload)
+            .contains("\"messageReference\"")
+            .contains("\"messageId\":\"bot-message-900\"")
+            .contains("\"ignoreGetMessageError\":true")
     }
 
     @Test

@@ -1,6 +1,6 @@
 # QQBot 插件模板
 
-这是一个可复制的 Kotlin 1.9.25、JVM 21、插件 API 3.0 项目。模板只把 `qqbot-plugin-api` 和
+这是一个可复制的 Kotlin 1.9.25、JVM 21、插件 API 3.1 项目。模板只把 `qqbot-plugin-api` 和
 `qqbot-plugin-spi` 作为 `compileOnly` 依赖，最终 JAR 不会携带 API、SPI、PF4J、
 Spring 或数据库驱动。
 
@@ -25,7 +25,7 @@ Spring 或数据库驱动。
 
 复制到其他目录后，通过 `-PqqbotSdkRepository=<SDK 仓库路径>` 或环境变量
 `QQBOT_SDK_REPOSITORY` 指定 SDK 仓库。SDK 版本默认是仓库当前的
-`1.0.0`。
+`1.0.1`。
 
 ## 需要改动的文件
 

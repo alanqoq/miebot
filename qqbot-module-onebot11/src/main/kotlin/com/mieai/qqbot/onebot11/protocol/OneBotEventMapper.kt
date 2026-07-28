@@ -199,7 +199,7 @@ class OneBotEventMapper(
             sender.put("card", nickname)
             sender.put("area", "")
             sender.put("level", "")
-            sender.put("role", "member")
+            sender.put("role", groupMemberRole(message.author?.memberRole))
             sender.put("title", "")
         }
         return sender
@@ -218,6 +218,12 @@ class OneBotEventMapper(
             if (primary != null) return primary
             val secondary = if (group) normalized(author.userOpenId) else normalized(author.memberOpenId)
             return secondary ?: normalized(author.id)
+        }
+
+        private fun groupMemberRole(value: String?): String = when (normalized(value)?.lowercase(Locale.ROOT)) {
+            "owner" -> "owner"
+            "admin" -> "admin"
+            else -> "member"
         }
 
         private fun attachmentType(contentType: String?): String? {

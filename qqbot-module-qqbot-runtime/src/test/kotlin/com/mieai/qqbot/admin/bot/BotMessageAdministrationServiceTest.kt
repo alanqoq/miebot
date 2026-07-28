@@ -61,12 +61,31 @@ class BotMessageAdministrationServiceTest {
 
     @Test
     fun `queues rich message as durable outbox payload`() {
-        service.send(BOT_ID.toString(), SendBotMessageRequest(BotMessageKind.MARKDOWN, QqMessageTargetType.CHANNEL, "channel-1", null, null, null, null, mapOf("content" to "**hello**"), null, null, 1))
+        service.send(
+            BOT_ID.toString(),
+            SendBotMessageRequest(
+                BotMessageKind.MARKDOWN,
+                QqMessageTargetType.CHANNEL,
+                "channel-1",
+                null,
+                null,
+                null,
+                null,
+                mapOf("content" to "**hello**"),
+                null,
+                null,
+                1,
+                SendMessageReferenceRequest("quoted-message-1", true),
+            ),
+        )
         val captor = ArgumentCaptor.forClass(NewOutboxJob::class.java)
         val fallbackJob = mock(NewOutboxJob::class.java)
         verify(outbox).create(captor.capture() ?: fallbackJob)
         assertThat(captor.value.jobType).isEqualTo("QQ_SEND_RICH")
-        assertThat(captor.value.payload).contains("MARKDOWN", "channel-1", "**hello**")
+        assertThat(captor.value.payload)
+            .contains("MARKDOWN", "channel-1", "**hello**")
+            .contains("\"messageId\":\"quoted-message-1\"")
+            .contains("\"ignoreGetMessageError\":true")
     }
 
     @Test
@@ -74,6 +93,32 @@ class BotMessageAdministrationServiceTest {
         assertThatThrownBy {
             service.send(BOT_ID.toString(), SendBotMessageRequest(BotMessageKind.MEDIA, QqMessageTargetType.CHANNEL, "channel-1", null, QqMediaKind.AUDIO, "https://cdn.example/audio.mp3", null, null, null, null, 1))
         }.isInstanceOf(BotMessageAdministrationException::class.java).hasMessageContaining("only support image")
+        val fallbackJob = mock(NewOutboxJob::class.java)
+        verify(outbox, never()).create(anyValue(NewOutboxJob::class.java, fallbackJob))
+    }
+
+    @Test
+    fun `rejects malformed explicit message references before queueing`() {
+        assertThatThrownBy {
+            service.send(
+                BOT_ID.toString(),
+                SendBotMessageRequest(
+                    BotMessageKind.TEXT,
+                    QqMessageTargetType.C2C,
+                    "user-1",
+                    "hello",
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    1,
+                    SendMessageReferenceRequest("bad reference", false),
+                ),
+            )
+        }.isInstanceOf(BotMessageAdministrationException::class.java)
+            .hasMessageContaining("messageId")
         val fallbackJob = mock(NewOutboxJob::class.java)
         verify(outbox, never()).create(anyValue(NewOutboxJob::class.java, fallbackJob))
     }

@@ -1,4 +1,6 @@
 {
+  "_triggerKeywordComment": "机器人收到的文本去除首尾空白后，与该值完全一致时触发回复；匹配区分大小写。",
   "triggerKeyword": "/example",
+  "_replyContentComment": "触发关键词匹配成功后，机器人发送的回复内容。",
   "replyContent": "example reply"
 }

@@ -121,6 +121,12 @@ export interface SendBotMessageRequest {
   replyMessageId?: string;
   replyEventId?: string;
   messageSequence: number;
+  messageReference?: SendMessageReferenceRequest;
+}
+
+export interface SendMessageReferenceRequest {
+  messageId: string;
+  ignoreGetMessageError: boolean;
 }
 
 export interface BotMessageResponse {

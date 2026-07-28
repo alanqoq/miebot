@@ -5,6 +5,7 @@ import com.mieai.qqbot.domain.bot.BotEnvironment
 import com.mieai.qqbot.domain.bot.BotId
 import com.mieai.qqbot.persistence.inbox.InboxEvent
 import com.mieai.qqbot.persistence.inbox.InboxStatus
+import com.mieai.qqbot.plugin.api.GroupMemberRole
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import java.time.Instant
@@ -22,7 +23,7 @@ class PluginEventMapperTest {
             "event-1",
             """
                 {"id":"event-1","d":{"id":"user-message-1","group_openid":"group-1",
-                "content":"quoted","author":{"member_openid":"user-1"},
+                "content":"quoted","author":{"member_openid":"user-1","member_role":"admin"},
                 "message_reference":{"message_id":"bot-message-900"}}}
             """.trimIndent(),
             InboxStatus.RECEIVED,
@@ -40,5 +41,6 @@ class PluginEventMapperTest {
 
         assertThat(message.messageId).isEqualTo("user-message-1")
         assertThat(message.referencedMessageId).isEqualTo("bot-message-900")
+        assertThat(message.memberRole).isEqualTo(GroupMemberRole.ADMIN)
     }
 }

@@ -17,7 +17,7 @@ class ExamplePluginFactoryTest {
     fun repliesWithConfiguredContentWhenTheKeywordMatches() {
         PluginTestContext(
             "example",
-            """{"triggerKeyword":"/example","replyContent":"configured reply"}""",
+            """{"_triggerKeywordComment":"Trigger explanation","triggerKeyword":"/example","_replyContentComment":"Reply explanation","replyContent":"configured reply"}""",
         ).use { fixture ->
             val factory = ExamplePluginFactory()
             val plugin = factory.create(fixture.context)

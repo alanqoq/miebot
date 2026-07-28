@@ -8,6 +8,7 @@ import {
   BotRuntimeStatus,
   BotRuntimeSummary,
   CreateBotRequest,
+  SendBotMessageRequest,
   UpdateBotRequest,
 } from '../../core/bot-api.service';
 import { DEFAULT_GATEWAY_INTENTS } from '../../core/gateway-intents';
@@ -135,6 +136,48 @@ describe('BotsPage', () => {
     expect(payload.keyboard.content.rows).toHaveLength(1);
   });
 
+  it('queues an explicit message reference from the test message form', async () => {
+    const { fixture, api } = await configure();
+
+    click(fixture, element(fixture, 'button[aria-label="发送测试消息"]'));
+    fill(fixture, 'input[formControlName="targetId"]', 'user-1');
+    fill(fixture, 'textarea[formControlName="content"]', 'hello');
+    const ignoreGetMessageError = element<HTMLInputElement>(
+      fixture,
+      'input[formControlName="ignoreGetMessageError"]',
+    );
+    expect(ignoreGetMessageError.disabled).toBe(true);
+    fill(fixture, 'input[formControlName="messageReferenceId"]', 'quoted-message-1');
+    expect(ignoreGetMessageError.disabled).toBe(false);
+    click(fixture, ignoreGetMessageError);
+    click(fixture, buttonByText(fixture, '入队发送'));
+
+    const request = api.sendMessage.mock.calls[0]?.[1] as SendBotMessageRequest;
+    expect(request.messageReference).toEqual({
+      messageId: 'quoted-message-1',
+      ignoreGetMessageError: true,
+    });
+  });
+
+  it('clears and disables the reference error option when the reference is removed', async () => {
+    const { fixture } = await configure();
+
+    click(fixture, element(fixture, 'button[aria-label="发送测试消息"]'));
+    const reference = 'input[formControlName="messageReferenceId"]';
+    const ignoreGetMessageError = element<HTMLInputElement>(
+      fixture,
+      'input[formControlName="ignoreGetMessageError"]',
+    );
+    fill(fixture, reference, 'quoted-message-1');
+    click(fixture, ignoreGetMessageError);
+    expect(ignoreGetMessageError.checked).toBe(true);
+
+    fill(fixture, reference, '');
+
+    expect(ignoreGetMessageError.disabled).toBe(true);
+    expect(ignoreGetMessageError.checked).toBe(false);
+  });
+
   it('keeps AppSecret empty and offers reload when an edit conflicts', async () => {
     const { fixture, api } = await configure({ updateError: revisionConflict });
 
@@ -202,7 +245,13 @@ async function configure(options: ConfigureOptions = {}) {
     setEnabled: vi.fn(() => of(options.enabledResult ?? configuredBot)),
     delete: vi.fn(() => of(undefined)),
     uploadMedia: vi.fn(),
-    sendMessage: vi.fn(),
+    sendMessage: vi.fn((_id: string, _request: SendBotMessageRequest) =>
+      of({
+        jobId: '750e8400-e29b-41d4-a716-446655440001',
+        alreadyPresent: false,
+        queuedAt: '2026-07-20T12:00:00Z',
+      }),
+    ),
   };
   await TestBed.configureTestingModule({
     imports: [BotsPage],

@@ -3,6 +3,7 @@ package com.mieai.qqbot.plugin.host
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.mieai.qqbot.persistence.inbox.InboxEvent
+import com.mieai.qqbot.plugin.api.GroupMemberRole
 import com.mieai.qqbot.plugin.api.InboundMessage
 import com.mieai.qqbot.plugin.api.MessageTarget
 import com.mieai.qqbot.plugin.api.MessageTargetType
@@ -54,13 +55,19 @@ class PluginEventMapper(
             val authorId = first(data.path("author"), "user_openid", "member_openid", "id")
             val content = text(data, "content")
             val referencedMessageId = first(data.path("message_reference"), "message_id")
+            val memberRole = if (target.type == MessageTargetType.GROUP) {
+                GroupMemberRole.fromPlatformValue(text(data.path("author"), "member_role"))
+            } else {
+                null
+            }
             InboundMessage(
-                target,
-                messageId,
-                envelopeEventId ?: event.platformEventId,
-                authorId,
-                content,
-                referencedMessageId,
+                replyTarget = target,
+                messageId = messageId,
+                eventId = envelopeEventId ?: event.platformEventId,
+                authorId = authorId,
+                content = content,
+                referencedMessageId = referencedMessageId,
+                memberRole = memberRole,
             )
         } catch (_: RuntimeException) {
             null

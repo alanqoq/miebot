@@ -31,6 +31,21 @@ class QqEventDecoderTest {
     }
 
     @Test
+    fun decodesOrdinaryGroupMessageMemberRole() {
+        val payload = """
+            {"op":0,"s":13,"t":"GROUP_AT_MESSAGE_CREATE","d":{
+              "id":"message-2","group_openid":"group-1","content":"hello",
+              "author":{"member_openid":"user-1","member_role":"owner"}
+            }}
+        """.trimIndent()
+
+        val event = requireNotNull(decoder.decodeKnown("GROUP_AT_MESSAGE_CREATE", payload))
+            as QqEventModels.Message
+
+        assertThat(event.author!!.memberRole).isEqualTo("owner")
+    }
+
+    @Test
     fun decodesNewGroupMemberAndInteractionEvents() {
         val memberPayload = """
             {"op":0,"s":13,"t":"GROUP_MEMBER_ADD","d":{

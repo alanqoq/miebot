@@ -11,10 +11,10 @@
 - 稳定领域模型与 QQ 协议 DTO 分离
 - Access Token 与完整 QQ OpenAPI 客户端：消息/撤回、频道/成员/身份组/权限、禁言、表态、公告、精华、日程、论坛、音频、互动回执和机器人分享链接
 - 默认启用的真实 QQ Gateway 多机器人运行时
-- OneBot 11 C2C/普通群兼容模块，支持正向与反向 Universal WebSocket，并可在每个机器人编辑页独立配置
+- 仅供外部第三方程序接入的 OneBot 11 C2C/普通群兼容模块，支持正向与反向 Universal WebSocket，并可在每个机器人编辑页独立配置；它不属于机器人插件开发接口
 - SQLite/MySQL/PostgreSQL 持久化、版本化迁移和安全热切换
 - Angular 22 管理后台工程
-- 插件 SDK API 级别 `3.0.0`（Maven 制品 `1.0.0`，API、SPI、testkit）、可复制项目模板和本地分发任务
+- 插件 SDK API 级别 `3.1.0`（Maven 制品 `1.0.1`，API、SPI、testkit）、可复制项目模板和本地分发任务
 - Gateway Dispatch 持久化到 `event_inbox`，并提供管理员 Inbox 查询 API
 - Outbox/DLQ 持久化状态、生产 QQ OpenAPI 发送、按插件绑定隔离的真实 QQ 消息回执查询、管理员 API 与后台实时视图
 - PF4J 可信插件宿主、每机器人绑定、配置 Schema 和默认配置校验、绑定级 `PluginStorage`、暂停/恢复、超时取消与隔离、插件投递重试和插件 DLQ
@@ -35,11 +35,11 @@ QQ Gateway 默认启用。应用启动后会读取当前数据库中的机器人
 
 管理员可通过 `GET /api/bots/runtime` 或 Dashboard 查看已启用数、当前在线数、连接阶段、心跳、事件序号、重连次数和脱敏错误。Dashboard 的“平台服务正常”表示应用及数据库就绪，不等同于 QQ Gateway 已连接；“运行机器人”的已连接数仅统计已进入 `ONLINE` 的运行时。
 
-普通 QQ Gateway Dispatch 会先保留事件类型和原始 JSON，同步写入 `event_inbox` 并按环境、机器人、事件类型和平台事件 ID 去重；写入成功后才推进 Resume 序号。已知的消息、用户/群生命周期、频道/成员、表态、审核、论坛、音频和互动事件可通过 `GatewayDispatch.decodeKnownEvent()` 解码为强类型 DTO，未知事件继续以原始 Payload 向前兼容。稳定插件事件会直接提供被引用消息的 QQ ID。管理员登录后可通过 `GET /api/events/inbox` 分页、筛选和搜索事件，通过 `GET /api/events/inbox/{id}` 查看受限长度的原始 Payload。`outbox_jobs` 已提供创建、租约领取、重试、成功、结果未知和死信状态转换；生产 Outbox worker 会按机器人隔离凭据调用 QQ OpenAPI，成功时原子保存真实 QQ 消息 ID、序号和平台时间，并将 429/5xx 重试、永久错误死信化。插件产生的消息先写入 Outbox，再由 worker 发送；插件可按绑定持久化查询回执，后台 Outbox 详情显示相同字段。
+普通 QQ Gateway Dispatch 会先保留事件类型和原始 JSON，同步写入 `event_inbox` 并按环境、机器人、事件类型和平台事件 ID 去重；写入成功后才推进 Resume 序号。已知的消息、用户/群生命周期、频道/成员、表态、审核、论坛、音频和互动事件可通过 `GatewayDispatch.decodeKnownEvent()` 解码为强类型 DTO，未知事件继续以原始 Payload 向前兼容。稳定插件事件会直接提供被引用消息的 QQ ID，以及普通群消息发送者的 `member/admin/owner` 角色。管理员登录后可通过 `GET /api/events/inbox` 分页、筛选和搜索事件，通过 `GET /api/events/inbox/{id}` 查看受限长度的原始 Payload。`outbox_jobs` 已提供创建、租约领取、重试、成功、结果未知和死信状态转换；生产 Outbox worker 会按机器人隔离凭据调用 QQ OpenAPI，成功时原子保存真实 QQ 消息 ID、序号和平台时间，并将 429/5xx 重试、永久错误死信化。插件和后台产生的消息先写入 Outbox，再由 worker 发送；两者都可同时携带 `msg_id`/`event_id` 被动回复信息和显式 `message_reference`，插件还可按绑定持久化查询回执，后台 Outbox 详情显示相同字段。
 
-`onebot11` 模块只转换 QQ 官方 C2C 与普通群的可等价能力，不转换 QQ 频道。它支持正向 `/api`、`/event`、`/` WebSocket 和反向 Universal WebSocket；access token 为必填密文配置。OneBot 数字用户/群/消息 ID 是基于 QQ OpenID 和官方消息 ID 的数据库持久化别名，不是真实 QQ 号。支持的 action、事件、消息段、明确返回 `1404` 的范围及 Docker 端口要求见 [ONEBOT11.md](./ONEBOT11.md)。
+`onebot11` 模块只供外部第三方程序通过 WebSocket 接入，只转换 QQ 官方 C2C 与普通群的可等价能力，不转换 QQ 频道，也不参与本项目的 PF4J 机器人插件开发。它支持正向 `/api`、`/event`、`/` WebSocket 和反向 Universal WebSocket；access token 为必填密文配置。OneBot 数字用户/群/消息 ID 是基于 QQ OpenID 和官方消息 ID 的数据库持久化别名，不是真实 QQ 号。支持的 action、事件、消息段、明确返回 `1404` 的范围及 Docker 端口要求见 [ONEBOT11.md](./ONEBOT11.md)。
 
-机器人编辑页可设置每个机器人的最大媒体上传大小，默认 `16 MiB`、可选 `1-256 MiB`；前端选择文件、上传 API、插件 SDK、入队和发送 worker 都会再次校验。机器人页的发送入口支持文本、四类富消息、本地媒体和远程 HTTPS 媒体。本地媒体暂存在 `QQBOT_MEDIA_STAGING_DIRECTORY`，成功、结果未知或死信后删除；远程媒体会先在服务端按 HTTPS、DNS/私网地址、重定向、超时和机器人大小上限受控下载，再交给 QQ。C2C/群聊使用 QQ `file_data` 预上传，频道/私信只支持图片并使用 multipart `file_image`。
+机器人编辑页可设置每个机器人的最大媒体上传大小，默认 `16 MiB`、可选 `1-256 MiB`；前端选择文件、上传 API、插件 SDK、入队和发送 worker 都会再次校验。机器人页的发送入口支持文本、四类富消息、本地媒体、远程 HTTPS 媒体和可选的显式引用消息 ID。本地媒体暂存在 `QQBOT_MEDIA_STAGING_DIRECTORY`，成功、结果未知或死信后删除；远程媒体会先在服务端按 HTTPS、DNS/私网地址、重定向、超时和机器人大小上限受控下载，再交给 QQ。C2C/群聊使用 QQ `file_data` 预上传，频道/私信只支持图片并使用 multipart `file_image`。
 
 后台“插件”页属于 `plugin-support` 框架模块，通过 `GET /api/plugins` 扫描挂载的 `/plugins` JAR，读取 manifest、大小、修改时间和 SHA-256，并显示宿主加载状态。可信 JAR 通过 PF4J 加载，使用 `ServiceLoader` 发现 Kotlin `BotPluginFactory` 实现；每个 JAR 必须通过 `Plugin-Default-Config` 声明一个符合 Schema 的默认 JSON 对象。页面可选择 `.jar` 并通过 `POST /api/plugins/upload` 上传，服务端完成校验后在当前进程内热升级，不需要应用重启，失败会尝试恢复旧插件。
 

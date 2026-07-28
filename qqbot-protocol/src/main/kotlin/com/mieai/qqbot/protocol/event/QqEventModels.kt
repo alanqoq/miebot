@@ -15,6 +15,7 @@ object QqEventModels {
         @JsonProperty("member_openid") val memberOpenId: String?,
         @JsonProperty("union_openid") val unionOpenId: String?,
         @JsonProperty("union_user_account") val unionUserAccount: String?,
+        @JsonProperty("member_role") val memberRole: String? = null,
     )
 
     @JsonIgnoreProperties(ignoreUnknown = true)

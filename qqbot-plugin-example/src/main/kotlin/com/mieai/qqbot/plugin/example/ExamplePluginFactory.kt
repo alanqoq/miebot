@@ -50,7 +50,11 @@ class ExamplePluginFactory : BotPluginFactory {
         val replyContent: String,
     ) {
         companion object {
-            private val FIELDS = setOf("triggerKeyword", "replyContent")
+            private val REQUIRED_FIELDS = setOf("triggerKeyword", "replyContent")
+            private val ALLOWED_FIELDS = REQUIRED_FIELDS + setOf(
+                "_triggerKeywordComment",
+                "_replyContentComment",
+            )
 
             fun parse(json: String): ExampleConfiguration {
                 val root = try {
@@ -60,8 +64,8 @@ class ExamplePluginFactory : BotPluginFactory {
                 }
                 require(root.isJsonObject) { "Example plugin configuration must be a JSON object" }
                 val value = root.asJsonObject
-                require(value.keySet() == FIELDS) {
-                    "Example plugin configuration must contain only triggerKeyword and replyContent"
+                require(value.keySet().containsAll(REQUIRED_FIELDS) && value.keySet().all(ALLOWED_FIELDS::contains)) {
+                    "Example plugin configuration must contain triggerKeyword and replyContent and only supported comment fields"
                 }
 
                 val triggerKeyword = value.string("triggerKeyword").trim()

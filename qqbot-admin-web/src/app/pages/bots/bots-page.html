@@ -409,7 +409,7 @@
               </label>
 
               @if (mode === 'create') {
-                <label class="create-enabled field-wide">
+                <label class="checkbox-option field-wide">
                   <input type="checkbox" formControlName="enabled" />
                   <span class="checkbox-indicator"></span>
                   <span>创建后启用</span>
@@ -476,6 +476,18 @@
             <label class="form-field field-wide">
               <span>目标 ID</span>
               <input type="text" formControlName="targetId" autocomplete="off" />
+            </label>
+            <label class="form-field field-wide">
+              <span>显式引用消息 ID</span>
+              <input type="text" formControlName="messageReferenceId" autocomplete="off" />
+            </label>
+            <label class="checkbox-option field-wide">
+              <input
+                type="checkbox"
+                formControlName="ignoreGetMessageError"
+              />
+              <span class="checkbox-indicator"></span>
+              <span>引用消息无法获取时仍发送</span>
             </label>
             @if (messageForm.controls.kind.value === 'TEXT' || messageForm.controls.kind.value === 'MEDIA') {
               <label class="form-field field-wide">

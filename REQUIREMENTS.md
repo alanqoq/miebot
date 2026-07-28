@@ -2,8 +2,8 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 文档状态 | 1.0.0 实现基线 |
-| 版本 | 1.0.0 |
+| 文档状态 | 1.0.1 实现基线 |
+| 版本 | 1.0.1 |
 | 最后更新 | 2026-07-24 |
 | 目标平台 | Debian + Docker Compose |
 
@@ -249,7 +249,7 @@ Manifest 至少声明：
 - 所需能力。
 - 所需能力；制品 SHA-256 由宿主读取 JAR 后计算，不由插件自报。
 
-当前插件 API 级别为 `3.0.0`。插件只通过 `BotPluginFactory.create(PluginRuntimeContext)` 创建绑定实例，在 `BotPlugin.start()` 中使用 `EventService` 注册命名 handler；不提供旧工厂、旧 Java ABI 或 `BotPlugin.onEvent(...)` 回退。宿主必须在执行插件代码前完成 Manifest、API 版本和授权校验。
+当前插件 API 级别为 `3.1.0`。同一主版本内，宿主可以加载要求版本不高于自身的旧插件；更高版本或不同主版本必须拒绝。插件只通过 `BotPluginFactory.create(PluginRuntimeContext)` 创建绑定实例，在 `BotPlugin.start()` 中使用 `EventService` 注册命名 handler；不提供旧工厂、旧 Java ABI 或 `BotPlugin.onEvent(...)` 回退。宿主必须在执行插件代码前完成 Manifest、API 版本和授权校验。消息发送接口必须区分 `msg_id`/`event_id` 被动回复和显式 `message_reference`，并让显式引用通过持久化 Outbox 到达 QQ Client。
 
 ### 7.3 插件能力
 
@@ -502,7 +502,7 @@ Compose 不创建 MySQL/PostgreSQL 服务。数据库由外部系统部署和备
 - 应用上下文中七个默认外置框架功能模块全部为 `ACTIVE` 的集成测试。
 - SQLite 默认模式和外部 MySQL/PostgreSQL 连接模式的 Compose 冒烟验证按 [DEPLOYMENT.md](./DEPLOYMENT.md) 人工执行，当前未配置自动化 Compose 测试。
 
-当前仓库未集成 Testcontainers、Angular E2E、OpenAPI/TypeScript Client 生成或 CI 二进制兼容检查；这些能力不能视为 `1.0.0` 的已交付保证。
+当前仓库未集成 Testcontainers、Angular E2E、OpenAPI/TypeScript Client 生成或 CI 二进制兼容检查；这些能力不能视为 `1.0.1` 的已交付保证。
 
 ### 13.2 第一版验收标准
 

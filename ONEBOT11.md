@@ -2,6 +2,8 @@
 
 本项目的 `onebot11` 框架模块把 QQ 官方机器人 API 的 C2C 和普通群能力转换为 [OneBot 11](https://github.com/botuniverse/onebot-11) WebSocket 接口。它是兼容子集，不模拟个人 QQ 客户端，也不会把 QQ 频道、子频道、频道私信、论坛、频道成员、身份组、频道权限、公告、精华、日程、音频频道或频道互动事件转换成 OneBot 事件。
 
+该模块只用于让外部第三方程序通过正向或反向 WebSocket 接入本平台。它是 `/modules` 下的框架模块，不是 `/plugins` 下的 PF4J 机器人插件，不参与插件加载、绑定、生命周期或 Plugin API，也不能作为机器人插件的开发依赖。本项目的插件开发文档只描述原生插件 SDK，明确不包含 OneBot 接入方式；插件作者应使用 `PluginEvent`、`EventService` 和 `MessageSender` 等原生接口。
+
 ## 1. 启用与传输
 
 进入管理后台的机器人编辑页，在“OneBot 11”区域配置。新机器人默认不启用；启用时必须至少选择一种 WebSocket 模式并设置 access token。
@@ -103,7 +105,7 @@ OneBot 隐藏 API、快速操作 API 和实现私有 action 也不支持。以�
 | WebSocket 建连 | `meta_event/lifecycle/connect` |
 | 配置的定时心跳 | `meta_event/heartbeat` |
 
-发送者昵称、群名片和操作者等字段按 QQ Payload 尽力填充；QQ 未提供的性别、年龄、地区、等级、头衔等使用 OneBot 允许的未知/空值。入站附件按 MIME 类型映射为 `image`、`record` 或 `video`。
+普通群消息的 QQ `author.member_role` 会映射为 OneBot `sender.role`，支持 `member`、`admin` 和 `owner`；字段缺失或出现未知值时回退为 `member`。发送者昵称、群名片和操作者等字段按 QQ Payload 尽力填充；QQ 未提供的性别、年龄、地区、等级、头衔等使用 OneBot 允许的未知/空值。入站附件按 MIME 类型映射为 `image`、`record` 或 `video`。
 
 暂不转换群文件、管理员变动、禁言、消息撤回、戳一戳、红包运气王、群荣誉，以及好友/加群请求事件。所有 QQ 频道及频道扩展事件也不转换，但它们仍可由平台 Inbox、强类型 QQ 事件 DTO 和插件能力消费。
 

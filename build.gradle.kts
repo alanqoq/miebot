@@ -15,7 +15,7 @@ plugins {
 }
 allprojects {
     group = "com.mieai.qqbot"
-    version = "1.0.0"
+    version = "1.0.1"
 }
 
 subprojects {
@@ -191,10 +191,18 @@ val defaultModuleDirectory by tasks.registering(Sync::class) {
     }
 }
 
+val cleanStagedDefaultModules by tasks.registering(Delete::class) {
+    delete(fileTree(layout.projectDirectory.dir("modules")) {
+        defaultModuleProjects.forEach { moduleName ->
+            include("$moduleName-*.jar")
+        }
+    })
+}
+
 val stageDefaultModules by tasks.registering(Copy::class) {
     group = "distribution"
     description = "Copies default module JARs into the project modules directory for Compose."
-    dependsOn(defaultModuleDirectory)
+    dependsOn(defaultModuleDirectory, cleanStagedDefaultModules)
     from(layout.buildDirectory.dir("runtime/modules"))
     into(layout.projectDirectory.dir("modules"))
 }

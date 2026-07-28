@@ -69,13 +69,28 @@ class OneBotEventMapperTest {
                 {"op":0,"s":2,"t":"GROUP_AT_MESSAGE_CREATE","id":"event-2","d":{
                   "id":"message-2","group_openid":"group-openid","content":"group hello",
                   "timestamp":"2026-07-22T08:01:00Z",
-                  "author":{"member_openid":"member-openid","username":"Bob"}
+                  "author":{"member_openid":"member-openid","member_role":"owner","username":"Bob"}
                 }}
                 """.trimIndent(),
             ),
         ) ?: error("Expected a group message event")
         assertThat(groupEvent.path("message_type").asText()).isEqualTo("group")
         assertThat(groupEvent.path("group_id").asLong()).isPositive()
+        assertThat(groupEvent.path("sender").path("role").asText()).isEqualTo("owner")
+
+        val rolelessGroupEvent = mapper.map(
+            event(
+                botId,
+                "GROUP_MESSAGE_CREATE",
+                """
+                {"op":0,"s":3,"t":"GROUP_MESSAGE_CREATE","id":"event-roleless","d":{
+                  "id":"message-roleless","group_openid":"group-openid","content":"fallback",
+                  "author":{"member_openid":"member-openid"}
+                }}
+                """.trimIndent(),
+            ),
+        ) ?: error("Expected a roleless group message event")
+        assertThat(rolelessGroupEvent.path("sender").path("role").asText()).isEqualTo("member")
 
         assertThat(
             mapper.map(
@@ -83,7 +98,7 @@ class OneBotEventMapperTest {
                     botId,
                     "AT_MESSAGE_CREATE",
                     """
-                    {"op":0,"s":3,"t":"AT_MESSAGE_CREATE","id":"event-3","d":{
+                    {"op":0,"s":4,"t":"AT_MESSAGE_CREATE","id":"event-3","d":{
                       "id":"channel-message","channel_id":"channel","guild_id":"guild",
                       "content":"ignored","author":{"id":"guild-user"}
                     }}

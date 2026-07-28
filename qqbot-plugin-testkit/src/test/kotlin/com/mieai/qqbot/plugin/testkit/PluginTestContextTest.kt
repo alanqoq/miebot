@@ -1,6 +1,8 @@
 package com.mieai.qqbot.plugin.testkit
 
 import com.mieai.qqbot.plugin.api.MessageDeliveryState
+import com.mieai.qqbot.plugin.api.MessageReference
+import com.mieai.qqbot.plugin.api.MessageSendOptions
 import com.mieai.qqbot.plugin.api.MessageTarget
 import com.mieai.qqbot.plugin.api.MessageTargetType
 import com.mieai.qqbot.plugin.api.TextMessage
@@ -70,6 +72,20 @@ class PluginTestContextTest {
 
             val receipt = requireNotNull(fixture.messages.findDelivery(queued.jobId).toCompletableFuture().join())
             assertThat(receipt.state).isEqualTo(MessageDeliveryState.PENDING)
+        }
+    }
+
+    @Test
+    fun recordsExplicitMessageReferenceOptions() {
+        PluginTestContext("example", "{}").use { fixture ->
+            val options = MessageSendOptions(MessageReference("bot-message-900", true))
+
+            fixture.messages.enqueue(
+                TextMessage(MessageTarget(MessageTargetType.GROUP, "group-1"), "hello"),
+                options,
+            ).toCompletableFuture().join()
+
+            assertThat(fixture.messages.textSendOptions()).containsExactly(options)
         }
     }
 }

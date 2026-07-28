@@ -1,4 +1,4 @@
-description = "OneBot 11 WebSocket compatibility module for QQ C2C and group bots"
+description = "Third-party OneBot 11 WebSocket compatibility module for QQ C2C and group bots"
 
 plugins {
     kotlin("jvm")

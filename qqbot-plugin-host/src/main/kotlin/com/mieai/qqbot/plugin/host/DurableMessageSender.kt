@@ -18,12 +18,14 @@ import com.mieai.qqbot.plugin.api.MediaUpload
 import com.mieai.qqbot.plugin.api.MessageDeliveryReceipt
 import com.mieai.qqbot.plugin.api.MessageDeliveryState
 import com.mieai.qqbot.plugin.api.MessageEnqueueReceipt
+import com.mieai.qqbot.plugin.api.MessageSendOptions
 import com.mieai.qqbot.plugin.api.MessageSender
 import com.mieai.qqbot.plugin.api.RichMessage
 import com.mieai.qqbot.plugin.api.StagedMedia
 import com.mieai.qqbot.plugin.api.StagedMediaMessage
 import com.mieai.qqbot.plugin.api.TextMessage
 import com.mieai.qqbot.runtime.outbox.OutboundMediaPayload
+import com.mieai.qqbot.runtime.outbox.OutboundMessageReference
 import com.mieai.qqbot.runtime.outbox.OutboundRichPayload
 import com.mieai.qqbot.runtime.outbox.OutboundTextPayload
 import java.io.ByteArrayInputStream
@@ -49,6 +51,13 @@ class DurableMessageSender(
     }
 
     override fun enqueue(message: TextMessage): CompletionStage<MessageEnqueueReceipt> {
+        return enqueue(message, MessageSendOptions())
+    }
+
+    override fun enqueue(
+        message: TextMessage,
+        options: MessageSendOptions,
+    ): CompletionStage<MessageEnqueueReceipt> {
         capabilityFailure<MessageEnqueueReceipt>()?.let { return it }
         val now = clock.instant()
         val scopedDedup = message.deduplicationKey?.let { "$bindingId:$it" }
@@ -62,6 +71,7 @@ class DurableMessageSender(
                     message.replyMessageId,
                     message.replyEventId,
                     message.messageSequence,
+                    options.toOutboundReference(),
                 ),
             )
         } catch (exception: JsonProcessingException) {
@@ -85,6 +95,13 @@ class DurableMessageSender(
     }
 
     override fun enqueue(message: MediaMessage): CompletionStage<MessageEnqueueReceipt> {
+        return enqueue(message, MessageSendOptions())
+    }
+
+    override fun enqueue(
+        message: MediaMessage,
+        options: MessageSendOptions,
+    ): CompletionStage<MessageEnqueueReceipt> {
         capabilityFailure<MessageEnqueueReceipt>()?.let { return it }
         val now = clock.instant()
         val scopedDedup = message.deduplicationKey?.let { "$bindingId:$it" }
@@ -100,6 +117,7 @@ class DurableMessageSender(
                     message.replyMessageId,
                     message.replyEventId,
                     message.messageSequence,
+                    messageReference = options.toOutboundReference(),
                 ),
             )
         } catch (exception: JsonProcessingException) {
@@ -123,6 +141,13 @@ class DurableMessageSender(
     }
 
     override fun enqueue(message: RichMessage): CompletionStage<MessageEnqueueReceipt> {
+        return enqueue(message, MessageSendOptions())
+    }
+
+    override fun enqueue(
+        message: RichMessage,
+        options: MessageSendOptions,
+    ): CompletionStage<MessageEnqueueReceipt> {
         capabilityFailure<MessageEnqueueReceipt>()?.let { return it }
         val now = clock.instant()
         val scopedDedup = message.deduplicationKey?.let { "$bindingId:$it" }
@@ -137,6 +162,7 @@ class DurableMessageSender(
                     message.replyMessageId,
                     message.replyEventId,
                     message.messageSequence,
+                    options.toOutboundReference(),
                 ),
             )
         } catch (exception: JsonProcessingException) {
@@ -185,6 +211,13 @@ class DurableMessageSender(
     }
 
     override fun enqueue(message: StagedMediaMessage): CompletionStage<MessageEnqueueReceipt> {
+        return enqueue(message, MessageSendOptions())
+    }
+
+    override fun enqueue(
+        message: StagedMediaMessage,
+        options: MessageSendOptions,
+    ): CompletionStage<MessageEnqueueReceipt> {
         capabilityFailure<MessageEnqueueReceipt>()?.let { return it }
         val store = mediaStore
         if (store == null) {
@@ -213,6 +246,7 @@ class DurableMessageSender(
                     message.replyEventId,
                     message.messageSequence,
                     message.media.id,
+                    options.toOutboundReference(),
                 ),
             )
         } catch (exception: JsonProcessingException) {
@@ -271,6 +305,11 @@ class DurableMessageSender(
     } catch (exception: RuntimeException) {
         CompletableFuture.failedFuture(exception)
     }
+
+    private fun MessageSendOptions.toOutboundReference(): OutboundMessageReference? =
+        messageReference?.let { reference ->
+            OutboundMessageReference(reference.messageId, reference.ignoreGetMessageError)
+        }
 
     private fun receipt(job: OutboxJob): MessageDeliveryReceipt = MessageDeliveryReceipt(
         job.id,

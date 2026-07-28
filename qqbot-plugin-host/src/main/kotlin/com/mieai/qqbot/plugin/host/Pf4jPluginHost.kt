@@ -17,6 +17,7 @@ import com.mieai.qqbot.plugin.api.MediaMessage
 import com.mieai.qqbot.plugin.api.MediaService
 import com.mieai.qqbot.plugin.api.MessageDeliveryReceipt
 import com.mieai.qqbot.plugin.api.MessageEnqueueReceipt
+import com.mieai.qqbot.plugin.api.MessageSendOptions
 import com.mieai.qqbot.plugin.api.MessageSender
 import com.mieai.qqbot.plugin.api.PluginContext
 import com.mieai.qqbot.plugin.api.PluginLogger
@@ -558,8 +559,8 @@ class Pf4jPluginHost(
         var name = pluginId
         var api = wrapper.descriptor.requires
         if (api.isNullOrBlank()) api = PluginApiVersion.CURRENT
-        check(api == PluginApiVersion.CURRENT) {
-            "Plugin $pluginId requires API $api, but this host requires ${PluginApiVersion.CURRENT}"
+        check(PluginApiCompatibility.accepts(api, PluginApiVersion.CURRENT)) {
+            "Plugin $pluginId requires incompatible API $api; this host provides ${PluginApiVersion.CURRENT}"
         }
         var schemaPath: String? = null
         var defaultConfigurationPath: String? = null
@@ -804,9 +805,24 @@ class Pf4jPluginHost(
     private class DeniedMessageSender : MessageSender {
         override fun enqueue(message: TextMessage): CompletionStage<MessageEnqueueReceipt> = deniedResult()
 
+        override fun enqueue(
+            message: TextMessage,
+            options: MessageSendOptions,
+        ): CompletionStage<MessageEnqueueReceipt> = deniedResult()
+
         override fun enqueue(message: MediaMessage): CompletionStage<MessageEnqueueReceipt> = deniedResult()
 
+        override fun enqueue(
+            message: MediaMessage,
+            options: MessageSendOptions,
+        ): CompletionStage<MessageEnqueueReceipt> = deniedResult()
+
         override fun enqueue(message: RichMessage): CompletionStage<MessageEnqueueReceipt> = deniedResult()
+
+        override fun enqueue(
+            message: RichMessage,
+            options: MessageSendOptions,
+        ): CompletionStage<MessageEnqueueReceipt> = deniedResult()
 
         override fun findDelivery(jobId: UUID): CompletionStage<MessageDeliveryReceipt?> = deniedResult()
 

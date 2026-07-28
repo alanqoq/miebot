@@ -13,6 +13,7 @@ data class OutboundRichPayload @JsonCreator(mode = JsonCreator.Mode.PROPERTIES) 
     @JsonProperty("replyMessageId") val replyMessageId: String?,
     @JsonProperty("replyEventId") val replyEventId: String?,
     @JsonProperty("messageSequence") val messageSequence: Int,
+    @JsonProperty("messageReference") val messageReference: OutboundMessageReference? = null,
 ) {
     companion object {
         const val JOB_TYPE = "QQ_SEND_RICH"

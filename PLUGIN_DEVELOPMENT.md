@@ -37,11 +37,11 @@ dependencies {
 }
 ```
 
-外部插件项目应依赖与宿主完全相同的 Maven 制品版本。当前平台制品版本为 `1.0.0`，Manifest 的插件 API 级别为 `3.0.0`。根项目的 `pluginSdkRepository` 任务会生成可复制的本地 Maven SDK 仓库，`pluginSdkDistribution` 会把仓库、模板和本指南打成 ZIP；不需要把宿主模块或 PF4J 放进插件项目。
+外部插件项目应依赖与宿主完全相同的 Maven 制品版本。当前平台制品版本为 `1.0.1`，Manifest 的插件 API 级别为 `3.1.0`。根项目的 `pluginSdkRepository` 任务会生成可复制的本地 Maven SDK 仓库，`pluginSdkDistribution` 会把仓库、模板和本指南打成 ZIP；不需要把宿主模块或 PF4J 放进插件项目。
 
 平台 API/SPI 必须使用 `compileOnly` 或 Maven 的 `provided` scope。不要把 API/SPI、PF4J、Spring 或宿主模块打入插件 JAR，否则可能出现类型不相等、类加载冲突或越过宿主边界的问题。插件自己的 JSON、SQLite JDBC 或其他实现依赖可以打入 JAR，但应评估体积、原生库加载、ClassLoader 卸载和依赖冲突；需要与宿主同名库并存时应做 shading/relocation。
 
-仓库内可复制 `plugin-template` 作为起点；`qqbot-plugin-example` 是宿主端到端测试使用的 API 3.0 参考实现。建议目录如下：
+仓库内可复制 `plugin-template` 作为起点；`qqbot-plugin-example` 是宿主端到端测试使用的 API 3.1 参考实现。建议目录如下：
 
 ```text
 my-plugin/
@@ -112,7 +112,7 @@ com.example.HelloPluginFactory
 | `Plugin-Id` | 是 | 稳定插件 ID，必须与 `BotPluginFactory.pluginId` 完全一致 |
 | `Plugin-Name` | 建议 | 后台显示名称；未提供时使用插件 ID |
 | `Plugin-Version` | 是 | 插件版本 |
-| `Plugin-Requires` | 建议 | 宿主插件 API 版本；缺省时宿主按当前 `3.0.0` 处理 |
+| `Plugin-Requires` | 建议 | 插件要求的最低宿主 API 版本；缺省时按当前 `3.1.0` 处理，同一主版本内旧插件可由较新宿主加载 |
 | `Plugin-Class` | 是 | 固定为 `com.mieai.qqbot.plugin.host.Pf4jPluginBridge` |
 | `Plugin-Config-Schema` | 是 | JAR 内 JSON Schema 资源路径 |
 | `Plugin-Default-Config` | 是 | JAR 内默认 JSON 配置资源路径，必须符合 Schema |
@@ -127,7 +127,7 @@ tasks.jar {
             "Plugin-Id" to "hello",
             "Plugin-Name" to "Hello Plugin",
             "Plugin-Version" to project.version.toString(),
-            "Plugin-Requires" to "3.0.0",
+            "Plugin-Requires" to "3.1.0",
             "Plugin-Class" to "com.mieai.qqbot.plugin.host.Pf4jPluginBridge",
             "Plugin-Config-Schema" to "qqbot-plugin-schema.json",
             "Plugin-Default-Config" to "qqbot-plugin-default.json",
@@ -202,7 +202,7 @@ Web 新建绑定时，`GET /api/plugins` 返回默认配置 `defaultConfigJson`�
 
 ## 6. 生命周期与并发
 
-插件 API 3.0 只有一个工厂和一套生命周期：
+插件 API 3.x 只有一个工厂和一套生命周期：
 
 ```kotlin
 interface BotPluginFactory {
@@ -225,7 +225,7 @@ interface BotPlugin {
 - 配置变化、绑定删除、插件重载、数据库热切换和应用停止都可能调用 `stop()`。
 - `stop()` 应快速、幂等地释放插件自行创建的资源，且不应抛出异常。
 
-插件应在 `start()` 中通过 `EventService` 注册至少一个命名 handler；每个匹配事件会创建独立的 `(event, binding, handlerId)` 投递记录。API 3.0 不提供 `BotPlugin.onEvent(...)`、旧 Java 访问器或旧工厂回退路径。
+插件应在 `start()` 中通过 `EventService` 注册至少一个命名 handler；每个匹配事件会创建独立的 `(event, binding, handlerId)` 投递记录。API 3.x 不提供 `BotPlugin.onEvent(...)`、旧 Java 访问器或旧工厂回退路径。
 
 ## 7. 事件 API
 
@@ -242,7 +242,7 @@ interface BotPlugin {
 | `receivedAt` | Inbox 接收时间 |
 | `message` | 能被稳定映射为消息时存在 |
 
-`InboundMessage` 提供回复目标、当前消息 ID、事件 ID、作者 ID、文本内容和被引用消息 ID。`referencedMessageId` 对应 QQ Gateway 的 `message_reference.message_id`；没有引用时为 `null`。当前稳定映射覆盖：
+`InboundMessage` 提供回复目标、当前消息 ID、事件 ID、作者 ID、文本内容、被引用消息 ID 和普通群发送者角色。`referencedMessageId` 对应 QQ Gateway 的 `message_reference.message_id`；没有引用时为 `null`。普通群消息的 `memberRole` 对应 QQ `author.member_role`，稳定值为 `GroupMemberRole.MEMBER`、`ADMIN` 或 `OWNER`；非普通群消息、字段缺失或平台出现未知角色值时为 `null`，插件不得把 `null` 当作普通成员。当前稳定映射覆盖：
 
 - `C2C_MESSAGE...` -> `C2C`
 - 同时包含 `GROUP` 和 `MESSAGE` -> `GROUP`
@@ -263,6 +263,25 @@ return context.base.messageSender.enqueue(TextMessage.reply(event, "pong"))
 ```
 
 `TextMessage.reply(...)` 会自动使用原事件的回复目标、`msg_id`/`event_id`、`msg_seq=1`、来源事件 UUID 和稳定去重键。
+
+### 被动回复与显式引用
+
+`msg_id`/`event_id` 是当前事件的被动回复元数据；QQ `message_reference` 是独立的显式引用对象。插件需要显式引用块时，应在保留原消息对象的同时向 `enqueue` 传入 `MessageSendOptions`：
+
+```kotlin
+val referencedId = requireNotNull(event.message?.referencedMessageId)
+val options = MessageSendOptions(
+    messageReference = MessageReference(
+        messageId = referencedId,
+        ignoreGetMessageError = false,
+    ),
+)
+return context.base.messageSender
+    .enqueue(TextMessage.reply(event, "这是带显式引用的回复"), options)
+    .thenApply<Void> { null }
+```
+
+`messageId` 必须是 QQ 的真实消息 ID，例如入站 `messageId`、`referencedMessageId` 或成功回执中的 `platformMessageId`，不能使用 Outbox `jobId`。`ignoreGetMessageError=false` 表示 QQ 无法取得被引用消息时发送失败；设为 `true` 表示允许 QQ 忽略该引用错误并继续发送。文本、媒体、暂存媒体和富消息均支持同一选项。相同去重键始终指向首次入队的 Payload，改变引用 ID 时不得复用同一业务去重键。
 
 手工创建 `TextMessage` 时需要遵守：
 
@@ -366,7 +385,7 @@ QQ 请求超时后可能已经发送成功，但框架没有收到响应，此�
 
 ## 9. 发送富消息与媒体消息
 
-`MessageSender.enqueue(RichMessage)` 支持 `MARKDOWN`、`KEYBOARD`、`ARK` 和 `EMBED`。除 `KEYBOARD` 外，`payload` 是对应 QQ OpenAPI 字段内部的 JSON 对象，宿主会把它放入同名小写字段并补充回复 ID、事件 ID、序号和 C2C/群聊所需的消息类型：
+`MessageSender.enqueue(RichMessage)` 及其带 `MessageSendOptions` 的重载支持 `MARKDOWN`、`KEYBOARD`、`ARK` 和 `EMBED`。除 `KEYBOARD` 外，`payload` 是对应 QQ OpenAPI 字段内部的 JSON 对象，宿主会把它放入同名小写字段并补充回复 ID、事件 ID、显式引用、序号和 C2C/群聊所需的消息类型：
 
 ```kotlin
 val markdown = RichMessage(
@@ -641,7 +660,7 @@ PF4J 类加载隔离不是安全沙箱。插件与宿主运行在同一 JVM，`d
 
 ## 18. 参考实现
 
-- `plugin-template`：可复制的 API 3.0 项目模板和多 handler 示例。
+- `plugin-template`：可复制的 API 3.1 项目模板和多 handler 示例。
 - `qqbot-plugin-example`：宿主端到端测试使用的最小可运行插件。
 - `qqbot-plugin-testkit`：插件单元测试替身。
 - `qqbot-plugin-api`：插件可调用的稳定接口。

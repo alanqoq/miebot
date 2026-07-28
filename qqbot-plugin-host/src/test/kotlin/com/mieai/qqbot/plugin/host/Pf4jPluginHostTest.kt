@@ -310,6 +310,29 @@ class Pf4jPluginHostTest {
     }
 
     @Test
+    fun acceptsOlderMinorPluginApiButRejectsDifferentMajors() {
+        val example = Path.of(System.getProperty("qqbot.example.plugin"))
+        val compatible = pluginWithManifestValue(
+            example,
+            temporaryDirectory.resolve("compatible-api/example.jar"),
+            "Plugin-Requires",
+            "3.0.0",
+        )
+        val incompatible = pluginWithManifestValue(
+            example,
+            temporaryDirectory.resolve("incompatible-api/example.jar"),
+            "Plugin-Requires",
+            "2.9.9",
+        )
+
+        validationHost("api-compatibility").use { host ->
+            assertThat(host.validateArtifact(compatible).apiCompatibility).isEqualTo("3.0.0")
+            assertThatThrownBy { host.validateArtifact(incompatible) }
+                .hasMessageContaining("requires incompatible API 2.9.9")
+        }
+    }
+
+    @Test
     fun requiresSchemaAndDefaultConfigurationToBelongToTheCurrentJar() {
         val example = Path.of(System.getProperty("qqbot.example.plugin"))
         val missingSchema = pluginWithManifestValue(
@@ -669,7 +692,10 @@ class Pf4jPluginHostTest {
     private companion object {
         val NOW: Instant = Instant.parse("2026-07-19T00:00:00Z")
         const val BOT = "550e8400-e29b-41d4-a716-446655440001"
-        const val DEFAULT_CONFIGURATION = "{\"triggerKeyword\":\"/example\",\"replyContent\":\"example reply\"}"
+        const val DEFAULT_CONFIGURATION =
+            "{\"_triggerKeywordComment\":\"机器人收到的文本去除首尾空白后，与该值完全一致时触发回复；匹配区分大小写。\"," +
+                "\"triggerKeyword\":\"/example\",\"_replyContentComment\":\"触发关键词匹配成功后，机器人发送的回复内容。\"," +
+                "\"replyContent\":\"example reply\"}"
         const val SECOND_CONFIGURATION = "{\"triggerKeyword\":\"hello\",\"replyContent\":\"configured response\"}"
     }
 }

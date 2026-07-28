@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import com.mieai.qqbot.client.QqClientOptions
 import com.mieai.qqbot.client.QqMediaKind
 import com.mieai.qqbot.client.QqMessageTargetType
+import com.mieai.qqbot.client.QqRichMessageKind
 import com.mieai.qqbot.domain.bot.BotEnvironment
 import com.mieai.qqbot.domain.bot.BotId
 import com.mieai.qqbot.persistence.bot.JdbcBotRepository
@@ -47,7 +48,15 @@ class ProductionOutboxWorkerTest {
             val repository = JdbcOutboxRepository(dataSource)
             val mapper = ObjectMapper()
             val payload = mapper.writeValueAsString(
-                OutboundTextPayload(QqMessageTargetType.GROUP, "group-1", "hello", null, null, 1),
+                OutboundTextPayload(
+                    QqMessageTargetType.GROUP,
+                    "group-1",
+                    "hello",
+                    null,
+                    null,
+                    1,
+                    OutboundMessageReference("quoted-message-1", true),
+                ),
             )
             val jobId = UUID.randomUUID()
             repository.create(
@@ -87,7 +96,12 @@ class ProductionOutboxWorkerTest {
                 assertThat(stored.platformMessageSequence).isEqualTo(1)
                 assertThat(http.authorization.get()).isEqualTo("QQBot token-value")
                 assertThat(http.path.get()).isEqualTo("/v2/groups/group-1/messages")
-                assertThat(http.body.get()).contains("hello").contains("\"msg_seq\":1")
+                assertThat(http.body.get())
+                    .contains("hello")
+                    .contains("\"msg_seq\":1")
+                    .contains("\"message_reference\"")
+                    .contains("\"message_id\":\"quoted-message-1\"")
+                    .contains("\"ignore_get_message_error\":true")
             } finally {
                 worker.close()
                 scheduler.shutdownNow()
@@ -103,9 +117,8 @@ class ProductionOutboxWorkerTest {
             insertBot(dataSource, BOT, "10003", BotEnvironment.SANDBOX)
             val repository = JdbcOutboxRepository(dataSource)
             val mapper = ObjectMapper()
-            val payload = mapper.writeValueAsString(
-                OutboundTextPayload(QqMessageTargetType.GROUP, "group-1", "hello", null, null, 1),
-            )
+            val payload =
+                """{"targetType":"GROUP","targetId":"group-1","content":"hello","replyMessageId":null,"replyEventId":null,"messageSequence":1}"""
             val jobId = UUID.randomUUID()
             repository.create(
                 NewOutboxJob(
@@ -167,6 +180,7 @@ class ProductionOutboxWorkerTest {
                     null,
                     null,
                     2,
+                    messageReference = OutboundMessageReference("quoted-media-1", false),
                 ),
             )
             val jobId = UUID.randomUUID()
@@ -206,7 +220,77 @@ class ProductionOutboxWorkerTest {
                 assertThat(stored.platformMessageSequence).isNull()
                 assertThat(stored.platformTimestamp).isNull()
                 assertThat(http.uploadBody.get()).contains("\"file_type\":1").contains("image.png")
-                assertThat(http.body.get()).contains("signed-file-info").contains("\"msg_type\":7")
+                assertThat(http.body.get())
+                    .contains("signed-file-info")
+                    .contains("\"msg_type\":7")
+                    .contains("\"message_id\":\"quoted-media-1\"")
+                    .contains("\"ignore_get_message_error\":false")
+            } finally {
+                worker.close()
+                scheduler.shutdownNow()
+            }
+        }
+    }
+
+    @Test
+    fun `sends explicit references with rich messages`() {
+        HttpFixture().use { http ->
+            val dataSource = SQLiteDataSourceFactory.create(temporaryDirectory.resolve("rich-reference-worker.db"))
+            SQLiteDatabaseInitializer.migrate(dataSource)
+            insertBot(dataSource, BOT, "10004", BotEnvironment.SANDBOX)
+            val repository = JdbcOutboxRepository(dataSource)
+            val mapper = ObjectMapper()
+            val payload = mapper.writeValueAsString(
+                OutboundRichPayload(
+                    QqMessageTargetType.GROUP,
+                    "group-1",
+                    QqRichMessageKind.MARKDOWN,
+                    mapOf("content" to "**hello**"),
+                    null,
+                    null,
+                    1,
+                    OutboundMessageReference("quoted-rich-1", false),
+                ),
+            )
+            val jobId = UUID.randomUUID()
+            repository.create(
+                NewOutboxJob(
+                    jobId,
+                    BotEnvironment.SANDBOX,
+                    BotId.parse(BOT),
+                    null,
+                    OutboundRichPayload.JOB_TYPE,
+                    "rich-reference-job",
+                    payload,
+                    BASE_TIME,
+                    BASE_TIME,
+                    null,
+                ),
+            )
+
+            val scheduler = Executors.newSingleThreadScheduledExecutor()
+            val worker = worker(repository, dataSource, mapper, scheduler, http)
+            try {
+                worker.start()
+                val deadline = Instant.now().plusSeconds(5)
+                var status: OutboxStatus
+                do {
+                    Thread.sleep(30)
+                    status = requireNotNull(repository.findById(jobId)).status
+                } while (
+                    (status == OutboxStatus.PENDING ||
+                        status == OutboxStatus.IN_PROGRESS ||
+                        status == OutboxStatus.RETRY_WAIT) &&
+                    Instant.now().isBefore(deadline)
+                )
+
+                val stored = requireNotNull(repository.findById(jobId))
+                assertThat(status).withFailMessage("worker did not complete: %s", stored.lastError)
+                    .isEqualTo(OutboxStatus.SUCCEEDED)
+                assertThat(http.body.get())
+                    .contains("\"markdown\"")
+                    .contains("\"message_id\":\"quoted-rich-1\"")
+                    .contains("\"ignore_get_message_error\":false")
             } finally {
                 worker.close()
                 scheduler.shutdownNow()
