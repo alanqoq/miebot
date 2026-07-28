@@ -1,4 +1,4 @@
-# Mirai QQ Bot Platform
+# MieBot Platform
 
 面向 QQ 机器人 API v2 的 Kotlin/JVM 21 接入库和模块化多机器人运行平台，包含框架模块宿主、可信 PF4J 机器人插件宿主与可靠消息队列。
 

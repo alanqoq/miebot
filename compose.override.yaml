@@ -4,4 +4,4 @@ services:
       context: .
       dockerfile: Dockerfile.cached-runtime
       args:
-        BASE_IMAGE: mirai-qqbot:runtime-cache-dragonwell21
+        BASE_IMAGE: miebot:runtime-cache-dragonwell21

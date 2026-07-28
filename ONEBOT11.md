@@ -1,6 +1,6 @@
-# OneBot 11 兼容范围
+# MieBot OneBot 11 兼容范围
 
-本项目的 `onebot11` 框架模块把 QQ 官方机器人 API 的 C2C 和普通群能力转换为 [OneBot 11](https://github.com/botuniverse/onebot-11) WebSocket 接口。它是兼容子集，不模拟个人 QQ 客户端，也不会把 QQ 频道、子频道、频道私信、论坛、频道成员、身份组、频道权限、公告、精华、日程、音频频道或频道互动事件转换成 OneBot 事件。
+MieBot 的 `onebot11` 框架模块把 QQ 官方机器人 API 的 C2C 和普通群能力转换为 [OneBot 11](https://github.com/botuniverse/onebot-11) WebSocket 接口。它是兼容子集，不模拟个人 QQ 客户端，也不会把 QQ 频道、子频道、频道私信、论坛、频道成员、身份组、频道权限、公告、精华、日程、音频频道或频道互动事件转换成 OneBot 事件。
 
 该模块只用于让外部第三方程序通过正向或反向 WebSocket 接入本平台。它是 `/modules` 下的框架模块，不是 `/plugins` 下的 PF4J 机器人插件，不参与插件加载、绑定、生命周期或 Plugin API，也不能作为机器人插件的开发依赖。本项目的插件开发文档只描述原生插件 SDK，明确不包含 OneBot 接入方式；插件作者应使用 `PluginEvent`、`EventService` 和 `MessageSender` 等原生接口。
 

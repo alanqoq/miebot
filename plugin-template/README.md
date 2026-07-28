@@ -1,4 +1,4 @@
-# QQBot 插件模板
+# MieBot 插件模板
 
 这是一个可复制的 Kotlin 1.9.25、JVM 21、插件 API 3.1 项目。模板只把 `qqbot-plugin-api` 和
 `qqbot-plugin-spi` 作为 `compileOnly` 依赖，最终 JAR 不会携带 API、SPI、PF4J、

@@ -1,4 +1,4 @@
-ARG BASE_IMAGE=mirai-qqbot:runtime-cache-dragonwell21
+ARG BASE_IMAGE=miebot:runtime-cache-dragonwell21
 FROM ${BASE_IMAGE}
 
 USER root
