@@ -2,6 +2,12 @@
 
 面向 QQ 机器人 API v2 的 Kotlin/JVM 21 接入库和模块化多机器人运行平台，包含框架模块宿主、可信 PF4J 机器人插件宿主与可靠消息队列。
 
+## 项目入口
+
+- 项目仓库：[GitHub](https://github.com/alanqoq/miebot)
+- 项目论坛：[MieBot 论坛](https://miebot.646325.xyz/)
+- 最新版本：[v1.0.1 Release](https://github.com/alanqoq/miebot/releases/tag/v1.0.1)
+
 ## 当前实现
 
 - JDK 21 / Kotlin 1.9.25 / Spring Boot 3.5.16 多模块工程；后端生产源码、测试、模块与插件模板均使用 Kotlin
