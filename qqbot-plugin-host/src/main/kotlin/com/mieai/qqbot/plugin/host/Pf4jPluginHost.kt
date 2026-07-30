@@ -78,6 +78,7 @@ class Pf4jPluginHost(
     private val queueCapacity: Int
     private val shutdownTimeout = requirePositive(shutdownTimeout, "shutdownTimeout")
     private val eventMapper = PluginEventMapper(mapper)
+    private val configurationCodec = PluginConfigurationCodec()
     private val loaded = HashMap<String, LoadedPlugin>()
     private val instances = HashMap<UUID, InstanceHandle>()
     private var manager: DefaultPluginManager? = null
@@ -234,12 +235,30 @@ class Pf4jPluginHost(
     @Synchronized
     fun loadedPlugins(): List<LoadedPluginMetadata> = loaded.values.map(LoadedPlugin::metadata).sortedBy { it.id }
 
-    /** Returns the normalized JSON object declared by the plugin artifact as its binding default. */
+    /** Returns the original configuration text declared by the plugin artifact as its binding default. */
     @Synchronized
     fun defaultConfiguration(pluginId: String): String {
-        val plugin = loaded[requirePluginId(pluginId)]
-            ?: throw IllegalStateException("Plugin is not loaded: $pluginId")
-        return plugin.metadata.defaultConfiguration
+        return loadedPlugin(pluginId).metadata.defaultConfiguration
+    }
+
+    @Synchronized
+    fun defaultConfigurationDocument(pluginId: String): PluginConfigurationDocument {
+        val metadata = loadedPlugin(pluginId).metadata
+        return PluginConfigurationDocument(metadata.defaultConfiguration, metadata.configurationFileName)
+    }
+
+    @Synchronized
+    fun configurationFileName(pluginId: String): String = loadedPlugin(pluginId).metadata.configurationFileName
+
+    fun isConfigurationFileName(fileName: String): Boolean =
+        PluginConfigurationDescriptor.isBindingFileName(fileName)
+
+    private fun loadedPlugin(pluginId: String): LoadedPlugin = loaded[requirePluginId(pluginId)]
+        ?: throw IllegalStateException("Plugin is not loaded: $pluginId")
+
+    private fun defaultConfigurationDescriptor(pluginId: String): PluginConfigurationDescriptor {
+        val metadata = loadedPlugin(pluginId).metadata
+        return PluginConfigurationDescriptor(metadata.configurationFormat, metadata.configurationFileName)
     }
 
     /** Resolves the private data directory owned by exactly one bot/plugin binding. */
@@ -253,25 +272,43 @@ class Pf4jPluginHost(
     }
 
     /** Resolves the configuration file stored inside one bot/plugin binding directory. */
+    @Synchronized
     fun configurationFile(binding: BotPluginBinding): Path {
         val directory = bindingDataDirectory(binding)
-        val configuration = directory.resolve(CONFIGURATION_FILE_NAME).normalize()
+        val existing = PluginConfigurationDescriptor.bindingFileNames()
+            .map(directory::resolve)
+            .filter { Files.exists(it, LinkOption.NOFOLLOW_LINKS) }
+        check(existing.size <= 1) {
+            "Plugin binding contains multiple configuration files: $directory"
+        }
+        val configuration = existing.singleOrNull()
+            ?: directory.resolve(defaultConfigurationDescriptor(binding.pluginId).fileName).normalize()
         check(configuration.parent == directory) { "Plugin configuration path escaped its binding directory" }
         return configuration
     }
 
     @Synchronized
     fun validateConfiguration(pluginId: String, configurationJson: String): List<String> {
+        val descriptor = runCatching { defaultConfigurationDescriptor(pluginId) }
+            .getOrElse { return listOf("Plugin is not loaded") }
+        return validateConfiguration(pluginId, descriptor.fileName, configurationJson)
+    }
+
+    @Synchronized
+    fun validateConfiguration(pluginId: String, fileName: String, configurationContent: String): List<String> {
         val plugin = loaded[pluginId] ?: return listOf("Plugin is not loaded")
         return try {
-            val value = mapper.readTree(configurationJson)
-            if (value == null || !value.isObject) {
+            val descriptor = PluginConfigurationDescriptor.fromBindingFileName(fileName)
+            val value = configurationCodec.parse(configurationContent, descriptor.format)
+            if (!value.isObject) {
                 listOf("${'$'} must be an object")
             } else {
                 PluginConfigurationValidator().validate(plugin.schema, value)
             }
         } catch (_: Exception) {
-            listOf("Configuration is not valid JSON")
+            val format = runCatching { PluginConfigurationDescriptor.fromBindingFileName(fileName).format.name }
+                .getOrDefault("JSON or YAML")
+            listOf("Configuration is not valid $format")
         }
     }
 
@@ -398,7 +435,7 @@ class Pf4jPluginHost(
         val plugin = loaded[binding.pluginId]
             ?: throw IllegalStateException("Plugin is not loaded: ${binding.pluginId}")
         val dataDirectory = requireBindingDataDirectory(binding)
-        val configurationJson = readBindingConfiguration(binding, plugin, dataDirectory)
+        val configuration = readBindingConfiguration(binding, plugin, dataDirectory)
         val bot = bots.findById(binding.botId)
             ?: throw IllegalStateException("Bot does not exist for plugin binding")
         val environment = bot.definition.environment
@@ -433,14 +470,14 @@ class Pf4jPluginHost(
             environment,
             binding.pluginId,
             dataDirectory,
-            configurationJson,
+            configuration.content,
             sender,
             logger,
             pluginStorage,
         )
         val extended = PluginRuntimeContext(
             base,
-            ConfigSnapshot(configurationJson, binding.revision, clock.instant()),
+            ConfigSnapshot(configuration.content, binding.revision, clock.instant(), configuration.fileName),
             if (plugin.metadata.capabilities.contains("event.subscribe")) resources.eventService() else EventService.denied(),
             if (plugin.metadata.capabilities.contains("scheduler")) resources.pluginScheduler() else PluginScheduler.denied(),
             http,
@@ -491,7 +528,7 @@ class Pf4jPluginHost(
         binding: BotPluginBinding,
         plugin: LoadedPlugin,
         dataDirectory: Path,
-    ): String {
+    ): PluginConfigurationDocument {
         val configuration = configurationFile(binding)
         check(Files.isRegularFile(configuration, LinkOption.NOFOLLOW_LINKS)) {
             "Plugin binding configuration file does not exist or is not a regular file: $configuration"
@@ -502,20 +539,24 @@ class Pf4jPluginHost(
             check(realConfiguration.parent == realDirectory) {
                 "Plugin binding configuration file escapes its data directory: $configuration"
             }
-            val json = readBindingConfigurationUtf8(configuration)
+            val content = readBindingConfigurationUtf8(configuration)
+            val descriptor = PluginConfigurationDescriptor.fromBindingFileName(configuration.fileName.toString())
             val value = try {
-                mapper.readTree(json)
+                configurationCodec.parse(content, descriptor.format)
             } catch (exception: Exception) {
-                throw IllegalStateException("Plugin binding configuration is not valid JSON: $configuration", exception)
+                throw IllegalStateException(
+                    "Plugin binding configuration is not valid ${descriptor.format.name}: $configuration",
+                    exception,
+                )
             }
-            check(value != null && value.isObject) {
-                "Plugin binding configuration must be a JSON object: $configuration"
+            check(value.isObject) {
+                "Plugin binding configuration must be an object: $configuration"
             }
             val errors = PluginConfigurationValidator().validate(plugin.schema, value)
             check(errors.isEmpty()) {
                 "Plugin binding configuration failed schema validation: ${errors.joinToString("; ")}"
             }
-            return json
+            return PluginConfigurationDocument(content, descriptor.fileName)
         } catch (exception: IOException) {
             throw IllegalStateException("Unable to read plugin binding configuration: $configuration", exception)
         }
@@ -591,6 +632,7 @@ class Pf4jPluginHost(
             requireNotNull(defaultConfigurationPath),
             "Plugin-Default-Config",
         )
+        val configurationDescriptor = PluginConfigurationDescriptor.fromDefaultResource(normalizedDefaultPath)
         capabilities.add("event.read")
         capabilities.add("http")
         for (capability in capabilities) {
@@ -598,18 +640,25 @@ class Pf4jPluginHost(
         }
         val schema = readPluginSchema(path, normalizedSchemaPath)
         check(schema != null && schema.isObject) { "Plugin configuration schema must be an object" }
-        val defaultConfiguration = readPluginDefaultConfiguration(path, normalizedDefaultPath)
-        check(defaultConfiguration != null && defaultConfiguration.isObject) {
-            "Plugin default configuration must be a JSON object"
+        val defaultConfiguration = readPluginDefaultConfiguration(
+            path,
+            normalizedDefaultPath,
+            configurationDescriptor,
+        )
+        val defaultValue = try {
+            configurationCodec.parse(defaultConfiguration.content, configurationDescriptor.format)
+        } catch (exception: Exception) {
+            throw IllegalStateException(
+                "Plugin default configuration is not valid ${configurationDescriptor.format.name}",
+                exception,
+            )
         }
-        val defaultErrors = PluginConfigurationValidator().validate(schema, defaultConfiguration)
+        check(defaultValue.isObject) {
+            "Plugin default configuration must be an object"
+        }
+        val defaultErrors = PluginConfigurationValidator().validate(schema, defaultValue)
         check(defaultErrors.isEmpty()) {
             "Plugin default configuration failed schema validation: ${defaultErrors.joinToString("; ")}"
-        }
-        val normalizedDefault = try {
-            mapper.writeValueAsString(defaultConfiguration)
-        } catch (exception: IOException) {
-            throw IllegalStateException("Unable to normalize plugin default configuration", exception)
         }
         val metadata = LoadedPluginMetadata(
             pluginId,
@@ -621,7 +670,9 @@ class Pf4jPluginHost(
             factory.javaClass.name,
             normalizedSchemaPath,
             normalizedDefaultPath,
-            normalizedDefault,
+            defaultConfiguration.content,
+            configurationDescriptor.format,
+            configurationDescriptor.fileName,
             capabilities.toSet(),
         )
         return LoadedPluginDetails(metadata, factory, schema)
@@ -636,7 +687,11 @@ class Pf4jPluginHost(
         throw IllegalStateException("Unable to read plugin configuration schema", exception)
     }
 
-    private fun readPluginDefaultConfiguration(pluginPath: Path, resourcePath: String): JsonNode? = try {
+    private fun readPluginDefaultConfiguration(
+        pluginPath: Path,
+        resourcePath: String,
+        descriptor: PluginConfigurationDescriptor,
+    ): PluginConfigurationDocument = try {
         JarFile(pluginPath.toFile(), false).use { jar ->
             val entry = requirePluginResource(jar, resourcePath, "Plugin default configuration resource is missing")
             jar.getInputStream(entry).use { input ->
@@ -644,7 +699,12 @@ class Pf4jPluginHost(
                 check(bytes.size <= MAX_CONFIGURATION_BYTES) {
                     "Plugin default configuration cannot exceed 64 KiB"
                 }
-                mapper.readTree(bytes)
+                val content = try {
+                    configurationCodec.decodeUtf8(bytes)
+                } catch (exception: CharacterCodingException) {
+                    throw IllegalStateException("Plugin default configuration must be valid UTF-8", exception)
+                }
+                PluginConfigurationDocument(content, descriptor.fileName)
             }
         }
     } catch (exception: IOException) {
@@ -862,7 +922,6 @@ class Pf4jPluginHost(
         )
         const val DEFAULT_QUEUE_CAPACITY = 256
         val DEFAULT_SHUTDOWN_TIMEOUT: Duration = Duration.ofSeconds(20)
-        const val CONFIGURATION_FILE_NAME = "config.json"
         const val MAX_CONFIGURATION_BYTES = 64 * 1024
         val PLUGIN_ID_PATTERN: Pattern = Pattern.compile("[a-z0-9](?:[a-z0-9._-]{0,126}[a-z0-9])?")
         val WINDOWS_RESERVED_PLUGIN_ID_STEMS = setOf(

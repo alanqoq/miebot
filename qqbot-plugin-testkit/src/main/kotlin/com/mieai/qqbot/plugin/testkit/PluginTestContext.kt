@@ -15,8 +15,15 @@ import java.time.Instant
 import java.time.ZoneOffset
 import java.util.UUID
 
-/** Complete capability fixture for constructing a plugin instance in unit tests. */
-class PluginTestContext(pluginId: String, configurationJson: String) : AutoCloseable {
+/**
+ * Complete capability fixture for constructing a plugin instance in unit tests.
+ * The configurationJson parameter name is retained for source compatibility, but accepts raw JSON or YAML content.
+ */
+class PluginTestContext @JvmOverloads constructor(
+    pluginId: String,
+    configurationJson: String,
+    configurationFileName: String = ConfigSnapshot.DEFAULT_FILE_NAME,
+) : AutoCloseable {
     val messages: FakeMessageSender
     val storage: FakePluginStorage
     val logger: FakePluginLogger
@@ -42,6 +49,7 @@ class PluginTestContext(pluginId: String, configurationJson: String) : AutoClose
             .toAbsolutePath().normalize()
         try {
             Files.createDirectories(dataDirectory)
+            Files.writeString(dataDirectory.resolve(configurationFileName), configurationJson, StandardCharsets.UTF_8)
         } catch (exception: IOException) {
             throw IllegalStateException("Unable to create plugin test data directory", exception)
         }
@@ -57,7 +65,7 @@ class PluginTestContext(pluginId: String, configurationJson: String) : AutoClose
         )
         context = PluginRuntimeContext(
             base,
-            ConfigSnapshot(configurationJson, 0L, clock.instant()),
+            ConfigSnapshot(configurationJson, 0L, clock.instant(), configurationFileName),
             events,
             scheduler,
             http,

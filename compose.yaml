@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: miebot:1.0.1
+    image: miebot:1.0.2
     platform: linux/amd64
     restart: unless-stopped
     stop_grace_period: 30s

@@ -3,6 +3,7 @@ package com.mieai.qqbot.admin.plugins
 import com.mieai.qqbot.admin.error.ApiExceptionHandler
 import com.mieai.qqbot.admin.security.AdminSecurityConfiguration
 import com.mieai.qqbot.admin.web.TraceIdFilter
+import org.assertj.core.api.Assertions.assertThat
 import org.hamcrest.Matchers.containsString
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
@@ -117,6 +118,37 @@ class PluginBindingControllerMockMvcTest {
             .andExpect(status().isNoContent)
 
         verify(service).delete(BINDING)
+    }
+
+    @Test
+    @WithMockUser(username = "alanqaq", roles = ["ADMIN"])
+    fun `accepts generic plugin configuration content`() {
+        val response = PluginBindingResponse(
+            BINDING,
+            "echo",
+            BOT,
+            true,
+            0,
+            Instant.parse("2026-07-19T00:00:00Z"),
+            Instant.parse("2026-07-19T00:00:00Z"),
+            "ACTIVE",
+            null,
+        )
+        val fallback = CreatePluginBindingRequest("echo", BOT.toString(), null, true, "enabled: true\n")
+        `when`(service.create(matchAny(CreatePluginBindingRequest::class.java, fallback))).thenReturn(response)
+
+        mockMvc.perform(
+            post("/api/plugin-bindings").with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    """{"pluginId":"echo","botId":"$BOT","configContent":"enabled: true\n","enabled":true}""",
+                ),
+        ).andExpect(status().isCreated)
+
+        val request = ArgumentCaptor.forClass(CreatePluginBindingRequest::class.java)
+        verify(service).create(request.capture() ?: fallback)
+        assertThat(request.value.configContent).isEqualTo("enabled: true\n")
+        assertThat(request.value.configJson).isNull()
     }
 
     @Test

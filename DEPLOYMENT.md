@@ -2,14 +2,14 @@
 
 ## 部署结论
 
-项目可以部署到 Debian 的 Docker Compose 中，当前 Compose 镜像为 `miebot:1.0.1`。Compose 只运行 MieBot 应用，默认使用容器数据卷中的 SQLite；MySQL/PostgreSQL 由外部系统提供，通过 Web 后台或候选配置文件填写连接信息。Spring Boot 直接在 `8080` 端口提供管理 API 和 Angular 页面，不强制依赖 Caddy/Nginx。真实 QQ Gateway 运行时默认启用，应用启动后会自动调和当前数据库内所有已启用机器人。
+项目可以部署到 Debian 的 Docker Compose 中，当前 Compose 镜像为 `miebot:1.0.2`。Compose 只运行 MieBot 应用，默认使用容器数据卷中的 SQLite；MySQL/PostgreSQL 由外部系统提供，通过 Web 后台或候选配置文件填写连接信息。Spring Boot 直接在 `8080` 端口提供管理 API 和 Angular 页面，不强制依赖 Caddy/Nginx。真实 QQ Gateway 运行时默认启用，应用启动后会自动调和当前数据库内所有已启用机器人。
 
 镜像携带 `database-support`、`qqbot-runtime`、`platform-admin`、`plugin-support`、`operations`、`cluster-support` 和 `onebot11` 七个默认框架模块 JAR。Compose 将宿主机 `./modules` 只读挂载到 `/modules`，Spring Boot 使用 `PropertiesLauncher` 在启动前把其中的 JAR 加入类路径；宿主随后校验描述符、SHA-256、框架版本、必需依赖、版本下限、重复项和依赖环。`GET /api/modules` 可查看制品和运行状态。替换模块后只需重启应用，不需要重新编译核心；模块不能从 Web 上传或热卸载。`/plugins` 只存放由 `plugin-support` 加载并绑定机器人的业务插件，绑定配置和插件自有数据则持久化在 `/data/plugin-data`。
 
 当前实现已通过本地单元、集成、模拟 HTTP 端点以及 WebSocket transport/协议测试，但本开发环境没有使用真实 QQ AppID/AppSecret 完成线上连接验收。能成功构建和启动容器只表示部署结构可用，不表示真实账号的凭据、Intents、Gateway 配额或外网策略已经通过 QQ 侧验证。
 
 镜像构建会从 Dragonwell 官方 GitHub Release 下载固定版本的
-`Alibaba_Dragonwell_Extended_21.0.11.0.11.10_x64_linux.tar.gz`。该文件已确认为 Linux x86_64、GNU libc 版本，SHA-256 为：
+`Alibaba_Dragonwell_Extended_21.0.21.0.21.10_x64_linux.tar.gz`。该文件已确认为 Linux x86_64、GNU libc 版本，SHA-256 为：
 
 ```text
 12c642f8d6c6e0930b9b4e673d47822227ea46e7559c7b7b6b4c0331ace0580f
@@ -163,7 +163,7 @@ Outbox/DLQ 管理接口为：
 
 - `GET /api/events/plugin-deliveries`、`/stats`、`/{id}`：插件投递列表、统计和详情。
 - `GET /api/events/plugin-dlq`、`/{id}`：仅返回 `DEAD_LETTER` 插件投递。
-- `GET/POST/PUT/DELETE /api/plugin-bindings`：按机器人创建、查询、启停和删除插件绑定；新建请求中的 `configJson` 只用于初始化文件，绑定响应不返回配置正文。
+- `GET/POST/PUT/DELETE /api/plugin-bindings`：按机器人创建、查询、启停和删除插件绑定；新建请求中的 `configContent` 只用于初始化文件，绑定响应不返回配置正文；旧 JSON 客户端仍可发送 `configJson`。
 - `POST /api/plugin-bindings/{bindingId}/reset`：恢复已启用且配置有效的隔离绑定。
 
 绑定文件管理接口全部以绑定目录为根，`path`/`directory` 使用正斜杠相对路径：
@@ -171,14 +171,14 @@ Outbox/DLQ 管理接口为：
 - `GET /api/plugin-bindings/{bindingId}/files?path=`：列出根目录或指定子目录，目录优先、名称不区分大小写排序。
 - `GET /api/plugin-bindings/{bindingId}/files/content?path=...`：以 UTF-8 读取不超过 `2 MiB` 的文本，并返回 SHA-256 和修改时间。
 - `PUT /api/plugin-bindings/{bindingId}/files/content`：保存文本；请求包含 `path`、`content` 和可选 `expectedSha256`，哈希不匹配返回冲突。
-- `POST /api/plugin-bindings/{bindingId}/files/entries`：按请求中的 `path` 和 `directory` 创建文件或目录；创建根目录 `config.json` 时自动写入插件默认配置。
-- `POST /api/plugin-bindings/{bindingId}/files/upload?directory=...&overwrite=false`：上传文件到指定目录；默认拒绝替换同名文件并返回 `409`，管理员确认后才可改为 `overwrite=true`，还可传 `expectedSha256` 做覆盖前校验。普通文件受当前全局 multipart `256 MiB` 上限约束，`config.json` 另限 `64 KiB`。
+- `POST /api/plugin-bindings/{bindingId}/files/entries`：按请求中的 `path` 和 `directory` 创建文件或目录；创建插件选定的根配置文件时自动写入原始默认配置。
+- `POST /api/plugin-bindings/{bindingId}/files/upload?directory=...&overwrite=false`：上传文件到指定目录；默认拒绝替换同名文件并返回 `409`，管理员确认后才可改为 `overwrite=true`，还可传 `expectedSha256` 做覆盖前校验。普通文件受当前全局 multipart `256 MiB` 上限约束，根配置文件另限 `64 KiB`。
 - `GET /api/plugin-bindings/{bindingId}/files/download?path=...`：以附件下载任意普通文件。
 - `DELETE /api/plugin-bindings/{bindingId}/files?path=...`：永久删除指定文件或整个子目录；不能用空路径删除绑定根目录。
 
-插件后台通过 `GET /api/plugins` 扫描 `/plugins` 目录中的 JAR manifest 和 SHA-256；PF4J 宿主只加载同时声明 `Plugin-Config-Schema`、`Plugin-Default-Config`、API 版本和有效能力的可信 JAR，默认配置必须是符合 Schema 的 JSON 对象。后台制品清单只接受不超过 `64 KiB` 的默认配置资源，绑定 `config.json` 也限制为 `64 KiB`。插件页可以选择并上传 `.jar`，通过 `POST /api/plugins/upload` 完成校验和同进程无重启热升级，失败会尝试恢复旧插件；请求必须是已认证管理员并带 CSRF 和 `X-Plugin-Upload-Confirm: trusted-jar`。
+插件后台通过 `GET /api/plugins` 扫描 `/plugins` 目录中的 JAR manifest 和 SHA-256；PF4J 宿主只加载同时声明 `Plugin-Config-Schema`、`Plugin-Default-Config`、API 版本和有效能力的可信 JAR，默认配置必须是符合 Schema 的 JSON 或 YAML 对象。默认资源扩展名 `.json`、`.yml`、`.yaml` 分别选择绑定文件 `config.json`、`config.yml`、`config.yaml`。宿主只为验证临时解析配置，保存和运行时传递的正文保持原样。后台制品清单只接受不超过 `64 KiB` 的默认配置资源，绑定根配置也限制为 `64 KiB`。插件页可以选择并上传 `.jar`，通过 `POST /api/plugins/upload` 完成校验和同进程无重启热升级，失败会尝试恢复旧插件；请求必须是已认证管理员并带 CSRF 和 `X-Plugin-Upload-Confirm: trusted-jar`。
 
-“机器人绑定”列表显示机器人信息、Gateway 状态、绑定插件数和更新时间；机器人详情按插件分区，只显示插件名、右侧删除操作和目录文件管理器，并可继续新增插件。文件管理器支持目录浏览、新建、上传、下载和递归删除；点击 `.json` 文件会打开编辑器，并以读取时的 SHA-256 防止静默覆盖并发修改。同名上传默认拒绝覆盖，Web 会要求管理员确认后再显式重试。新建绑定对话框从 `GET /api/plugins` 返回的 `defaultConfigJson` 预填默认配置，管理员确认后才创建 `/data/plugin-data/<botId>/<pluginId>/config.json`。一个插件可绑定多个机器人，每个机器人/插件组合的目录完全分开，JSON 配置不写入主数据库；插件可在自己的目录保存 SQLite、图片、音频、视频及任意其他文件。删除绑定会永久删除该绑定的整个目录，无法从数据库记录恢复。
+“机器人绑定”列表显示机器人信息、Gateway 状态、绑定插件数和更新时间；机器人详情按插件分区，只显示插件名、右侧删除操作和目录文件管理器，并可继续新增插件。文件管理器支持目录浏览、新建、上传、下载和递归删除；点击 `.json`、`.yml` 或 `.yaml` 文件会打开编辑器，并以读取时的 SHA-256 防止静默覆盖并发修改。同名上传默认拒绝覆盖，Web 会要求管理员确认后再显式重试。新建绑定对话框从 `GET /api/plugins` 返回的 `defaultConfigContent`、`configFormat` 和 `configFileName` 预填默认配置，管理员确认后才创建对应根配置文件；兼容字段 `defaultConfigJson` 继续返回给旧 JSON 客户端。一个插件可绑定多个机器人，每个机器人/插件组合的目录完全分开，配置正文不写入主数据库；插件可在自己的目录保存 SQLite、图片、音频、视频及任意其他文件。删除绑定会永久删除该绑定的整个目录，无法从数据库记录恢复。
 
 停用绑定会暂停未完成投递，重新启用后继续；超时执行先合作取消，未在宽限期停止则进入 `QUARANTINED`，页面显示原因并提供恢复操作。声明 capability 的插件可使用按绑定 UUID 隔离的 `PluginStorage`、调度器、富消息、本地/远程媒体和多 handler 事件订阅；`PluginHttpClient` 始终提供，宿主不限制目标 URL、网络地址、请求头、重定向、正文、响应或最长超时。
 
@@ -208,7 +208,7 @@ Web 文件管理、删除插件绑定和删除机器人只会同步停止处理�
 | `QQBOT_GATEWAY_MAX_TEXT_CHARACTERS` | `2097152` | 单个 Gateway 文本帧允许的最大字符数 |
 | `QQBOT_ONEBOT11_CACHE_DIRECTORY` | `onebot-cache`；Compose 为 `/data/onebot-cache` | `get_image/get_record` 的受控下载缓存；必须位于可写目录 |
 | `QQBOT_PLUGINS_DIR` | `/plugins` | 可信插件扫描、上传和版本制品目录；启用网页上传时必须可写 |
-| `QQBOT_PLUGINS_DATA_DIR` | `/data/plugin-data` | 每个机器人/插件绑定的 `config.json` 和插件自有文件根目录；必须持久化，多实例时必须共享 |
+| `QQBOT_PLUGINS_DATA_DIR` | `/data/plugin-data` | 每个机器人/插件绑定的 JSON/YAML 配置和插件自有文件根目录；必须持久化，多实例时必须共享 |
 | `QQBOT_MODULES_DIR` | `/modules` | 启动时严格扫描的框架模块 JAR 目录；容器内只读 |
 | `LOADER_PATH` | `/modules` | `PropertiesLauncher` 启动类路径；必须与模块目录一致 |
 | `QQBOT_PLUGINS_LEASE_DURATION` | `30s` | 插件投递领取租约，必须覆盖一次正常执行 |
@@ -234,7 +234,7 @@ Compose 使用以下持久化位置：
 | Gateway Resume 状态 | `/data/config/gateway-sessions` | `./config/gateway-sessions`，应用自动维护 |
 | 媒体暂存 | `/data/media-staging` | `qqbot-data` 命名卷；终态任务自动删除对应文件 |
 | OneBot 媒体缓存 | `/data/onebot-cache` | `qqbot-data` 命名卷；由 `clean_cache` 按机器人清理 |
-| 插件绑定配置与数据 | `/data/plugin-data/<botId>/<pluginId>/` | `qqbot-data` 命名卷；每个绑定包含 `config.json` 和插件自有文件 |
+| 插件绑定配置与数据 | `/data/plugin-data/<botId>/<pluginId>/` | `qqbot-data` 命名卷；每个绑定包含插件选定的 `config.json`/`config.yml`/`config.yaml` 和自有文件 |
 | 框架模块 | `/modules` | 宿主机 `./modules` 只读绑定目录 |
 | 机器人插件 | `/plugins` | 宿主机 `./plugins` 可写绑定目录 |
 | 主密钥 | `/data/config/app-secret.key` | `./config/app-secret.key`，首次启动自动生成 |
@@ -242,7 +242,7 @@ Compose 使用以下持久化位置：
 
 容器以 UID/GID `10001` 非 root 身份运行，根文件系统只读。`config` 权限不正确时，服务会无法生成主密钥或提交数据库配置；`/data/plugin-data` 不可写时，插件绑定无法初始化或通过 Web 管理文件。
 
-插件绑定目录不存入数据库，也没有回收站。删除绑定会先停止并失效化绑定实例，再递归永久删除对应 `<botId>/<pluginId>/` 目录；删除单个文件或目录同样立即生效。删除或破坏根目录的 `config.json` 会使绑定进入隔离状态，重新创建有效配置后才可恢复。插件自行创建的 SQLite 连接、文件格式、迁移、备份和关闭流程由插件负责。
+插件绑定目录不存入数据库，也没有回收站。删除绑定会先停止并失效化绑定实例，再递归永久删除对应 `<botId>/<pluginId>/` 目录；删除单个文件或目录同样立即生效。删除或破坏插件选定的根配置文件会使绑定进入隔离状态，重新创建有效配置后才可恢复。插件自行创建的 SQLite 连接、文件格式、迁移、备份和关闭流程由插件负责。
 
 每个机器人分片的 Resume snapshot 文件名为 `<botId>-shard-<index>.json`，内容包含 session id、最后事件序号和配置指纹，不包含 AppSecret 或 Access Token。文件通过临时文件原子替换，在 POSIX 文件系统上临时文件使用 `0600`。机器人 revision、AppID、环境、Intents 或分片配置变化导致指纹不匹配时，旧 snapshot 会被删除并重新 Identify；有效 snapshot 可用于重连或重启后的 Resume。该目录应随 `config` 一起备份和恢复，但不能替代数据库与主密钥备份。
 
@@ -347,7 +347,7 @@ curl -b cookies.txt 'http://127.0.0.1:8080/api/events/inbox?limit=50'
 
 ## 备份与升级
 
-本次插件配置改造是不兼容升级：Flyway `V014` 会直接删除绑定表中的 `config_json`，不会把旧数据库配置迁移到文件。升级后，已有绑定缺少 `/data/plugin-data/<botId>/<pluginId>/config.json` 时会从该插件的 `Plugin-Default-Config` 创建默认配置；没有声明有效默认配置的旧插件 JAR 不会加载。若仍需旧配置值，必须在升级前自行导出并在升级后通过 Web 文件管理器写入 `config.json`。
+最初的文件化插件配置改造是不兼容升级：Flyway `V014` 会直接删除绑定表中的 `config_json`，不会把旧数据库配置迁移到文件。升级后，已有绑定缺少根配置文件时会按该插件 `Plugin-Default-Config` 的扩展名创建默认配置；没有声明有效默认配置的旧插件 JAR 不会加载。若仍需旧数据库配置值，必须在执行 V014 前自行导出，并在升级后通过 Web 文件管理器写入插件选定的根配置文件。
 
 SQLite 部署在备份前先停止写入：
 

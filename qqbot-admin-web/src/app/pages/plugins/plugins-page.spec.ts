@@ -293,7 +293,7 @@ describe('PluginsPage', () => {
     expect(createBinding).toHaveBeenCalledWith({
       pluginId: 'support',
       botId: 'bot-1',
-      configJson: '{\n  "enabled": true\n}',
+      configContent: '{\n  "enabled": true\n}',
       enabled: true,
     });
     expect(listBindingFiles).toHaveBeenCalledWith('binding-1', '');
@@ -430,7 +430,7 @@ describe('PluginsPage', () => {
       .find((row: Element) => row.textContent?.includes('config.json')) as HTMLTableRowElement;
     (configRow.querySelector('.file-entry-button') as HTMLButtonElement).click();
     fixture.detectChanges();
-    (fixture.nativeElement.querySelector('.json-editor .button-primary') as HTMLButtonElement).click();
+    (fixture.nativeElement.querySelector('.config-editor .button-primary') as HTMLButtonElement).click();
     fixture.detectChanges();
     expect(saveBindingFileContent).toHaveBeenCalledWith('binding-1', {
       path: 'cache/config.json', content: '{}', expectedSha256: 'abc',
@@ -447,6 +447,73 @@ describe('PluginsPage', () => {
     expect(fixture.nativeElement.querySelector('.binding-detail')).not.toBeNull();
     expect(fixture.nativeElement.querySelector('.breadcrumbs')?.textContent).toContain('cache');
     expect(listBindingFiles).toHaveBeenLastCalledWith('binding-1', 'cache');
+  });
+
+  it('preserves a yaml default when creating a binding', () => {
+    const yaml = '# plugin setting\nenabled: true\nmessage: hello\n';
+    const inventory = loadedInventoryFixture();
+    inventory.items = inventory.items.map((item) => ({
+      ...item,
+      defaultConfigJson: null,
+      defaultConfigContent: yaml,
+      configFormat: 'YAML',
+      configFileName: 'config.yml',
+    }));
+    list.mockReturnValue(of(inventory));
+    botList.mockReturnValue(of([botFixture()]));
+
+    const fixture = createFixture();
+    (fixture.nativeElement.querySelector('.bot-binding-table .compact-button') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    (fixture.nativeElement.querySelector('.detail-header .button-primary') as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('.plugin-dialog').textContent).toContain('config.yml');
+    expect((fixture.nativeElement.querySelector('.plugin-dialog textarea') as HTMLTextAreaElement).value).toBe(yaml);
+    (fixture.nativeElement.querySelector('.plugin-dialog button[type="submit"]') as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    expect(createBinding).toHaveBeenCalledWith({
+      pluginId: 'support',
+      botId: 'bot-1',
+      configContent: yaml,
+      enabled: true,
+    });
+  });
+
+  it('opens and saves yaml files without json formatting', () => {
+    const yaml = '# keep this comment\nenabled: true\n';
+    list.mockReturnValue(of(loadedInventoryFixture()));
+    botList.mockReturnValue(of([botFixture()]));
+    listBindings.mockReturnValue(of([bindingFixture()]));
+    listBindingFiles.mockReturnValue(of({
+      path: '',
+      entries: [{
+        name: 'config.yml', path: 'config.yml', directory: false, sizeBytes: yaml.length,
+        modifiedAt: '2026-07-18T12:00:00Z', contentType: 'application/yaml',
+      }],
+    }));
+    getBindingFileContent.mockReturnValue(of({
+      path: 'config.yml', content: yaml, sha256: 'abc', modifiedAt: '2026-07-18T12:00:00Z',
+    }));
+    saveBindingFileContent.mockReturnValue(of({
+      path: 'config.yml', content: yaml, sha256: 'def', modifiedAt: '2026-07-18T12:00:00Z',
+    }));
+
+    const fixture = createFixture();
+    (fixture.nativeElement.querySelector('.bot-binding-table .compact-button') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    const entry = fixture.nativeElement.querySelector('.file-entry-button') as HTMLButtonElement;
+    expect(entry.getAttribute('aria-label')).toBe('编辑配置文件 config.yml');
+    entry.click();
+    fixture.detectChanges();
+
+    expect((fixture.nativeElement.querySelector('.config-editor textarea') as HTMLTextAreaElement).value).toBe(yaml);
+    (fixture.nativeElement.querySelector('.config-editor .button-primary') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(saveBindingFileContent).toHaveBeenCalledWith('binding-1', {
+      path: 'config.yml', content: yaml, expectedSha256: 'abc',
+    });
   });
 
   it('requires confirmation before overwriting an existing binding file', () => {

@@ -10,9 +10,15 @@ import java.util.UUID
 data class CreatePluginBindingRequest(
     @field:NotBlank @field:Size(max = 128) val pluginId: String,
     @field:NotBlank @field:Size(max = 36) val botId: String,
-    @field:NotBlank @field:Size(max = 65_536) val configJson: String,
+    @field:Size(max = 65_536) val configJson: String? = null,
     val enabled: Boolean,
-)
+    @field:Size(max = 65_536) val configContent: String? = null,
+) {
+    fun suppliedConfiguration(): String? = configContent ?: configJson
+
+    fun hasConflictingConfigurationFields(): Boolean =
+        configContent != null && configJson != null && configContent != configJson
+}
 
 data class UpdatePluginBindingRequest(
     @field:PositiveOrZero val expectedRevision: Long,

@@ -2,8 +2,8 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 文档状态 | 1.0.1 实现基线 |
-| 版本 | 1.0.1 |
+| 文档状态 | 1.0.2 实现基线 |
+| 版本 | 1.0.2 |
 | 最后更新 | 2026-07-24 |
 | 目标平台 | Debian + Docker Compose |
 
@@ -249,7 +249,7 @@ Manifest 至少声明：
 - 所需能力。
 - 所需能力；制品 SHA-256 由宿主读取 JAR 后计算，不由插件自报。
 
-当前插件 API 级别为 `3.1.0`。同一主版本内，宿主可以加载要求版本不高于自身的旧插件；更高版本或不同主版本必须拒绝。插件只通过 `BotPluginFactory.create(PluginRuntimeContext)` 创建绑定实例，在 `BotPlugin.start()` 中使用 `EventService` 注册命名 handler；不提供旧工厂、旧 Java ABI 或 `BotPlugin.onEvent(...)` 回退。宿主必须在执行插件代码前完成 Manifest、API 版本和授权校验。消息发送接口必须区分 `msg_id`/`event_id` 被动回复和显式 `message_reference`，并让显式引用通过持久化 Outbox 到达 QQ Client。
+当前插件 API 级别为 `3.2.0`。同一主版本内，宿主可以加载要求版本不高于自身的旧插件；更高版本或不同主版本必须拒绝。插件只通过 `BotPluginFactory.create(PluginRuntimeContext)` 创建绑定实例，在 `BotPlugin.start()` 中使用 `EventService` 注册命名 handler；不提供旧工厂、旧 Java ABI 或 `BotPlugin.onEvent(...)` 回退。宿主必须在执行插件代码前完成 Manifest、API 版本和授权校验。`Plugin-Default-Config` 的 `.json`、`.yml` 或 `.yaml` 扩展名决定绑定配置格式和文件名；宿主可以为 Schema 校验临时解析，但必须把原始正文和文件名交给插件自行加载，不得在运行时把 YAML 转换为 JSON。API 3.1 的 JSON 配置访问器必须保持兼容。消息发送接口必须区分 `msg_id`/`event_id` 被动回复和显式 `message_reference`，并让显式引用通过持久化 Outbox 到达 QQ Client。
 
 ### 7.3 插件能力
 
@@ -278,7 +278,7 @@ Manifest 至少声明：
 - 插件不得运行在 Gateway、HTTP 回调或数据库 I/O 线程中。
 - 插件停止时，宿主统一释放订阅、调度任务、HTTP 客户端和执行器。
 - 停用插件时先停止新投递并等待在途任务；未开始及待重试任务进入暂停状态，重新启用后继续处理。
-- 插件配置必须经过 Manifest 中的 JSON Schema 校验，并向后台返回具体字段错误。
+- JSON/YAML 插件配置必须经过 Manifest 中的 JSON Schema 校验，并向后台返回具体字段错误；校验不得改变传给插件的原始正文。
 
 ### 7.5 插件安全边界
 
@@ -318,7 +318,7 @@ PF4J 类加载隔离不构成安全沙箱。第一版只允许运维人员部署
 
 - 领域层和插件 API 不暴露数据库方言。
 - UUID 使用可移植字符串表示，时间统一使用 UTC。
-- 平台通用 JSON 数据使用文本字段，不依赖 JSONB；插件绑定配置作为绑定目录中的独立 `config.json` 保存，不写入平台数据库。
+- 平台通用 JSON 数据使用文本字段，不依赖 JSONB；插件绑定配置按 Manifest 选择为绑定目录中的独立 `config.json`、`config.yml` 或 `config.yaml`，不写入平台数据库。
 - 公共迁移和方言迁移脚本分目录维护。
 - 三种数据库必须执行同一套 Repository 契约测试。
 - 平台数据库连接不向插件开放。插件可使用命名空间化的 `PluginStorage`，也可在当前绑定私有目录中创建并自行迁移、备份和关闭 SQLite 数据库。
@@ -502,7 +502,7 @@ Compose 不创建 MySQL/PostgreSQL 服务。数据库由外部系统部署和备
 - 应用上下文中七个默认外置框架功能模块全部为 `ACTIVE` 的集成测试。
 - SQLite 默认模式和外部 MySQL/PostgreSQL 连接模式的 Compose 冒烟验证按 [DEPLOYMENT.md](./DEPLOYMENT.md) 人工执行，当前未配置自动化 Compose 测试。
 
-当前仓库未集成 Testcontainers、Angular E2E、OpenAPI/TypeScript Client 生成或 CI 二进制兼容检查；这些能力不能视为 `1.0.1` 的已交付保证。
+当前仓库未集成 Testcontainers、Angular E2E、OpenAPI/TypeScript Client 生成或 CI 二进制兼容检查；这些能力不能视为 `1.0.2` 的已交付保证。
 
 ### 13.2 第一版验收标准
 

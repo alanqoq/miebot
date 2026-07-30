@@ -8,12 +8,29 @@ import com.mieai.qqbot.plugin.api.MessageTargetType
 import com.mieai.qqbot.plugin.api.TextMessage
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
+import java.nio.file.Files
 import java.time.Duration
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.atomic.AtomicInteger
 
 class PluginTestContextTest {
+    @Test
+    @Suppress("DEPRECATION")
+    fun preservesYamlConfigurationAndCompatibilityAccessors() {
+        val configuration = "# keep this comment\nenabled: true\n"
+
+        PluginTestContext("yaml-example", configuration, "config.yaml").use { fixture ->
+            assertThat(fixture.context.configuration.content).isEqualTo(configuration)
+            assertThat(fixture.context.configuration.json).isEqualTo(configuration)
+            assertThat(fixture.context.configuration.fileName).isEqualTo("config.yaml")
+            assertThat(fixture.context.base.configurationContent).isEqualTo(configuration)
+            assertThat(fixture.context.base.configurationJson).isEqualTo(configuration)
+            assertThat(fixture.context.configurationFile.fileName.toString()).isEqualTo("config.yaml")
+            assertThat(Files.readString(fixture.context.configurationFile)).isEqualTo(configuration)
+        }
+    }
+
     @Test
     fun exposesIsolatedStorageAndControllableScheduler() {
         PluginTestContext("example", "{}").use { fixture ->

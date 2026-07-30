@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "id": "plugin-support",
   "name": "Robot Plugin Support",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "minimumFrameworkVersion": "1.0.0",
   "dependencies": [
-    { "moduleId": "database-support", "minimumVersion": "1.0.1", "optional": false },
-    { "moduleId": "qqbot-runtime", "minimumVersion": "1.0.1", "optional": false },
-    { "moduleId": "platform-admin", "minimumVersion": "1.0.1", "optional": false }
+    { "moduleId": "database-support", "minimumVersion": "1.0.2", "optional": false },
+    { "moduleId": "qqbot-runtime", "minimumVersion": "1.0.2", "optional": false },
+    { "moduleId": "platform-admin", "minimumVersion": "1.0.2", "optional": false }
   ],
   "capabilities": [
     "plugin.sdk",

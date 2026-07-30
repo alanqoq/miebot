@@ -18,4 +18,7 @@ data class PluginArtifactResponse(
     val loaded: Boolean,
     val bindingCount: Int,
     val enabledBindingCount: Int,
+    val defaultConfigContent: String? = defaultConfigJson,
+    val configFormat: String? = if (defaultConfigJson == null) null else "JSON",
+    val configFileName: String? = if (defaultConfigJson == null) null else "config.json",
 )

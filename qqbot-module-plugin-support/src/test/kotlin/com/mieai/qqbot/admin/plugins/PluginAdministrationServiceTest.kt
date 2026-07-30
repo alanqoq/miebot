@@ -41,6 +41,38 @@ class PluginAdministrationServiceTest {
         assertThat(artifact.status).isEqualTo("DISCOVERED")
         assertThat(artifact.loaded).isFalse()
         assertThat(artifact.sha256).matches("[0-9a-f]{64}")
+        assertThat(artifact.defaultConfigContent).isEqualTo("{}")
+        assertThat(artifact.defaultConfigJson).isEqualTo("{}")
+        assertThat(artifact.configFormat).isEqualTo("JSON")
+        assertThat(artifact.configFileName).isEqualTo("config.json")
+    }
+
+    @Test
+    fun `scans yaml defaults without normalizing their content`() {
+        val defaultConfiguration = """# visible to the plugin
+            |enabled: true
+            |message: hello
+            |
+        """.trimMargin()
+        val manifest = Manifest().apply {
+            mainAttributes[Attributes.Name.MANIFEST_VERSION] = "1.0"
+            mainAttributes.putValue("Plugin-Id", "yaml-support")
+            mainAttributes.putValue("Plugin-Name", "YAML Support Plugin")
+            mainAttributes.putValue("Plugin-Version", "1.0.0")
+            mainAttributes.putValue("Plugin-Api-Version", "3.2.0")
+            mainAttributes.putValue("Plugin-Class", "example.YamlSupportPlugin")
+            mainAttributes.putValue("Plugin-Config-Schema", "plugin-schema.json")
+            mainAttributes.putValue("Plugin-Default-Config", "plugin-default.yml")
+        }
+        writeManifestJar(directory.resolve("yaml-support.jar"), manifest, defaultConfiguration)
+
+        val artifact = PluginAdministrationService(directory.toString()).scan(null).items.single()
+
+        assertThat(artifact.status).isEqualTo("DISCOVERED")
+        assertThat(artifact.defaultConfigContent).isEqualTo(defaultConfiguration)
+        assertThat(artifact.defaultConfigJson).isNull()
+        assertThat(artifact.configFormat).isEqualTo("YAML")
+        assertThat(artifact.configFileName).isEqualTo("config.yml")
     }
 
     @Test
@@ -64,13 +96,14 @@ class PluginAdministrationServiceTest {
         assertThat(Files.exists(missing)).isFalse()
     }
 
-    private fun writeManifestJar(target: Path, manifest: Manifest) {
+    private fun writeManifestJar(target: Path, manifest: Manifest, defaultConfigurationContent: String = "{}") {
+        val defaultConfiguration = requireNotNull(manifest.mainAttributes.getValue("Plugin-Default-Config"))
         JarOutputStream(Files.newOutputStream(target), manifest).use { output ->
             output.putNextEntry(ZipEntry("plugin-schema.json"))
             output.write("""{"type":"object"}""".toByteArray(StandardCharsets.UTF_8))
             output.closeEntry()
-            output.putNextEntry(ZipEntry("plugin-default.json"))
-            output.write("{}".toByteArray(StandardCharsets.UTF_8))
+            output.putNextEntry(ZipEntry(defaultConfiguration))
+            output.write(defaultConfigurationContent.toByteArray(StandardCharsets.UTF_8))
             output.closeEntry()
             output.finish()
         }

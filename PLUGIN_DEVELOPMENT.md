@@ -18,7 +18,7 @@ QQ Gateway 事件
 - 一个 JAR 对应一个插件制品和一个 ClassLoader。
 - 一个插件可以绑定多个机器人。
 - 每个绑定创建独立的 `BotPlugin` 实例、配置、`PluginStorage` 空间和文件目录；默认容器路径为 `/data/plugin-data/<botId>/<pluginId>/`。
-- 绑定配置只保存在私有目录的 `config.json`，不写入平台数据库；插件可在同一目录自行保存 SQLite、图片、音频、视频及其他文件。
+- 绑定配置只保存在私有目录中，由插件默认配置扩展名选择 `config.json`、`config.yml` 或 `config.yaml`，不写入平台数据库；插件可在同一目录自行保存 SQLite、图片、音频、视频及其他文件。
 - 配置或启用状态变化时，旧实例停止，后续事件使用新实例。
 - 停用绑定时未完成投递进入 `PAUSED`，重新启用后恢复。
 - 插件异常或能在宽限期内停止的超时会触发有限重试，超过上限进入插件 DLQ。
@@ -37,11 +37,11 @@ dependencies {
 }
 ```
 
-外部插件项目应依赖与宿主完全相同的 Maven 制品版本。当前平台制品版本为 `1.0.1`，Manifest 的插件 API 级别为 `3.1.0`。根项目的 `pluginSdkRepository` 任务会生成可复制的本地 Maven SDK 仓库，`pluginSdkDistribution` 会把仓库、模板和本指南打成 ZIP；不需要把宿主模块或 PF4J 放进插件项目。
+外部插件项目应依赖与宿主完全相同的 Maven 制品版本。当前平台制品版本为 `1.0.2`，Manifest 的插件 API 级别为 `3.2.0`。根项目的 `pluginSdkRepository` 任务会生成可复制的本地 Maven SDK 仓库，`pluginSdkDistribution` 会把仓库、模板和本指南打成 ZIP；不需要把宿主模块或 PF4J 放进插件项目。
 
 平台 API/SPI 必须使用 `compileOnly` 或 Maven 的 `provided` scope。不要把 API/SPI、PF4J、Spring 或宿主模块打入插件 JAR，否则可能出现类型不相等、类加载冲突或越过宿主边界的问题。插件自己的 JSON、SQLite JDBC 或其他实现依赖可以打入 JAR，但应评估体积、原生库加载、ClassLoader 卸载和依赖冲突；需要与宿主同名库并存时应做 shading/relocation。
 
-仓库内可复制 `plugin-template` 作为起点；`qqbot-plugin-example` 是宿主端到端测试使用的 API 3.1 参考实现。建议目录如下：
+仓库内可复制 `plugin-template` 作为起点；`qqbot-plugin-example` 是宿主端到端测试使用的 API 3.2 参考实现。建议目录如下：
 
 ```text
 my-plugin/
@@ -112,10 +112,10 @@ com.example.HelloPluginFactory
 | `Plugin-Id` | 是 | 稳定插件 ID，必须与 `BotPluginFactory.pluginId` 完全一致 |
 | `Plugin-Name` | 建议 | 后台显示名称；未提供时使用插件 ID |
 | `Plugin-Version` | 是 | 插件版本 |
-| `Plugin-Requires` | 建议 | 插件要求的最低宿主 API 版本；缺省时按当前 `3.1.0` 处理，同一主版本内旧插件可由较新宿主加载 |
+| `Plugin-Requires` | 建议 | 插件要求的最低宿主 API 版本；缺省时按当前 `3.2.0` 处理，同一主版本内旧插件可由较新宿主加载 |
 | `Plugin-Class` | 是 | 固定为 `com.mieai.qqbot.plugin.host.Pf4jPluginBridge` |
 | `Plugin-Config-Schema` | 是 | JAR 内 JSON Schema 资源路径 |
-| `Plugin-Default-Config` | 是 | JAR 内默认 JSON 配置资源路径，必须符合 Schema |
+| `Plugin-Default-Config` | 是 | JAR 内默认 JSON/YAML 配置资源路径，必须符合 Schema；扩展名决定绑定配置文件名 |
 | `Plugin-Capabilities` | 建议 | 逗号分隔的能力列表 |
 
 Gradle 配置示例：
@@ -127,7 +127,7 @@ tasks.jar {
             "Plugin-Id" to "hello",
             "Plugin-Name" to "Hello Plugin",
             "Plugin-Version" to project.version.toString(),
-            "Plugin-Requires" to "3.1.0",
+            "Plugin-Requires" to "3.2.0",
             "Plugin-Class" to "com.mieai.qqbot.plugin.host.Pf4jPluginBridge",
             "Plugin-Config-Schema" to "qqbot-plugin-schema.json",
             "Plugin-Default-Config" to "qqbot-plugin-default.json",
@@ -153,7 +153,7 @@ tasks.jar {
 
 ## 5. 配置 Schema
 
-每个插件都必须提供配置 Schema 和符合该 Schema 的默认 JSON 配置。即使插件不需要配置，Schema 和 `qqbot-plugin-default.json` 也应分别提供以下内容和 `{}`：
+每个插件都必须提供 JSON Schema，以及符合该 Schema 的 JSON 或 YAML 默认配置。`Plugin-Default-Config` 资源以 `.json`、`.yml` 或 `.yaml` 结尾时，绑定目录分别使用 `config.json`、`config.yml` 或 `config.yaml`。即使插件不需要配置，Schema 和默认配置也应分别提供以下内容和 `{}`：
 
 ```json
 {
@@ -173,9 +173,9 @@ tasks.jar {
 - 字符串：`minLength`、`maxLength`、`pattern`
 - 数字：`minimum`、`maximum`
 
-不要依赖 `$ref`、`oneOf`、`anyOf`、条件 Schema、格式校验或其他未列出的关键字。默认配置和实际配置都必须是 JSON 对象。宿主加载插件时会读取 `Plugin-Default-Config` 并校验对象类型和 Schema；任一条件失败都会拒绝加载整个插件制品。后台制品清单只接受不超过 `64 KiB` 的默认配置资源，写入绑定的规范化 `config.json` 同样不能超过 `64 KiB`。
+不要依赖 `$ref`、`oneOf`、`anyOf`、条件 Schema、格式校验或其他未列出的关键字。默认配置和实际配置都必须解析为对象。宿主加载插件时会按资源扩展名临时解析 `Plugin-Default-Config`，校验对象类型和 Schema；任一条件失败都会拒绝加载整个插件制品。宿主不会把 YAML 转换成 JSON，也不会重排、压缩或格式化配置正文。后台制品清单和绑定配置原文都不能超过 `64 KiB`。
 
-Web 新建绑定时，`GET /api/plugins` 返回默认配置 `defaultConfigJson`，绑定对话框将其载入“插件配置 JSON”供管理员确认或修改。`POST /api/plugin-bindings` 的 `configJson` 只作为创建文件的初始内容，验证通过后写入绑定目录；绑定表和绑定响应都不保存或返回配置正文。
+Web 新建绑定时，`GET /api/plugins` 返回 `defaultConfigContent`、`configFormat` 和 `configFileName`，绑定对话框将原始默认配置载入“插件配置”供管理员确认或修改。`POST /api/plugin-bindings` 的 `configContent` 只作为创建文件的初始内容，验证通过后原样写入绑定目录；绑定表和绑定响应都不保存或返回配置正文。为兼容旧 JSON 客户端，响应仍保留 `defaultConfigJson`，请求仍接受 `configJson`。
 
 每个机器人和插件组合使用独立目录。Compose 默认布局为：
 
@@ -183,22 +183,22 @@ Web 新建绑定时，`GET /api/plugins` 返回默认配置 `defaultConfigJson`�
 /data/plugin-data/
   <botId>/
     <pluginId>/
-      config.json
+      config.json | config.yml | config.yaml
       plugin.db
       images/
       audio/
       video/
 ```
 
-同一个插件绑定到两个机器人时会得到两个不同目录；同一机器人绑定不同插件时也不会共享目录。应用启动和数据库切换后会为数据库中已有但目录或 `config.json` 缺失的绑定写入当前插件默认配置。运行期间配置被删除、不是 JSON 对象、超过大小限制或不符合 Schema 时，绑定会拒绝启动或进入 `QUARANTINED`，不能回退到数据库配置。
+同一个插件绑定到两个机器人时会得到两个不同目录；同一机器人绑定不同插件时也不会共享目录。应用启动和数据库切换后会为数据库中已有但配置文件缺失的绑定按当前插件默认扩展名写入默认配置。插件升级并改变默认扩展名时，已有的单个根配置文件继续优先使用；同时存在多个 `config.*` 候选会报告冲突，不会任意选择。运行期间配置被删除、不能解析为对象、超过大小限制或不符合 Schema 时，绑定会拒绝启动或进入 `QUARANTINED`，不能回退到数据库配置。
 
-插件通过 `PluginRuntimeContext.configuration.json` 取得创建实例时从 `config.json` 读取的原始 JSON 字符串，也可从同一 `ConfigSnapshot` 读取绑定 revision 和加载时间。`context.base.configurationJson` 保留同一份原始 JSON。配置文件变化会停止旧实例并使后续事件创建使用新配置的实例，插件不能长期持有可变配置对象。
+插件通过 `PluginRuntimeContext.configuration.content` 取得创建实例时读取的原始配置正文，并从同一 `ConfigSnapshot` 读取 `fileName`、绑定 revision 和加载时间；`context.configurationFile` 是该绑定实际配置文件的绝对路径。API 不提供或强制任何运行时转换，插件应根据自身约定选择 JSON/YAML 库加载 `content` 或直接读取 `configurationFile`。为兼容 API 3.1 JSON 插件，`context.configuration.json` 和 `context.base.configurationJson` 继续返回同一份原文。配置文件变化会停止旧实例并使后续事件创建使用新配置的实例，插件不能长期持有可变配置对象。
 
 `context.base.dataDirectory` 返回该绑定的绝对规范化 `Path`。插件可用标准文件 API 在其中任意创建、读取、修改和删除 SQLite 数据库、图片、音频、视频及其他文件，不需要经过 `PluginStorage` 或宿主媒体暂存服务。例如 SQLite 数据库路径应从 `dataDirectory.resolve("plugin.db")` 派生，不能写死机器人或容器路径。文件格式、数据库 schema/事务、连接关闭、迁移、并发、备份和清理由插件负责；`PluginStorage` 仍是另一套按绑定 UUID 隔离、存放在平台数据库中的键值能力。
 
 绑定目录划分用于避免不同机器人和插件意外共用文件，不是针对恶意代码的文件系统沙箱。PF4J 插件与宿主同进程运行，插件代码仍可能直接访问进程身份有权访问的其他路径。只能部署可信插件，并按最小权限配置容器和宿主文件系统。
 
-插件公共 API 不暴露 Jackson，因此插件可以使用自身选择的 JSON 库。插件需要 SQLite JDBC 等运行库时可以随实现打入 JAR；应确认原生库、线程和 JDBC Driver 在 `stop()` 时可以释放，并通过 shading/relocation 避免与父加载器的同名依赖冲突。
+插件公共 API 不暴露 Jackson 或 YAML 解析器，因此插件可以使用自身选择的配置库。插件需要 JSON/YAML、SQLite JDBC 等运行库时可以随实现打入 JAR；应确认原生库、线程和 JDBC Driver 在 `stop()` 时可以释放，并通过 shading/relocation 避免与父加载器的同名依赖冲突。
 
 ## 6. 生命周期与并发
 
@@ -515,7 +515,7 @@ val response = context.httpClient
 
 ### MediaService 与 ConfigSnapshot
 
-`MediaService.enqueue(MediaMessage)`、`MediaService.enqueue(StagedMediaMessage)` 与富消息发送都只写入可靠 Outbox，不会把 QQ 凭据、`file_info`、宿主路径或 HTTP 客户端暴露给插件。`ConfigSnapshot` 是创建实例时捕获的不可变 JSON、绑定 revision 和加载时间。配置更新会创建新实例，插件不要修改或缓存可变配置对象。
+`MediaService.enqueue(MediaMessage)`、`MediaService.enqueue(StagedMediaMessage)` 与富消息发送都只写入可靠 Outbox，不会把 QQ 凭据、`file_info`、宿主路径或 HTTP 客户端暴露给插件。`ConfigSnapshot` 是创建实例时捕获的不可变配置原文、文件名、绑定 revision 和加载时间。配置更新会创建新实例，插件不要修改或缓存可变配置对象。
 
 ## 12. 日志
 
@@ -573,13 +573,13 @@ context.base.logger.error("processing failed", exception)
 - 收到 `referencedMessageId` 时能按 `platform_message_id` 找到机器人消息及其上游引用。
 - 异步失败会通过 CompletionStage 传播，而不是被吞掉。
 
-仓库内的端到端宿主测试位于 `qqbot-plugin-host/src/test/kotlin/.../Pf4jPluginHostTest.kt`，会真实加载示例 JAR、执行事件、检查 Outbox、绑定存储和无重启升级。`qqbot-plugin-testkit` 提供 `PluginTestContext`、消息/媒体/事件/HTTP/存储/日志 fake 和可手动推进的调度器，可直接用于插件单元测试。
+仓库内的端到端宿主测试位于 `qqbot-plugin-host/src/test/kotlin/.../Pf4jPluginHostTest.kt`，会真实加载示例 JAR、执行事件、检查 Outbox、绑定存储和无重启升级。`qqbot-plugin-testkit` 提供 `PluginTestContext`、消息/媒体/事件/HTTP/存储/日志 fake 和可手动推进的调度器，可直接用于插件单元测试。测试 YAML 插件时可传第三个参数，例如 `PluginTestContext("hello", yamlContent, "config.yml")`；第二个参数名 `configurationJson` 仅为旧源码命名参数兼容而保留，正文不会被转换。
 
 构建仓库示例插件：
 
 ```powershell
 .\gradlew.bat :qqbot-plugin-example:jar `
-  "-Dorg.gradle.java.home=E:\JAVA\dragonwell-21.0.11.0.11+10-GA" `
+  "-Dorg.gradle.java.home=E:\JAVA\dragonwell-21.0.21.0.21+10-GA" `
   --no-daemon
 ```
 
@@ -589,7 +589,7 @@ context.base.logger.error("processing failed", exception)
 
 ```powershell
 .\gradlew.bat pluginSdkRepository pluginSdkDistribution `
-  "-Dorg.gradle.java.home=E:\JAVA\dragonwell-21.0.11.0.11+10-GA" `
+  "-Dorg.gradle.java.home=E:\JAVA\dragonwell-21.0.21.0.21+10-GA" `
   --no-daemon
 ```
 
@@ -602,12 +602,12 @@ Docker Compose 默认把宿主 `./plugins` 绑定到容器 `/plugins`，并把�
 1. 构建插件 JAR。
 2. 将 JAR 放入宿主配置的插件目录或 Docker 插件卷（容器内路径为 `/plugins`）。
 3. 在 Web 后台“插件”页执行扫描或重新加载，确认状态为已加载且 SHA-256 符合预期。
-4. 在机器人绑定页新增插件，确认或修改插件默认配置后启用；后台会创建 `/data/plugin-data/<botId>/<pluginId>/config.json`。
+4. 在机器人绑定页新增插件，确认或修改插件默认配置后启用；后台会按默认资源扩展名创建 `config.json`、`config.yml` 或 `config.yaml`。
 5. 在 Inbox、插件投递、Outbox 和 DLQ 页面观察完整链路。
 
 管理员也可以直接在插件页选择 `.jar` 文件。页面会显示文件大小并要求勾选可信来源确认；上传接口是 `POST /api/plugins/upload` 的 multipart `file` 字段，必须带 `X-Plugin-Upload-Confirm: trusted-jar`，单文件上限 64 MiB。请求仍受管理员认证和 CSRF 保护。
 
-机器人绑定列表按机器人显示基本信息、Gateway 状态、绑定插件数和更新时间。进入机器人详情后，每个插件各占一个独立分区，只显示插件名、右侧删除绑定操作和该绑定的文件管理器；同一页可继续新增该机器人尚未绑定的已加载插件。文件管理器支持面包屑目录浏览、新建文件/文件夹、上传、下载和递归删除。点击目录进入子目录，点击 `.json` 文件打开编辑器，点击其他普通文件直接下载。同名上传默认拒绝覆盖，Web 会先要求管理员明确确认。
+机器人绑定列表按机器人显示基本信息、Gateway 状态、绑定插件数和更新时间。进入机器人详情后，每个插件各占一个独立分区，只显示插件名、右侧删除绑定操作和该绑定的文件管理器；同一页可继续新增该机器人尚未绑定的已加载插件。文件管理器支持面包屑目录浏览、新建文件/文件夹、上传、下载和递归删除。点击目录进入子目录，点击 `.json`、`.yml` 或 `.yaml` 文件打开编辑器，点击其他普通文件直接下载。同名上传默认拒绝覆盖，Web 会先要求管理员明确确认。
 
 绑定文件 API 为：
 
@@ -621,13 +621,13 @@ Docker Compose 默认把宿主 `./plugins` 绑定到容器 `/plugins`，并把�
 | `GET /api/plugin-bindings/{id}/files/download?path=...` | 下载普通文件 |
 | `DELETE /api/plugin-bindings/{id}/files?path=...` | 永久删除文件或递归删除子目录 |
 
-所有路径都相对于当前绑定根目录，服务端拒绝绝对路径、`..` 越界和通过符号链接打开目录外内容。普通上传受应用全局 multipart `256 MiB` 上限约束；根目录 `config.json` 限 `64 KiB` 并额外执行对象类型与插件 Schema 校验，其他 `.json` 文件保存时也必须是合法 JSON。创建缺失的根目录 `config.json` 会写入插件默认配置。文件管理器变更会失效化当前绑定实例、更新绑定 revision 并按最新文件重新加载；插件必须在 `stop()` 中关闭 SQLite 连接、文件句柄和后台线程。
+所有路径都相对于当前绑定根目录，服务端拒绝绝对路径、`..` 越界和通过符号链接打开目录外内容。普通上传受应用全局 multipart `256 MiB` 上限约束；插件选定的根配置文件限 `64 KiB`，并额外执行对象类型与插件 Schema 校验，其他 `.json`、`.yml` 和 `.yaml` 文件保存时也必须符合各自语法。创建缺失的根配置文件会按插件选择的文件名写入原始默认配置。文件管理器变更会失效化当前绑定实例、更新绑定 revision 并按最新文件重新加载；插件必须在 `stop()` 中关闭 SQLite 连接、文件句柄和后台线程。
 
-删除单个绑定会永久递归删除它的整个 `/data/plugin-data/<botId>/<pluginId>/` 目录，包括 `config.json`、SQLite、图片、音频、视频和未知自定义文件，没有回收站。只停用绑定不会删除文件。管理员在删除前必须完成插件自有数据备份。
+删除单个绑定会永久递归删除它的整个 `/data/plugin-data/<botId>/<pluginId>/` 目录，包括配置文件、SQLite、图片、音频、视频和未知自定义文件，没有回收站。只停用绑定不会删除文件。管理员在删除前必须完成插件自有数据备份。
 
 上传完成后宿主会在同一进程内校验 Manifest、ServiceLoader、Schema 和 capabilities，停止相关绑定，释放订阅/调度器/HTTP 客户端，卸载旧 ClassLoader，再加载新 JAR。成功后页面显示 `INSTALLED`、`UPGRADED` 或 `UNCHANGED`、旧版本和新 SHA-256；失败会删除候选文件并尝试恢复旧插件，不需要重启应用。升级期间在途任务只等待配置的关闭超时，后续事件使用新实例。
 
-多应用实例部署时，所有实例必须使用相同插件 JAR 和哈希；机器人租约在获取和续租时都会校验活动绑定所需哈希，不一致实例不会继续持有该机器人。上传接口只作用于当前实例，不替代共享制品发布或集群协调。`QQBOT_PLUGINS_DATA_DIR` 必须是所有实例共同读写的共享文件系统，否则 Web 请求或机器人租约切换实例后会看到不同的 `config.json`、SQLite 和媒体文件。本地媒体暂存目录也必须由所有可能处理该机器人 Outbox 的实例共同挂载。插件需自行验证共享文件系统上的 SQLite 锁和并发语义。
+多应用实例部署时，所有实例必须使用相同插件 JAR 和哈希；机器人租约在获取和续租时都会校验活动绑定所需哈希，不一致实例不会继续持有该机器人。上传接口只作用于当前实例，不替代共享制品发布或集群协调。`QQBOT_PLUGINS_DATA_DIR` 必须是所有实例共同读写的共享文件系统，否则 Web 请求或机器人租约切换实例后会看到不同的配置、SQLite 和媒体文件。本地媒体暂存目录也必须由所有可能处理该机器人 Outbox 的实例共同挂载。插件需自行验证共享文件系统上的 SQLite 锁和并发语义。
 
 绑定文件的新建、覆盖、上传、删除，以及删除绑定或机器人，都会先停止并等待处理该 Web 请求实例内的相关插件回调；这不构成跨实例停机确认。HA 部署执行这些维护操作前，必须先把目标机器人租约和 Web 请求收敛到同一个实例，或停掉其他应用副本，并确认远端插件回调已经结束。否则另一实例仍可能持有 SQLite 连接或文件句柄，不得把共享目录上的文件管理操作视为跨实例原子操作。
 
@@ -641,10 +641,10 @@ Docker Compose 默认把宿主 `./plugins` 绑定到容器 `/plugins`，并把�
 | 报工厂数量错误 | ServiceLoader 文件缺失、类名错误或注册了多个工厂 |
 | 插件上传被拒绝 | 文件扩展名/大小、可信确认、管理员会话和服务端校验错误 |
 | 插件 ID 不一致 | `Plugin-Id` 与 `BotPluginFactory.pluginId` 必须相同 |
-| 绑定保存或启动失败 | 检查绑定目录、`config.json`、JSON 对象格式和 Schema 校验错误 |
+| 绑定保存或启动失败 | 检查绑定目录、插件选定的配置文件、JSON/YAML 对象格式和 Schema 校验错误 |
 | 切换数据库后配置不符 | 配置不在数据库中；检查新库绑定的 bot/plugin ID 与共享的 `QQBOT_PLUGINS_DATA_DIR` |
 | SQLite 或媒体文件消失 | 检查是否删除了绑定、是否持久化 `/data/plugin-data`、多实例是否挂载同一目录 |
-| JSON 保存提示文件已变化 | 其他管理员或插件在打开后修改了文件；重新打开并合并，不要绕过 SHA-256 冲突 |
+| 配置保存提示文件已变化 | 其他管理员或插件在打开后修改了文件；重新打开并合并，不要绕过 SHA-256 冲突 |
 | 收不到事件 | 机器人 Gateway 状态、Intents、Inbox、绑定启用状态、handler 事件类型和插件投递队列 |
 | 能收到但不回复 | 是否声明 `message.send`、事件是否有回复目标、Outbox/DLQ 状态 |
 | `findDelivery` 返回空 | `jobId` 是否正确、是否由当前插件绑定创建、绑定是否已删除；空结果不等于仍在排队 |
@@ -660,7 +660,7 @@ PF4J 类加载隔离不是安全沙箱。插件与宿主运行在同一 JVM，`d
 
 ## 18. 参考实现
 
-- `plugin-template`：可复制的 API 3.1 项目模板和多 handler 示例。
+- `plugin-template`：可复制的 API 3.2 项目模板和多 handler 示例。
 - `qqbot-plugin-example`：宿主端到端测试使用的最小可运行插件。
 - `qqbot-plugin-testkit`：插件单元测试替身。
 - `qqbot-plugin-api`：插件可调用的稳定接口。

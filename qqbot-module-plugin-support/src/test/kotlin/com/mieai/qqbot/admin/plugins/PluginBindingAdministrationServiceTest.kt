@@ -39,7 +39,7 @@ class PluginBindingAdministrationServiceTest {
         `when`(artifacts.findById("echo")).thenReturn(mock(PluginArtifact::class.java))
         `when`(host.isLoaded("echo")).thenReturn(true)
         `when`(bindings.findByPluginAndBot("echo", botId)).thenReturn(null)
-        `when`(files.normalizedConfiguration("echo", "{}")).thenReturn("{}")
+        `when`(files.validatedConfiguration("echo", "{}")).thenReturn("{}")
         val matcherFallback = BotPluginBinding(
             UUID.fromString("770e8400-e29b-41d4-a716-446655440001"),
             "echo",
@@ -57,7 +57,7 @@ class PluginBindingAdministrationServiceTest {
         val failure = assertThrows<PluginAdministrationException> { service.create(request) }
 
         assertThat(failure.code).isEqualTo("BINDING_EXISTS")
-        verify(files).normalizedConfiguration("echo", "{}")
+        verify(files).validatedConfiguration("echo", "{}")
         verifyNoMoreInteractions(files)
     }
 }

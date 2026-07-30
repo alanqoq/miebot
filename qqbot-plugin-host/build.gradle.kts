@@ -10,6 +10,7 @@ dependencies {
     implementation(project(":qqbot-client"))
     implementation(project(":qqbot-persistence"))
     implementation("com.fasterxml.jackson.core:jackson-databind")
+    implementation("com.fasterxml.jackson.dataformat:jackson-dataformat-yaml")
     implementation("org.pf4j:pf4j:3.13.0")
     implementation("org.slf4j:slf4j-api")
 

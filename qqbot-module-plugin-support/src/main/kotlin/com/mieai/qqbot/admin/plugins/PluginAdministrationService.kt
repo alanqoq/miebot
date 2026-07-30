@@ -1,8 +1,10 @@
 package com.mieai.qqbot.admin.plugins
 
-import com.fasterxml.jackson.databind.ObjectMapper
 import com.mieai.qqbot.persistence.plugin.BotPluginBindingRepository
 import com.mieai.qqbot.plugin.host.Pf4jPluginHost
+import com.mieai.qqbot.plugin.host.PluginConfigurationCodec
+import com.mieai.qqbot.plugin.host.PluginConfigurationDescriptor
+import com.mieai.qqbot.plugin.host.PluginConfigurationFormat
 import com.mieai.qqbot.plugin.host.PluginRuntimeService
 import java.io.BufferedInputStream
 import java.io.IOException
@@ -36,6 +38,7 @@ class PluginAdministrationService(
     private val host = host?.ifAvailable
     private val bindings = bindings?.ifAvailable
     private val runtime = runtime?.ifAvailable
+    private val configurationCodec = PluginConfigurationCodec()
 
     fun scan(query: String?): PluginInventoryResponse {
         val scannedAt = Instant.now()
@@ -200,6 +203,9 @@ class PluginAdministrationService(
             loaded,
             bindingCounts.getOrDefault(artifact.id, 0),
             enabledBindingCounts.getOrDefault(artifact.id, 0),
+            artifact.defaultConfigContent,
+            artifact.configFormat,
+            artifact.configFileName,
         )
     }
 
@@ -285,6 +291,21 @@ class PluginAdministrationService(
                     else -> null
                 }
                 var defaultConfigJson: String? = null
+                var defaultConfigContent: String? = null
+                var configFormat: String? = null
+                var configFileName: String? = null
+                val configurationDescriptor = if (supported) {
+                    try {
+                        PluginConfigurationDescriptor.fromDefaultResource(requireNotNull(defaultConfiguration))
+                    } catch (_: IllegalArgumentException) {
+                        supported = false
+                        status = STATUS_UNSUPPORTED
+                        error = "插件默认配置必须使用 .json、.yml 或 .yaml 扩展名"
+                        null
+                    }
+                } else {
+                    null
+                }
                 if (supported && jarFile.getJarEntry(configurationSchema) == null) {
                     supported = false
                     status = STATUS_UNSUPPORTED
@@ -305,18 +326,26 @@ class PluginAdministrationService(
                                 status = STATUS_UNSUPPORTED
                                 error = "插件默认配置超过 64 KiB"
                             } else {
-                                val parsed = JSON.readTree(String(bytes, StandardCharsets.UTF_8))
-                                if (parsed == null || !parsed.isObject) {
+                                val content = configurationCodec.decodeUtf8(bytes)
+                                val parsed = configurationCodec.parse(
+                                    content,
+                                    requireNotNull(configurationDescriptor).format,
+                                )
+                                if (!parsed.isObject) {
                                     supported = false
                                     status = STATUS_UNSUPPORTED
-                                    error = "插件默认配置必须是 JSON 对象"
+                                    error = "插件默认配置必须是对象"
                                 } else {
-                                    defaultConfigJson = JSON.writerWithDefaultPrettyPrinter()
-                                        .writeValueAsString(parsed)
+                                    defaultConfigContent = content
+                                    configFormat = configurationDescriptor.format.name
+                                    configFileName = configurationDescriptor.fileName
+                                    if (configurationDescriptor.format == PluginConfigurationFormat.JSON) {
+                                        defaultConfigJson = content
+                                    }
                                 }
                             }
                         }
-                    } catch (_: IOException) {
+                    } catch (_: Exception) {
                         supported = false
                         status = STATUS_UNSUPPORTED
                         error = "无法读取插件默认配置"
@@ -337,6 +366,9 @@ class PluginAdministrationService(
                     false,
                     0,
                     0,
+                    defaultConfigContent,
+                    configFormat,
+                    configFileName,
                 )
             }
         } catch (_: IOException) {
@@ -351,7 +383,6 @@ class PluginAdministrationService(
         const val MAX_HASH_BYTES = 512L * 1024L * 1024L
         const val MAX_UPLOAD_BYTES = 64L * 1024L * 1024L
         const val MAX_DEFAULT_CONFIG_BYTES = 64 * 1024
-        val JSON = ObjectMapper()
         const val STATUS_DISCOVERED = "DISCOVERED"
         const val STATUS_INVALID = "INVALID"
         const val STATUS_UNSUPPORTED = "UNSUPPORTED"

@@ -6,6 +6,7 @@ import com.mieai.qqbot.persistence.plugin.BotPluginBinding
 import com.mieai.qqbot.persistence.plugin.BotPluginBindingRepository
 import com.mieai.qqbot.persistence.plugin.PluginBindingRuntimeState
 import com.mieai.qqbot.plugin.host.Pf4jPluginHost
+import com.mieai.qqbot.plugin.host.PluginConfigurationDocument
 import com.mieai.qqbot.plugin.host.PluginRuntimeService
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.BeforeEach
@@ -76,8 +77,19 @@ class PluginBindingFileServiceTest {
         `when`(host.bindingDataDirectory(matchAny(BotPluginBinding::class.java, binding))).thenReturn(root)
         `when`(host.pluginDataRoot).thenReturn(dataRoot)
         `when`(host.configurationFile(matchAny(BotPluginBinding::class.java, binding))).thenReturn(root.resolve("config.json"))
-        `when`(host.defaultConfiguration("echo")).thenReturn("{}")
-        `when`(host.validateConfiguration(matchEq("echo"), matchAny(String::class.java, "")))
+        `when`(host.configurationFileName("echo")).thenReturn("config.json")
+        `when`(host.defaultConfigurationDocument("echo"))
+            .thenReturn(PluginConfigurationDocument("{}", "config.json"))
+        `when`(host.isConfigurationFileName(matchAny(String::class.java, ""))).thenAnswer { invocation ->
+            invocation.getArgument<String>(0).lowercase() in setOf("config.json", "config.yml", "config.yaml")
+        }
+        `when`(
+            host.validateConfiguration(
+                matchEq("echo"),
+                matchAny(String::class.java, "config.json"),
+                matchAny(String::class.java, ""),
+            ),
+        )
             .thenReturn(emptyList())
         service = PluginBindingFileService(bindings, host, runtime, ObjectMapper())
     }
@@ -101,8 +113,35 @@ class PluginBindingFileServiceTest {
     }
 
     @Test
+    fun `preserves yaml configuration content and comments`() {
+        val initial = """# keep this comment
+            |enabled: true
+            |message: hello
+            |
+        """.trimMargin()
+        val updated = initial.replace("enabled: true", "enabled: false")
+        `when`(host.configurationFileName("echo")).thenReturn("config.yml")
+        `when`(host.configurationFile(matchAny(BotPluginBinding::class.java, binding)))
+            .thenReturn(root.resolve("config.yml"))
+        `when`(host.defaultConfigurationDocument("echo"))
+            .thenReturn(PluginConfigurationDocument(initial, "config.yml"))
+
+        service.initialize(binding, initial)
+        val response = service.saveContent(
+            binding.id,
+            UpdatePluginFileContentRequest("config.yml", updated, null),
+        )
+
+        assertThat(response.content).isEqualTo(updated)
+        assertThat(root.resolve("config.yml")).hasContent(updated)
+        assertThat(root.resolve("config.json")).doesNotExist()
+    }
+
+    @Test
     fun `rejects traversal and invalid binding configuration`() {
         service.initialize(binding, "{}")
+        `when`(host.validateConfiguration("echo", "config.json", "[]"))
+            .thenReturn(listOf("Plugin configuration must be an object"))
 
         val traversal = assertThrows<PluginAdministrationException> {
             service.list(binding.id, "../other")

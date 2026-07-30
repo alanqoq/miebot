@@ -37,7 +37,7 @@ tasks.jar {
             "Plugin-Id" to "example",
             "Plugin-Name" to "example",
             "Plugin-Version" to project.version.toString(),
-            "Plugin-Requires" to "3.1.0",
+            "Plugin-Requires" to "3.2.0",
             "Plugin-Class" to "com.mieai.qqbot.plugin.host.Pf4jPluginBridge",
             "Plugin-Config-Schema" to "qqbot-plugin-schema.json",
             "Plugin-Default-Config" to "config.json",

@@ -1,6 +1,5 @@
 package com.mieai.qqbot.admin.plugins
 
-import com.fasterxml.jackson.core.JsonProcessingException
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.mieai.qqbot.domain.bot.BotId
 import com.mieai.qqbot.persistence.plugin.BotPluginBinding
@@ -8,6 +7,8 @@ import com.mieai.qqbot.persistence.plugin.BotPluginBindingRepository
 import com.mieai.qqbot.persistence.plugin.PluginBindingOptimisticLockException
 import com.mieai.qqbot.persistence.plugin.PluginBindingRuntimeState
 import com.mieai.qqbot.plugin.host.Pf4jPluginHost
+import com.mieai.qqbot.plugin.host.PluginConfigurationCodec
+import com.mieai.qqbot.plugin.host.PluginConfigurationFormat
 import com.mieai.qqbot.plugin.host.PluginRuntimeService
 import org.springframework.http.HttpStatus
 import org.slf4j.LoggerFactory
@@ -47,10 +48,10 @@ class PluginBindingFileService(
     private val mapper: ObjectMapper,
 ) {
     private val clock = Clock.systemUTC()
+    private val configurationCodec = PluginConfigurationCodec()
 
     companion object {
         private val LOGGER = LoggerFactory.getLogger(PluginBindingFileService::class.java)
-        private const val CONFIGURATION_FILE = "config.json"
         private const val MAX_CONFIGURATION_BYTES = 65_536L
         private const val MAX_TEXT_BYTES = 2L * 1024L * 1024L
         private const val CONFIGURATION_ERROR = "Plugin configuration file is missing or invalid"
@@ -73,11 +74,12 @@ class PluginBindingFileService(
             try {
                 withBindingLock(binding.id) {
                     requireRoot(binding)
-                    val configuration = host.configurationFile(binding)
+                    val configuration = activeConfigurationFile(binding)
                     if (!Files.exists(configuration, LinkOption.NOFOLLOW_LINKS)) {
+                        val default = host.defaultConfigurationDocument(binding.pluginId)
                         writeAtomic(
                             configuration,
-                            host.defaultConfiguration(binding.pluginId).toByteArray(StandardCharsets.UTF_8),
+                            default.content.toByteArray(StandardCharsets.UTF_8),
                         )
                     }
                     requireValidConfigurationUnlocked(binding)
@@ -100,34 +102,29 @@ class PluginBindingFileService(
         }
     }
 
-    fun normalizedConfiguration(pluginId: String, value: String): String {
-        try {
-            val parsed = mapper.readTree(value)
-            if (parsed == null || !parsed.isObject) {
-                throw failure(HttpStatus.BAD_REQUEST, "INVALID_PLUGIN_CONFIG", "Plugin configuration must be a JSON object")
-            }
-            val normalized = mapper.writerWithDefaultPrettyPrinter().writeValueAsString(parsed)
-            val violations = host.validateConfiguration(pluginId, normalized)
-            if (violations.isNotEmpty()) {
-                throw failure(HttpStatus.BAD_REQUEST, "INVALID_PLUGIN_CONFIG", violations.first())
-            }
-            if (normalized.toByteArray(StandardCharsets.UTF_8).size > MAX_CONFIGURATION_BYTES) {
-                throw failure(HttpStatus.PAYLOAD_TOO_LARGE, "PLUGIN_CONFIG_TOO_LARGE", "Plugin configuration cannot exceed 64 KiB")
-            }
-            return normalized
-        } catch (exception: JsonProcessingException) {
-            throw failure(HttpStatus.BAD_REQUEST, "INVALID_PLUGIN_CONFIG", "Plugin configuration is not valid JSON")
+    fun validatedConfiguration(pluginId: String, value: String): String =
+        validatedConfiguration(pluginId, host.configurationFileName(pluginId), value)
+
+    private fun validatedConfiguration(pluginId: String, fileName: String, value: String): String {
+        if (value.toByteArray(StandardCharsets.UTF_8).size > MAX_CONFIGURATION_BYTES) {
+            throw failure(HttpStatus.PAYLOAD_TOO_LARGE, "PLUGIN_CONFIG_TOO_LARGE", "Plugin configuration cannot exceed 64 KiB")
         }
+        val violations = host.validateConfiguration(pluginId, fileName, value)
+        if (violations.isNotEmpty()) {
+            throw failure(HttpStatus.BAD_REQUEST, "INVALID_PLUGIN_CONFIG", violations.first())
+        }
+        return value
     }
 
-    fun initialize(binding: BotPluginBinding, configurationJson: String) {
+    fun initialize(binding: BotPluginBinding, configurationContent: String) {
         withBindingDataLock(binding) {
             requireBindingOwnership(binding)
             val root = requireRoot(binding)
+            val configuration = root.resolve(host.configurationFileName(binding.pluginId)).normalize()
             try {
                 deleteTree(root)
                 Files.createDirectories(root)
-                writeAtomic(root.resolve(CONFIGURATION_FILE), configurationJson.toByteArray(StandardCharsets.UTF_8))
+                writeAtomic(configuration, configurationContent.toByteArray(StandardCharsets.UTF_8))
                 if (!bindingOwnedBy(binding)) {
                     deleteTree(root)
                     removeEmptyParents(root.parent, host.pluginDataRoot.toAbsolutePath().normalize())
@@ -149,7 +146,7 @@ class PluginBindingFileService(
 
     private fun requireValidConfigurationUnlocked(binding: BotPluginBinding): String {
         requireExistingRoot(binding)
-        val file = host.configurationFile(binding)
+        val file = activeConfigurationFile(binding)
         val value = try {
             if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS) || Files.isSymbolicLink(file)) {
                 throw failure(HttpStatus.CONFLICT, "PLUGIN_CONFIG_MISSING", "Plugin configuration file does not exist")
@@ -166,7 +163,7 @@ class PluginBindingFileService(
         } catch (exception: IOException) {
             throw failure(HttpStatus.INTERNAL_SERVER_ERROR, "PLUGIN_CONFIG_READ_FAILED", "Unable to read plugin configuration")
         }
-        return normalizedConfiguration(binding.pluginId, value)
+        return validatedConfiguration(binding.pluginId, file.fileName.toString(), value)
     }
 
     fun list(bindingId: UUID, relativeDirectory: String): PluginFileListingResponse {
@@ -242,15 +239,15 @@ class PluginBindingFileService(
             }
         }
 
-        val isConfiguration = relative(root, file) == CONFIGURATION_FILE
+        val isConfiguration = isConfigurationTarget(binding, root, file)
         val content = if (isConfiguration) {
-            normalizedConfiguration(binding.pluginId, request.content)
+            validatedConfiguration(binding.pluginId, file.fileName.toString(), request.content)
         } else {
             request.content
         }
         val contentBytes = content.toByteArray(StandardCharsets.UTF_8)
         validateSavedContentSize(isConfiguration, contentBytes.size)
-        if (!isConfiguration) validateJsonFile(file, content)
+        if (!isConfiguration) validateStructuredFile(file, content)
         val touched = reserveMutation(binding)
         try {
             writeAtomic(file, contentBytes)
@@ -275,13 +272,13 @@ class PluginBindingFileService(
         if (Files.exists(target, LinkOption.NOFOLLOW_LINKS)) {
             throw failure(HttpStatus.CONFLICT, "PLUGIN_FILE_EXISTS", "Plugin file already exists")
         }
-        val isConfiguration = relative(root, target) == CONFIGURATION_FILE
+        val isConfiguration = isConfigurationTarget(binding, root, target)
         if (isConfiguration && request.directory) {
             throw failure(HttpStatus.CONFLICT, "PLUGIN_CONFIG_MUST_BE_FILE", "Plugin configuration must be a regular file")
         }
         val configuration = if (isConfiguration) {
-            normalizedConfiguration(binding.pluginId, host.defaultConfiguration(binding.pluginId))
-                .toByteArray(StandardCharsets.UTF_8)
+            val default = host.defaultConfigurationDocument(binding.pluginId)
+            validatedConfiguration(binding.pluginId, default.fileName, default.content).toByteArray(StandardCharsets.UTF_8)
         } else {
             null
         }
@@ -347,13 +344,14 @@ class PluginBindingFileService(
             } catch (exception: IOException) {
                 throw failure(HttpStatus.INTERNAL_SERVER_ERROR, "PLUGIN_FILE_UPLOAD_FAILED", "Unable to stage plugin file")
             }
-            val isConfiguration = relative(root, target) == CONFIGURATION_FILE
+            val isConfiguration = isConfigurationTarget(binding, root, target)
             val configuration = if (isConfiguration) {
                 if (Files.size(temporary) > MAX_CONFIGURATION_BYTES) {
                     throw failure(HttpStatus.PAYLOAD_TOO_LARGE, "PLUGIN_CONFIG_TOO_LARGE", "Plugin configuration cannot exceed 64 KiB")
                 }
-                val normalized = normalizedConfiguration(
+                val content = validatedConfiguration(
                     binding.pluginId,
+                    target.fileName.toString(),
                     decodeUtf8(
                         Files.readAllBytes(temporary),
                         HttpStatus.BAD_REQUEST,
@@ -361,7 +359,7 @@ class PluginBindingFileService(
                         "Plugin configuration must use valid UTF-8",
                     ),
                 )
-                normalized.toByteArray(StandardCharsets.UTF_8)
+                content.toByteArray(StandardCharsets.UTF_8)
             } else {
                 null
             }
@@ -428,7 +426,7 @@ class PluginBindingFileService(
         if (!Files.exists(target, LinkOption.NOFOLLOW_LINKS)) {
             throw failure(HttpStatus.NOT_FOUND, "PLUGIN_FILE_NOT_FOUND", "Plugin file does not exist")
         }
-        val isConfiguration = relative(root, target) == CONFIGURATION_FILE
+        val isConfiguration = isConfigurationTarget(binding, root, target)
         val touched = reserveMutation(binding)
         try {
             deleteTree(target)
@@ -829,16 +827,53 @@ class PluginBindingFileService(
     private fun relative(root: Path, path: Path): String = root.relativize(path).joinToString("/") { it.toString() }
 
     private fun contentType(path: Path): String? = runCatching { Files.probeContentType(path) }.getOrNull()
-
-    private fun validateJsonFile(path: Path, content: String) {
-        if (!path.fileName.toString().lowercase(Locale.ROOT).endsWith(".json")) return
-        try {
-            if (mapper.readTree(content) == null) {
-                throw failure(HttpStatus.BAD_REQUEST, "INVALID_JSON_FILE", "JSON file content is invalid")
-            }
-        } catch (exception: JsonProcessingException) {
-            throw failure(HttpStatus.BAD_REQUEST, "INVALID_JSON_FILE", "JSON file content is invalid")
+        ?: when {
+            path.fileName.toString().lowercase(Locale.ROOT).endsWith(".json") -> "application/json"
+            path.fileName.toString().lowercase(Locale.ROOT).let { it.endsWith(".yml") || it.endsWith(".yaml") } ->
+                "application/yaml"
+            else -> null
         }
+
+    private fun validateStructuredFile(path: Path, content: String) {
+        val fileName = path.fileName.toString().lowercase(Locale.ROOT)
+        val format = when {
+            fileName.endsWith(".json") -> PluginConfigurationFormat.JSON
+            fileName.endsWith(".yml") || fileName.endsWith(".yaml") -> PluginConfigurationFormat.YAML
+            else -> return
+        }
+        try {
+            if (format == PluginConfigurationFormat.JSON) {
+                if (mapper.readTree(content) == null) throw IllegalArgumentException("empty JSON")
+            } else {
+                configurationCodec.parse(content, format)
+            }
+        } catch (_: Exception) {
+            val label = format.name
+            throw failure(HttpStatus.BAD_REQUEST, "INVALID_${label}_FILE", "$label file content is invalid")
+        }
+    }
+
+    private fun activeConfigurationFile(binding: BotPluginBinding): Path = try {
+        host.configurationFile(binding)
+    } catch (exception: IllegalStateException) {
+        throw failure(
+            HttpStatus.CONFLICT,
+            "PLUGIN_CONFIG_CONFLICT",
+            exception.message ?: "Plugin binding configuration files conflict",
+        )
+    }
+
+    private fun isConfigurationTarget(binding: BotPluginBinding, root: Path, target: Path): Boolean {
+        if (target.parent != root || !host.isConfigurationFileName(target.fileName.toString())) return false
+        val active = activeConfigurationFile(binding)
+        if (target != active) {
+            throw failure(
+                HttpStatus.CONFLICT,
+                "PLUGIN_CONFIG_FILE_NAME_MISMATCH",
+                "Plugin binding uses ${active.fileName} as its configuration file",
+            )
+        }
+        return true
     }
 
     private fun validateSavedContentSize(configuration: Boolean, sizeBytes: Int) {

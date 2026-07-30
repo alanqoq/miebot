@@ -2,6 +2,17 @@
 
 本文件记录面向使用者的发布变更。插件 API 级别与 Maven 制品版本分别维护；请同时阅读对应 SDK 指南。
 
+## 1.0.2 - 2026-07-30
+
+### Added
+
+- 插件 API 升至 `3.2.0`，新增原始配置正文 `ConfigSnapshot.content`、`PluginContext.configurationContent`、配置文件名和 `PluginRuntimeContext.configurationFile`；插件可自行选择 JSON 或 YAML 加载方式。
+- `Plugin-Default-Config` 支持 `.json`、`.yml` 和 `.yaml`，扩展名分别选择绑定文件 `config.json`、`config.yml` 和 `config.yaml`；后台新增绑定与文件编辑器同步支持三种扩展名。
+
+### Compatibility
+
+- 宿主只为对象类型和 JSON Schema 校验临时解析配置，不会把 YAML 转换成 JSON，也不会规范化配置正文。既有 JSON 插件可继续使用 `ConfigSnapshot.json`、`PluginContext.configurationJson`、`defaultConfigJson` 和创建请求 `configJson`，无需重新编译。
+
 ## 1.0.1 - 2026-07-28
 
 ### Added

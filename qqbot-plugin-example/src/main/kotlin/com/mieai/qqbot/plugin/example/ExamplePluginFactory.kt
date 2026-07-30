@@ -17,7 +17,7 @@ class ExamplePluginFactory : BotPluginFactory {
     override val pluginId: String = "example"
 
     override fun create(context: PluginRuntimeContext): BotPlugin =
-        ExamplePlugin(context, ExampleConfiguration.parse(context.configuration.json))
+        ExamplePlugin(context, ExampleConfiguration.parse(context.configuration.content))
 
     private class ExamplePlugin(
         private val context: PluginRuntimeContext,

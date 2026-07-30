@@ -3,6 +3,7 @@ import { inject, Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
 
 export type PluginArtifactStatus = 'DISCOVERED' | 'INVALID' | 'UNSUPPORTED' | string;
+export type PluginConfigurationFormat = 'JSON' | 'YAML';
 
 export interface PluginArtifact {
   id: string;
@@ -19,6 +20,9 @@ export interface PluginArtifact {
   bindingCount: number;
   enabledBindingCount: number;
   defaultConfigJson: string | null;
+  defaultConfigContent?: string | null;
+  configFormat?: PluginConfigurationFormat | null;
+  configFileName?: string | null;
 }
 
 export interface PluginInventory {
@@ -45,7 +49,8 @@ export interface PluginBinding {
 export interface CreatePluginBindingRequest {
   pluginId: string;
   botId: string;
-  configJson: string;
+  configContent?: string;
+  configJson?: string;
   enabled: boolean;
 }
 

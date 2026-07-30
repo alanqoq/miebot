@@ -12,6 +12,8 @@ class LoadedPluginMetadata(
     val configurationSchema: String,
     val defaultConfigurationPath: String,
     val defaultConfiguration: String,
+    val configurationFormat: PluginConfigurationFormat,
+    val configurationFileName: String,
     capabilities: Set<String>,
 ) {
     val capabilities: Set<String> = capabilities.toSet()
@@ -19,5 +21,8 @@ class LoadedPluginMetadata(
     init {
         require(defaultConfigurationPath.isNotBlank()) { "defaultConfigurationPath must not be blank" }
         require(defaultConfiguration.isNotBlank()) { "defaultConfiguration must not be blank" }
+        require(
+            PluginConfigurationDescriptor.fromBindingFileName(configurationFileName).format == configurationFormat
+        ) { "configurationFileName does not match configurationFormat" }
     }
 }

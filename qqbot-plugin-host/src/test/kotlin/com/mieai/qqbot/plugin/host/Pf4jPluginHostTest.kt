@@ -53,6 +53,11 @@ class Pf4jPluginHostTest {
         val pluginDataRoot = temporaryDirectory.resolve("plugin-data")
         Files.createDirectories(pluginDirectory)
         val example = Path.of(System.getProperty("qqbot.example.plugin"))
+        val packagedDefault = JarFile(example.toFile(), false).use { jar ->
+            jar.getInputStream(jar.getJarEntry("config.json")).use { input ->
+                String(input.readAllBytes(), StandardCharsets.UTF_8)
+            }
+        }
         Files.copy(example, pluginDirectory.resolve(example.fileName))
 
         val dataSource = SQLiteDataSourceFactory.create(temporaryDirectory.resolve("host.db"))
@@ -80,8 +85,10 @@ class Pf4jPluginHostTest {
             val metadata = host.loadedPlugins().single()
             assertThat(metadata.capabilities).contains("http")
             assertThat(metadata.defaultConfigurationPath).isEqualTo("config.json")
-            assertThat(metadata.defaultConfiguration).isEqualTo(DEFAULT_CONFIGURATION)
-            assertThat(host.defaultConfiguration("example")).isEqualTo(DEFAULT_CONFIGURATION)
+            assertThat(metadata.configurationFormat).isEqualTo(PluginConfigurationFormat.JSON)
+            assertThat(metadata.configurationFileName).isEqualTo("config.json")
+            assertThat(metadata.defaultConfiguration).isEqualTo(packagedDefault)
+            assertThat(host.defaultConfiguration("example")).isEqualTo(packagedDefault)
             assertThat(artifacts.findById("example")).isNotNull()
             val missingDefault = pluginWithoutManifestAttribute(
                 example,
@@ -191,7 +198,7 @@ class Pf4jPluginHostTest {
                 .hasMessageContaining("data directory does not exist")
             writeConfiguration(host, invalidBinding, "[]")
             assertThatThrownBy { host.handlerIds(invalidBinding) }
-                .hasMessageContaining("must be a JSON object")
+                .hasMessageContaining("must be an object")
             writeConfiguration(host, invalidBinding, "{\"unexpected\":true}")
             assertThatThrownBy { host.handlerIds(invalidBinding) }
                 .hasMessageContaining("failed schema validation")
@@ -306,6 +313,53 @@ class Pf4jPluginHostTest {
                     .isInstanceOf(IllegalArgumentException::class.java)
                     .hasMessageContaining("Plugin id")
             }
+        }
+    }
+
+    @Test
+    fun loadsYamlDefaultsAndKeepsExistingBindingFormatsUnchanged() {
+        val pluginDirectory = temporaryDirectory.resolve("yaml-plugins")
+        val pluginDataRoot = temporaryDirectory.resolve("yaml-plugin-data")
+        Files.createDirectories(pluginDirectory)
+        val yaml = "# plugin-owned parser input\ntriggerKeyword: /example\nreplyContent: yaml reply\n"
+        val example = Path.of(System.getProperty("qqbot.example.plugin"))
+        pluginWithDefaultResource(
+            example,
+            pluginDirectory.resolve("example-yaml.jar"),
+            "defaults/config.yml",
+            yaml.toByteArray(StandardCharsets.UTF_8),
+        )
+        val dataSource = SQLiteDataSourceFactory.create(temporaryDirectory.resolve("yaml-host.db"))
+        SQLiteDatabaseInitializer.migrate(dataSource)
+
+        Pf4jPluginHost(
+            pluginDirectory,
+            pluginDataRoot,
+            JdbcPluginArtifactRepository(dataSource),
+            JdbcBotRepository(dataSource),
+            JdbcOutboxRepository(dataSource),
+            ObjectMapper(),
+            Clock.fixed(NOW, ZoneOffset.UTC),
+            JdbcPluginStorageRepository(dataSource),
+        ).use { host ->
+            host.start()
+            val metadata = host.loadedPlugins().single()
+            assertThat(metadata.configurationFormat).isEqualTo(PluginConfigurationFormat.YAML)
+            assertThat(metadata.configurationFileName).isEqualTo("config.yml")
+            assertThat(metadata.defaultConfiguration).isEqualTo(yaml)
+            assertThat(host.validateConfiguration("example", "config.yml", yaml)).isEmpty()
+
+            val binding = binding(UUID.randomUUID(), "example", true, 0, PluginBindingRuntimeState.ACTIVE)
+            assertThat(host.configurationFile(binding)).isEqualTo(
+                pluginDataRoot.resolve(BOT).resolve("example").resolve("config.yml").toAbsolutePath().normalize(),
+            )
+            Files.createDirectories(host.bindingDataDirectory(binding))
+            Files.writeString(host.bindingDataDirectory(binding).resolve("config.json"), DEFAULT_CONFIGURATION)
+            assertThat(host.configurationFile(binding).fileName.toString()).isEqualTo("config.json")
+
+            Files.writeString(host.bindingDataDirectory(binding).resolve("config.yml"), yaml)
+            assertThatThrownBy { host.configurationFile(binding) }
+                .hasMessageContaining("multiple configuration files")
         }
     }
 
@@ -649,6 +703,33 @@ class Pf4jPluginHostTest {
             }
         }
         require(replaced) { "JAR resource does not exist: $resourceName" }
+        return target
+    }
+
+    private fun pluginWithDefaultResource(
+        source: Path,
+        target: Path,
+        resourceName: String,
+        replacement: ByteArray,
+    ): Path {
+        Files.createDirectories(target.parent)
+        JarFile(source.toFile(), false).use { input ->
+            val manifest = Manifest(input.manifest)
+            manifest.mainAttributes.putValue("Plugin-Default-Config", resourceName)
+            JarOutputStream(Files.newOutputStream(target), manifest).use { output ->
+                val entries = input.entries()
+                while (entries.hasMoreElements()) {
+                    val entry = entries.nextElement()
+                    if (JarFile.MANIFEST_NAME.equals(entry.name, ignoreCase = true) || entry.name == resourceName) continue
+                    output.putNextEntry(JarEntry(entry))
+                    if (!entry.isDirectory) input.getInputStream(entry).use { it.transferTo(output) }
+                    output.closeEntry()
+                }
+                output.putNextEntry(JarEntry(resourceName))
+                output.write(replacement)
+                output.closeEntry()
+            }
+        }
         return target
     }
 

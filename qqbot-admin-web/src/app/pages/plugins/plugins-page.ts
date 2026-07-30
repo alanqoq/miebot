@@ -27,6 +27,7 @@ import {
   LucideCircleAlert,
   LucideDownload,
   LucideFile,
+  LucideFileCode,
   LucideFileJson,
   LucideFilePlus2,
   LucideFolder,
@@ -44,6 +45,7 @@ import {
 } from '@lucide/angular';
 import { EMPTY, forkJoin, of, timer } from 'rxjs';
 import { catchError, exhaustMap, finalize } from 'rxjs/operators';
+import { parseDocument } from 'yaml';
 import {
   ApiErrorResponse,
   BotApiService,
@@ -62,6 +64,7 @@ import {
   PluginApiService,
   PluginArtifact,
   PluginBinding,
+  PluginConfigurationFormat,
   PluginFileEntry,
   PluginTextFile,
   PluginInventory,
@@ -77,19 +80,29 @@ interface BindingFileState {
 }
 
 interface BindingEditorState extends PluginTextFile {
+  format: PluginConfigurationFormat;
   saving: boolean;
   error: string | null;
 }
 
-const jsonObject: ValidatorFn = (control: AbstractControl): ValidationErrors | null => {
-  if (typeof control.value !== 'string' || !control.value.trim()) return { jsonObject: true };
+const parseConfiguration = (content: string, format: PluginConfigurationFormat): unknown => {
+  if (format === 'JSON') return JSON.parse(content);
+  const document = parseDocument(content, { uniqueKeys: true });
+  if (document.errors.length > 0) throw document.errors[0];
+  return document.toJS({ maxAliasCount: 100 });
+};
+
+const configurationObject: ValidatorFn = (control: AbstractControl): ValidationErrors | null => {
+  const value = control.get('configContent')?.value;
+  const format = control.get('configFormat')?.value as PluginConfigurationFormat | undefined;
+  if (typeof value !== 'string' || !value.trim() || !format) return { configurationObject: true };
   try {
-    const parsed: unknown = JSON.parse(control.value);
+    const parsed = parseConfiguration(value, format);
     return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
       ? null
-      : { jsonObject: true };
+      : { configurationObject: true };
   } catch {
-    return { jsonObject: true };
+    return { configurationObject: true };
   }
 };
 
@@ -111,6 +124,7 @@ const maxUtf8Bytes = (maximum: number): ValidatorFn =>
     LucideCircleAlert,
     LucideDownload,
     LucideFile,
+    LucideFileCode,
     LucideFileJson,
     LucideFilePlus2,
     LucideFolder,
@@ -193,12 +207,17 @@ export class PluginsPage implements OnInit {
     this.bots().find((bot) => bot.id === this.detailBotId()) ?? null,
   );
 
-  protected readonly bindingForm = this.formBuilder.group({
-    pluginId: ['', Validators.required],
-    botId: ['', Validators.required],
-    configJson: ['{}', [Validators.required, maxUtf8Bytes(65_536), jsonObject]],
-    enabled: [true],
-  });
+  protected readonly bindingForm = this.formBuilder.group(
+    {
+      pluginId: ['', Validators.required],
+      botId: ['', Validators.required],
+      configContent: ['{}', [Validators.required, maxUtf8Bytes(65_536)]],
+      configFormat: ['JSON' as PluginConfigurationFormat],
+      configFileName: ['config.json'],
+      enabled: [true],
+    },
+    { validators: configurationObject },
+  );
 
   ngOnInit(): void {
     this.loadAll();
@@ -399,7 +418,7 @@ export class PluginsPage implements OnInit {
     this.bindingForm.reset({
       pluginId: plugin.id,
       botId: bot?.id ?? '',
-      configJson: this.prettyJson(plugin.defaultConfigJson || '{}'),
+      ...this.bindingConfiguration(plugin),
       enabled: true,
     });
     this.focusBindingDialog();
@@ -413,7 +432,7 @@ export class PluginsPage implements OnInit {
     this.bindingForm.reset({
       pluginId: plugin?.id ?? '',
       botId: bot.id,
-      configJson: this.prettyJson(plugin?.defaultConfigJson || '{}'),
+      ...this.bindingConfiguration(plugin),
       enabled: true,
     });
     this.bindingForm.controls.botId.disable();
@@ -423,7 +442,7 @@ export class PluginsPage implements OnInit {
   protected selectBindingPlugin(event: Event): void {
     const pluginId = (event.target as HTMLSelectElement).value;
     const plugin = this.allItems().find((item) => item.id === pluginId);
-    this.bindingForm.controls.configJson.setValue(this.prettyJson(plugin?.defaultConfigJson || '{}'));
+    this.bindingForm.patchValue(this.bindingConfiguration(plugin));
   }
 
   protected closeDialog(force = false): void {
@@ -471,7 +490,7 @@ export class PluginsPage implements OnInit {
     this.api.createBinding({
       pluginId: raw.pluginId,
       botId: raw.botId,
-      configJson: raw.configJson,
+      configContent: raw.configContent,
       enabled: raw.enabled,
     })
       .pipe(
@@ -606,8 +625,8 @@ export class PluginsPage implements OnInit {
     if (entry.directory) {
       this.closeEditor(binding.id);
       this.loadFiles(binding, entry.path);
-    } else if (entry.name.toLowerCase().endsWith('.json')) {
-      this.openJsonEditor(binding, entry);
+    } else if (this.isStructuredFile(entry.name)) {
+      this.openConfigurationEditor(binding, entry);
     } else {
       this.downloadFile(binding, entry);
     }
@@ -704,17 +723,20 @@ export class PluginsPage implements OnInit {
       });
   }
 
-  protected openJsonEditor(binding: PluginBinding, entry: PluginFileEntry): void {
+  protected openConfigurationEditor(binding: PluginBinding, entry: PluginFileEntry): void {
+    const format = this.structuredFileFormat(entry.name);
+    if (!format) return;
     this.api.getBindingFileContent(binding.id, entry.path)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (file) => this.setEditorState(binding.id, {
           ...file,
-          content: this.prettyJson(file.content),
+          content: this.prettyConfiguration(file.content, format),
+          format,
           saving: false,
           error: null,
         }),
-        error: (error: unknown) => this.setFileError(binding.id, this.errorMessage(error, '无法打开 JSON 文件。')),
+        error: (error: unknown) => this.setFileError(binding.id, this.errorMessage(error, '无法打开配置文件。')),
       });
   }
 
@@ -727,9 +749,9 @@ export class PluginsPage implements OnInit {
   protected saveEditor(binding: PluginBinding): void {
     const editor = this.editorState(binding.id);
     if (!editor || editor.saving || this.isMutating(binding.id)) return;
-    try { JSON.parse(editor.content); }
+    try { parseConfiguration(editor.content, editor.format); }
     catch {
-      this.setEditorState(binding.id, { ...editor, error: '内容不是有效的 JSON。' });
+      this.setEditorState(binding.id, { ...editor, error: `内容不是有效的 ${editor.format}。` });
       return;
     }
     this.setEditorState(binding.id, { ...editor, saving: true, error: null });
@@ -740,13 +762,19 @@ export class PluginsPage implements OnInit {
       expectedSha256: editor.sha256,
     }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (saved) => {
-        this.setEditorState(binding.id, { ...saved, content: this.prettyJson(saved.content), saving: false, error: null });
+        this.setEditorState(binding.id, {
+          ...saved,
+          content: this.prettyConfiguration(saved.content, editor.format),
+          format: editor.format,
+          saving: false,
+          error: null,
+        });
         this.refreshBindingsAfterFileMutation(binding);
       },
       error: (error: unknown) => {
         this.setMutating(binding.id, false);
         this.setEditorState(binding.id, {
-          ...editor, saving: false, error: this.errorMessage(error, '保存 JSON 文件失败。'),
+          ...editor, saving: false, error: this.errorMessage(error, '保存配置文件失败。'),
         });
       },
     });
@@ -851,10 +879,28 @@ export class PluginsPage implements OnInit {
   }
 
   protected configError(): string | null {
-    const control = this.bindingForm.controls.configJson;
-    if (!control.touched || !control.errors) return null;
+    const control = this.bindingForm.controls.configContent;
+    if (!control.touched) return null;
     if (control.hasError('maxUtf8Bytes')) return '配置的 UTF-8 内容不能超过 64 KiB';
-    return '配置必须是有效的 JSON 对象';
+    if (control.hasError('required') || this.bindingForm.hasError('configurationObject')) {
+      return `配置必须是有效的 ${this.bindingForm.controls.configFormat.value} 对象`;
+    }
+    return null;
+  }
+
+  protected selectedConfigurationFileName(): string {
+    return this.bindingForm.controls.configFileName.value || 'config.json';
+  }
+
+  protected structuredFileFormat(fileName: string): PluginConfigurationFormat | null {
+    const lower = fileName.toLowerCase();
+    if (lower.endsWith('.json')) return 'JSON';
+    if (lower.endsWith('.yml') || lower.endsWith('.yaml')) return 'YAML';
+    return null;
+  }
+
+  protected isStructuredFile(fileName: string): boolean {
+    return this.structuredFileFormat(fileName) !== null;
   }
 
   @HostListener('document:keydown.escape')
@@ -962,7 +1008,22 @@ export class PluginsPage implements OnInit {
     return directory ? `${directory}/${name}` : name;
   }
 
-  private prettyJson(value: string): string {
+  private bindingConfiguration(plugin?: PluginArtifact): {
+    configContent: string;
+    configFormat: PluginConfigurationFormat;
+    configFileName: string;
+  } {
+    const format = plugin?.configFormat ?? 'JSON';
+    const content = plugin?.defaultConfigContent ?? plugin?.defaultConfigJson ?? '{}';
+    return {
+      configContent: this.prettyConfiguration(content, format),
+      configFormat: format,
+      configFileName: plugin?.configFileName ?? (format === 'YAML' ? 'config.yml' : 'config.json'),
+    };
+  }
+
+  private prettyConfiguration(value: string, format: PluginConfigurationFormat): string {
+    if (format !== 'JSON') return value;
     try { return JSON.stringify(JSON.parse(value), null, 2); }
     catch { return value; }
   }

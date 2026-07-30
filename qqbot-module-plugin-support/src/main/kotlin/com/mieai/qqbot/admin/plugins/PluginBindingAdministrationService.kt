@@ -47,7 +47,14 @@ class PluginBindingAdministrationService(
             throw failure(HttpStatus.CONFLICT, "BINDING_EXISTS", "This plugin is already bound to the bot")
         }
 
-        val configuration = files.normalizedConfiguration(request.pluginId, request.configJson)
+        if (request.hasConflictingConfigurationFields()) {
+            throw failure(HttpStatus.BAD_REQUEST, "INVALID_PLUGIN_CONFIG", "Configuration fields do not match")
+        }
+        val suppliedConfiguration = request.suppliedConfiguration()
+        if (suppliedConfiguration.isNullOrBlank()) {
+            throw failure(HttpStatus.BAD_REQUEST, "INVALID_PLUGIN_CONFIG", "Plugin configuration must not be blank")
+        }
+        val configuration = files.validatedConfiguration(request.pluginId, suppliedConfiguration)
         val now = clock.instant()
         val binding = BotPluginBinding(
             UUID.randomUUID(),
