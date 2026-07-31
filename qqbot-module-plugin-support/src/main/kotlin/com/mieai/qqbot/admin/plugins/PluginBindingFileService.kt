@@ -52,7 +52,6 @@ class PluginBindingFileService(
 
     companion object {
         private val LOGGER = LoggerFactory.getLogger(PluginBindingFileService::class.java)
-        private const val MAX_CONFIGURATION_BYTES = 65_536L
         private const val MAX_TEXT_BYTES = 2L * 1024L * 1024L
         private const val CONFIGURATION_ERROR = "Plugin configuration file is missing or invalid"
         private const val INTERNAL_LOCK_DIRECTORY = ".locks"
@@ -106,9 +105,6 @@ class PluginBindingFileService(
         validatedConfiguration(pluginId, host.configurationFileName(pluginId), value)
 
     private fun validatedConfiguration(pluginId: String, fileName: String, value: String): String {
-        if (value.toByteArray(StandardCharsets.UTF_8).size > MAX_CONFIGURATION_BYTES) {
-            throw failure(HttpStatus.PAYLOAD_TOO_LARGE, "PLUGIN_CONFIG_TOO_LARGE", "Plugin configuration cannot exceed 64 KiB")
-        }
         val violations = host.validateConfiguration(pluginId, fileName, value)
         if (violations.isNotEmpty()) {
             throw failure(HttpStatus.BAD_REQUEST, "INVALID_PLUGIN_CONFIG", violations.first())
@@ -150,9 +146,6 @@ class PluginBindingFileService(
         val value = try {
             if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS) || Files.isSymbolicLink(file)) {
                 throw failure(HttpStatus.CONFLICT, "PLUGIN_CONFIG_MISSING", "Plugin configuration file does not exist")
-            }
-            if (Files.size(file) > MAX_CONFIGURATION_BYTES) {
-                throw failure(HttpStatus.CONFLICT, "PLUGIN_CONFIG_TOO_LARGE", "Plugin configuration cannot exceed 64 KiB")
             }
             decodeUtf8(
                 Files.readAllBytes(file),
@@ -196,7 +189,8 @@ class PluginBindingFileService(
             throw failure(HttpStatus.NOT_FOUND, "PLUGIN_FILE_NOT_FOUND", "Plugin file does not exist")
         }
         return try {
-            if (Files.size(file) > MAX_TEXT_BYTES) {
+            val isConfiguration = isConfigurationTarget(binding, root, file)
+            if (!isConfiguration && Files.size(file) > MAX_TEXT_BYTES) {
                 throw failure(HttpStatus.PAYLOAD_TOO_LARGE, "PLUGIN_FILE_PREVIEW_TOO_LARGE", "Text preview cannot exceed 2 MiB")
             }
             val bytes = Files.readAllBytes(file)
@@ -346,9 +340,6 @@ class PluginBindingFileService(
             }
             val isConfiguration = isConfigurationTarget(binding, root, target)
             val configuration = if (isConfiguration) {
-                if (Files.size(temporary) > MAX_CONFIGURATION_BYTES) {
-                    throw failure(HttpStatus.PAYLOAD_TOO_LARGE, "PLUGIN_CONFIG_TOO_LARGE", "Plugin configuration cannot exceed 64 KiB")
-                }
                 val content = validatedConfiguration(
                     binding.pluginId,
                     target.fileName.toString(),
@@ -877,15 +868,7 @@ class PluginBindingFileService(
     }
 
     private fun validateSavedContentSize(configuration: Boolean, sizeBytes: Int) {
-        val maximum = if (configuration) MAX_CONFIGURATION_BYTES else MAX_TEXT_BYTES
-        if (sizeBytes.toLong() <= maximum) return
-        if (configuration) {
-            throw failure(
-                HttpStatus.PAYLOAD_TOO_LARGE,
-                "PLUGIN_CONFIG_TOO_LARGE",
-                "Plugin configuration cannot exceed 64 KiB",
-            )
-        }
+        if (configuration || sizeBytes.toLong() <= MAX_TEXT_BYTES) return
         throw failure(
             HttpStatus.PAYLOAD_TOO_LARGE,
             "PLUGIN_FILE_CONTENT_TOO_LARGE",

@@ -47,7 +47,7 @@ class QqBotApplicationTest {
             Path.of(OnboardingProperties::class.java.protectionDomain.codeSource.location.toURI())
                 .fileName
                 .toString(),
-        ).isEqualTo("qqbot-module-platform-admin-1.0.2.jar")
+        ).isEqualTo("qqbot-module-platform-admin-1.0.3.jar")
         assertThat(onboardingProperties.stateFile)
             .isEqualTo(DATABASE_FILE.resolveSibling("${DATABASE_FILE.fileName}.onboarding.json"))
     }

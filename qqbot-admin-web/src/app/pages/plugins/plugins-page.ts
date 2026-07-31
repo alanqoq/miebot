@@ -106,13 +106,6 @@ const configurationObject: ValidatorFn = (control: AbstractControl): ValidationE
   }
 };
 
-const maxUtf8Bytes = (maximum: number): ValidatorFn =>
-  (control: AbstractControl): ValidationErrors | null => {
-    if (typeof control.value !== 'string') return null;
-    const actual = new TextEncoder().encode(control.value).byteLength;
-    return actual > maximum ? { maxUtf8Bytes: { maximum, actual } } : null;
-  };
-
 @Component({
   selector: 'app-plugins-page',
   imports: [
@@ -211,7 +204,7 @@ export class PluginsPage implements OnInit {
     {
       pluginId: ['', Validators.required],
       botId: ['', Validators.required],
-      configContent: ['{}', [Validators.required, maxUtf8Bytes(65_536)]],
+      configContent: ['{}', Validators.required],
       configFormat: ['JSON' as PluginConfigurationFormat],
       configFileName: ['config.json'],
       enabled: [true],
@@ -881,7 +874,6 @@ export class PluginsPage implements OnInit {
   protected configError(): string | null {
     const control = this.bindingForm.controls.configContent;
     if (!control.touched) return null;
-    if (control.hasError('maxUtf8Bytes')) return '配置的 UTF-8 内容不能超过 64 KiB';
     if (control.hasError('required') || this.bindingForm.hasError('configurationObject')) {
       return `配置必须是有效的 ${this.bindingForm.controls.configFormat.value} 对象`;
     }

@@ -326,7 +326,7 @@ describe('PluginsPage', () => {
     expect(document.activeElement).toBe(bindTrigger);
   });
 
-  it('rejects default configuration larger than 64 KiB in UTF-8 bytes', () => {
+  it('accepts default configuration larger than 64 KiB and submits it unchanged', () => {
     list.mockReturnValue(of(loadedInventoryFixture()));
     botList.mockReturnValue(of([botFixture()]));
 
@@ -334,14 +334,19 @@ describe('PluginsPage', () => {
     (fixture.nativeElement.querySelector('table tbody .table-actions .icon-button') as HTMLButtonElement).click();
     fixture.detectChanges();
     const textarea = fixture.nativeElement.querySelector('.plugin-dialog textarea') as HTMLTextAreaElement;
-    textarea.value = JSON.stringify({ message: '界'.repeat(22_000) });
+    const largeContent = `{\"message\":\"${'x'.repeat(70_000)}\"}`;
+    textarea.value = largeContent;
     textarea.dispatchEvent(new Event('input'));
     textarea.dispatchEvent(new Event('blur'));
     fixture.detectChanges();
 
-    expect(fixture.nativeElement.textContent).toContain('UTF-8 内容不能超过 64 KiB');
     (fixture.nativeElement.querySelector('.plugin-dialog button[type="submit"]') as HTMLButtonElement).click();
-    expect(createBinding).not.toHaveBeenCalled();
+    expect(createBinding).toHaveBeenCalledWith({
+      pluginId: 'support',
+      botId: 'bot-1',
+      configContent: largeContent,
+      enabled: true,
+    });
   });
 
   it('warns that deleting a binding permanently removes all binding files', () => {

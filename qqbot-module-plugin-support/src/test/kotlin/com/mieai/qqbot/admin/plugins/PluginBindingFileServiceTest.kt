@@ -247,25 +247,44 @@ class PluginBindingFileServiceTest {
     }
 
     @Test
-    fun `keeps config json at 64 KiB for multibyte content without changing file or revision`() {
+    fun `saves configuration larger than two MiB and reads it back unchanged`() {
         service.initialize(binding, "{\"value\":\"before\"}")
-        val oversizedConfiguration = "{\"value\":\"${"界".repeat(65_536 / 3)}\"}"
+        val oversizedConfiguration = "{\"value\":\"${"界".repeat(2_097_152 / 3 + 1)}\"}"
 
-        val failure = assertThrows<PluginAdministrationException> {
-            service.saveContent(
-                binding.id,
-                UpdatePluginFileContentRequest("config.json", oversizedConfiguration, null),
-            )
-        }
+        val response = service.saveContent(
+            binding.id,
+            UpdatePluginFileContentRequest("config.json", oversizedConfiguration, null),
+        )
 
-        assertThat(failure.code).isEqualTo("PLUGIN_CONFIG_TOO_LARGE")
-        assertThat(root.resolve("config.json")).hasContent("{\"value\":\"before\"}")
-        verify(bindings, never()).touch(
+        assertThat(response.content).isEqualTo(oversizedConfiguration)
+        assertThat(root.resolve("config.json")).hasContent(oversizedConfiguration)
+        assertThat(service.content(binding.id, "config.json").content).isEqualTo(oversizedConfiguration)
+        verify(bindings).touch(
             matchEq(binding.id),
             anyLong(),
             matchAny(Instant::class.java, Instant.EPOCH),
         )
-        verify(host, never()).invalidate(binding.id)
+    }
+
+    @Test
+    fun `uploads configuration larger than two MiB without a configuration size rejection`() {
+        service.initialize(binding, "{\"value\":\"before\"}")
+        val oversizedConfiguration = "{\"value\":\"${"x".repeat(2_097_152)}\"}"
+
+        service.upload(
+            binding.id,
+            "",
+            MockMultipartFile(
+                "file",
+                "config.json",
+                "application/json",
+                oversizedConfiguration.toByteArray(),
+            ),
+            overwrite = true,
+        )
+
+        assertThat(root.resolve("config.json")).hasContent(oversizedConfiguration)
+        assertThat(service.content(binding.id, "config.json").content).isEqualTo(oversizedConfiguration)
     }
 
     @Test

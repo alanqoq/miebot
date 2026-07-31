@@ -134,21 +134,48 @@ class PluginBindingControllerMockMvcTest {
             "ACTIVE",
             null,
         )
-        val fallback = CreatePluginBindingRequest("echo", BOT.toString(), null, true, "enabled: true\n")
+        val largeContent = "message: ${"x".repeat(70_000)}"
+        val fallback = CreatePluginBindingRequest("echo", BOT.toString(), null, true, largeContent)
         `when`(service.create(matchAny(CreatePluginBindingRequest::class.java, fallback))).thenReturn(response)
 
         mockMvc.perform(
             post("/api/plugin-bindings").with(csrf())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
-                    """{"pluginId":"echo","botId":"$BOT","configContent":"enabled: true\n","enabled":true}""",
+                    """{"pluginId":"echo","botId":"$BOT","configContent":"$largeContent","enabled":true}""",
                 ),
         ).andExpect(status().isCreated)
 
         val request = ArgumentCaptor.forClass(CreatePluginBindingRequest::class.java)
         verify(service).create(request.capture() ?: fallback)
-        assertThat(request.value.configContent).isEqualTo("enabled: true\n")
+        assertThat(request.value.configContent).isEqualTo(largeContent)
         assertThat(request.value.configJson).isNull()
+    }
+
+    @Test
+    @WithMockUser(username = "alanqaq", roles = ["ADMIN"])
+    fun `accepts file content larger than two MiB through DTO validation`() {
+        val largeContent = "message: ${"x".repeat(2_097_153)}"
+        val fallback = UpdatePluginFileContentRequest("config.yml", "", null)
+        `when`(files.saveContent(matchEq(BINDING), matchAny(UpdatePluginFileContentRequest::class.java, fallback)))
+            .thenReturn(
+                PluginFileContentResponse(
+                    "config.yml",
+                    "ok",
+                    "hash",
+                    Instant.parse("2026-07-23T01:02:03Z"),
+                ),
+            )
+
+        mockMvc.perform(
+            put("/api/plugin-bindings/{id}/files/content", BINDING).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""{"path":"config.yml","content":"$largeContent"}"""),
+        ).andExpect(status().isOk)
+
+        val request = ArgumentCaptor.forClass(UpdatePluginFileContentRequest::class.java)
+        verify(files).saveContent(matchEq(BINDING), request.capture() ?: UpdatePluginFileContentRequest("unused", "", null))
+        assertThat(request.value.content).isEqualTo(largeContent)
     }
 
     @Test

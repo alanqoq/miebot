@@ -320,28 +320,21 @@ class PluginAdministrationService(
                 if (supported) {
                     try {
                         jarFile.getInputStream(defaultEntry).use { input ->
-                            val bytes = input.readNBytes(MAX_DEFAULT_CONFIG_BYTES + 1)
-                            if (bytes.size > MAX_DEFAULT_CONFIG_BYTES) {
+                            val content = configurationCodec.decodeUtf8(input.readAllBytes())
+                            val parsed = configurationCodec.parse(
+                                content,
+                                requireNotNull(configurationDescriptor).format,
+                            )
+                            if (!parsed.isObject) {
                                 supported = false
                                 status = STATUS_UNSUPPORTED
-                                error = "插件默认配置超过 64 KiB"
+                                error = "插件默认配置必须是对象"
                             } else {
-                                val content = configurationCodec.decodeUtf8(bytes)
-                                val parsed = configurationCodec.parse(
-                                    content,
-                                    requireNotNull(configurationDescriptor).format,
-                                )
-                                if (!parsed.isObject) {
-                                    supported = false
-                                    status = STATUS_UNSUPPORTED
-                                    error = "插件默认配置必须是对象"
-                                } else {
-                                    defaultConfigContent = content
-                                    configFormat = configurationDescriptor.format.name
-                                    configFileName = configurationDescriptor.fileName
-                                    if (configurationDescriptor.format == PluginConfigurationFormat.JSON) {
-                                        defaultConfigJson = content
-                                    }
+                                defaultConfigContent = content
+                                configFormat = configurationDescriptor.format.name
+                                configFileName = configurationDescriptor.fileName
+                                if (configurationDescriptor.format == PluginConfigurationFormat.JSON) {
+                                    defaultConfigJson = content
                                 }
                             }
                         }
@@ -382,7 +375,6 @@ class PluginAdministrationService(
         const val MAX_ARTIFACTS = 500
         const val MAX_HASH_BYTES = 512L * 1024L * 1024L
         const val MAX_UPLOAD_BYTES = 64L * 1024L * 1024L
-        const val MAX_DEFAULT_CONFIG_BYTES = 64 * 1024
         const val STATUS_DISCOVERED = "DISCOVERED"
         const val STATUS_INVALID = "INVALID"
         const val STATUS_UNSUPPORTED = "UNSUPPORTED"

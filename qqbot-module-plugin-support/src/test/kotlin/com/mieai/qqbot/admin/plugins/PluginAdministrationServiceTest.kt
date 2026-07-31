@@ -76,6 +76,28 @@ class PluginAdministrationServiceTest {
     }
 
     @Test
+    fun `scans default configurations larger than 64 KiB without changing their content`() {
+        val defaultConfiguration = "{\"value\":\"${"x".repeat(70_000)}\"}"
+        val manifest = Manifest().apply {
+            mainAttributes[Attributes.Name.MANIFEST_VERSION] = "1.0"
+            mainAttributes.putValue("Plugin-Id", "large-support")
+            mainAttributes.putValue("Plugin-Name", "Large Support Plugin")
+            mainAttributes.putValue("Plugin-Version", "1.0.0")
+            mainAttributes.putValue("Plugin-Api-Version", "3.2.0")
+            mainAttributes.putValue("Plugin-Class", "example.LargeSupportPlugin")
+            mainAttributes.putValue("Plugin-Config-Schema", "plugin-schema.json")
+            mainAttributes.putValue("Plugin-Default-Config", "plugin-default.json")
+        }
+        writeManifestJar(directory.resolve("large-support.jar"), manifest, defaultConfiguration)
+
+        val artifact = PluginAdministrationService(directory.toString()).scan(null).items.single()
+
+        assertThat(artifact.status).isEqualTo("DISCOVERED")
+        assertThat(artifact.defaultConfigContent).isEqualTo(defaultConfiguration)
+        assertThat(artifact.defaultConfigJson).isEqualTo(defaultConfiguration)
+    }
+
+    @Test
     fun `rejects oversized or control character query before reading directory`() {
         val service = PluginAdministrationService(directory.toString())
 

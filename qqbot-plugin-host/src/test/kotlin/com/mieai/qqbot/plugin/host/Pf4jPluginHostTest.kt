@@ -258,14 +258,15 @@ class Pf4jPluginHostTest {
     }
 
     @Test
-    fun rejectsDefaultConfigurationResourcesLargerThan64KiBDuringValidationAndLoading() {
+    fun loadsDefaultConfigurationResourcesLargerThan64KiB() {
         val example = Path.of(System.getProperty("qqbot.example.plugin"))
-        val oversizedJson = ("{\n" + " ".repeat(64 * 1024) + "\n}").toByteArray(StandardCharsets.UTF_8)
+        val oversizedConfiguration =
+            DEFAULT_CONFIGURATION.dropLast(1) + " ".repeat(70_000) + "}"
         val oversizedArtifact = pluginWithResource(
             example,
             temporaryDirectory.resolve("oversized-staging/example.jar"),
             "config.json",
-            oversizedJson,
+            oversizedConfiguration.toByteArray(StandardCharsets.UTF_8),
         )
         val pluginDirectory = temporaryDirectory.resolve("oversized-plugins")
         Files.createDirectories(pluginDirectory)
@@ -283,15 +284,14 @@ class Pf4jPluginHostTest {
             Clock.fixed(NOW, ZoneOffset.UTC),
             JdbcPluginStorageRepository(dataSource),
         ).use { host ->
-            assertThatThrownBy { host.validateArtifact(oversizedArtifact) }
-                .isInstanceOf(IllegalStateException::class.java)
-                .hasMessageContaining("cannot exceed 64 KiB")
+            assertThat(host.validateArtifact(oversizedArtifact).pluginId).isEqualTo("example")
 
             Files.copy(oversizedArtifact, pluginDirectory.resolve("example.jar"))
             host.start()
 
-            assertThat(host.isLoaded("example")).isFalse()
-            assertThat(artifacts.findById("example")).isNull()
+            assertThat(host.isLoaded("example")).isTrue()
+            assertThat(host.loadedPlugins().single().defaultConfiguration).isEqualTo(oversizedConfiguration)
+            assertThat(artifacts.findById("example")).isNotNull()
         }
     }
 
@@ -415,7 +415,7 @@ class Pf4jPluginHostTest {
     }
 
     @Test
-    fun enforcesRuntimeConfigurationUtf8AndExact64KiBBoundary() {
+    fun loadsRuntimeConfigurationBeyond64KiBAndRejectsInvalidUtf8() {
         val pluginDirectory = temporaryDirectory.resolve("configuration-plugins")
         val pluginDataRoot = temporaryDirectory.resolve("configuration-plugin-data")
         Files.createDirectories(pluginDirectory)
@@ -439,17 +439,10 @@ class Pf4jPluginHostTest {
             val binding = binding(UUID.randomUUID(), "example", true, 0, PluginBindingRuntimeState.ACTIVE)
             Files.createDirectories(host.bindingDataDirectory(binding))
 
-            val atLimit = ByteArray(64 * 1024) { ' '.code.toByte() }
-            DEFAULT_CONFIGURATION.dropLast(1).toByteArray(StandardCharsets.UTF_8).copyInto(atLimit)
-            atLimit[atLimit.lastIndex] = '}'.code.toByte()
-            Files.write(host.configurationFile(binding), atLimit)
+            val oversizedConfiguration = DEFAULT_CONFIGURATION.dropLast(1) + " ".repeat(70_000) + "}"
+            Files.writeString(host.configurationFile(binding), oversizedConfiguration)
             assertThat(host.handlerIds(binding)).containsExactly("keyword-reply")
             host.invalidate(binding.id)
-
-            Files.write(host.configurationFile(binding), atLimit.copyOf(atLimit.size + 1))
-            assertThatThrownBy { host.handlerIds(binding) }
-                .isInstanceOf(IllegalStateException::class.java)
-                .hasMessageContaining("cannot exceed 64 KiB")
 
             Files.write(
                 host.configurationFile(binding),

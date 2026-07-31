@@ -2,14 +2,14 @@
 
 ## 部署结论
 
-项目可以部署到 Debian 的 Docker Compose 中，当前 Compose 镜像为 `miebot:1.0.2`。Compose 只运行 MieBot 应用，默认使用容器数据卷中的 SQLite；MySQL/PostgreSQL 由外部系统提供，通过 Web 后台或候选配置文件填写连接信息。Spring Boot 直接在 `8080` 端口提供管理 API 和 Angular 页面，不强制依赖 Caddy/Nginx。真实 QQ Gateway 运行时默认启用，应用启动后会自动调和当前数据库内所有已启用机器人。
+项目可以部署到 Debian 的 Docker Compose 中，当前 Compose 镜像为 `miebot:1.0.3`。Compose 只运行 MieBot 应用，默认使用容器数据卷中的 SQLite；MySQL/PostgreSQL 由外部系统提供，通过 Web 后台或候选配置文件填写连接信息。Spring Boot 直接在 `8080` 端口提供管理 API 和 Angular 页面，不强制依赖 Caddy/Nginx。真实 QQ Gateway 运行时默认启用，应用启动后会自动调和当前数据库内所有已启用机器人。
 
 镜像携带 `database-support`、`qqbot-runtime`、`platform-admin`、`plugin-support`、`operations`、`cluster-support` 和 `onebot11` 七个默认框架模块 JAR。Compose 将宿主机 `./modules` 只读挂载到 `/modules`，Spring Boot 使用 `PropertiesLauncher` 在启动前把其中的 JAR 加入类路径；宿主随后校验描述符、SHA-256、框架版本、必需依赖、版本下限、重复项和依赖环。`GET /api/modules` 可查看制品和运行状态。替换模块后只需重启应用，不需要重新编译核心；模块不能从 Web 上传或热卸载。`/plugins` 只存放由 `plugin-support` 加载并绑定机器人的业务插件，绑定配置和插件自有数据则持久化在 `/data/plugin-data`。
 
 当前实现已通过本地单元、集成、模拟 HTTP 端点以及 WebSocket transport/协议测试，但本开发环境没有使用真实 QQ AppID/AppSecret 完成线上连接验收。能成功构建和启动容器只表示部署结构可用，不表示真实账号的凭据、Intents、Gateway 配额或外网策略已经通过 QQ 侧验证。
 
 镜像构建会从 Dragonwell 官方 GitHub Release 下载固定版本的
-`Alibaba_Dragonwell_Extended_21.0.21.0.21.10_x64_linux.tar.gz`。该文件已确认为 Linux x86_64、GNU libc 版本，SHA-256 为：
+`Alibaba_Dragonwell_Extended_21.0.31.0.31.10_x64_linux.tar.gz`。该文件已确认为 Linux x86_64、GNU libc 版本，SHA-256 为：
 
 ```text
 12c642f8d6c6e0930b9b4e673d47822227ea46e7559c7b7b6b4c0331ace0580f
@@ -169,14 +169,14 @@ Outbox/DLQ 管理接口为：
 绑定文件管理接口全部以绑定目录为根，`path`/`directory` 使用正斜杠相对路径：
 
 - `GET /api/plugin-bindings/{bindingId}/files?path=`：列出根目录或指定子目录，目录优先、名称不区分大小写排序。
-- `GET /api/plugin-bindings/{bindingId}/files/content?path=...`：以 UTF-8 读取不超过 `2 MiB` 的文本，并返回 SHA-256 和修改时间。
+- `GET /api/plugin-bindings/{bindingId}/files/content?path=...`：以 UTF-8 读取文件并返回 SHA-256 和修改时间；普通文本预览不超过 `2 MiB`，插件选定的根配置文件不设额外应用层大小上限。
 - `PUT /api/plugin-bindings/{bindingId}/files/content`：保存文本；请求包含 `path`、`content` 和可选 `expectedSha256`，哈希不匹配返回冲突。
 - `POST /api/plugin-bindings/{bindingId}/files/entries`：按请求中的 `path` 和 `directory` 创建文件或目录；创建插件选定的根配置文件时自动写入原始默认配置。
-- `POST /api/plugin-bindings/{bindingId}/files/upload?directory=...&overwrite=false`：上传文件到指定目录；默认拒绝替换同名文件并返回 `409`，管理员确认后才可改为 `overwrite=true`，还可传 `expectedSha256` 做覆盖前校验。普通文件受当前全局 multipart `256 MiB` 上限约束，根配置文件另限 `64 KiB`。
+- `POST /api/plugin-bindings/{bindingId}/files/upload?directory=...&overwrite=false`：上传文件到指定目录；默认拒绝替换同名文件并返回 `409`，管理员确认后才可改为 `overwrite=true`，还可传 `expectedSha256` 做覆盖前校验。上传请求受当前全局 multipart `256 MiB` 传输上限约束，插件选定的根配置文件不再增加额外大小限制。
 - `GET /api/plugin-bindings/{bindingId}/files/download?path=...`：以附件下载任意普通文件。
 - `DELETE /api/plugin-bindings/{bindingId}/files?path=...`：永久删除指定文件或整个子目录；不能用空路径删除绑定根目录。
 
-插件后台通过 `GET /api/plugins` 扫描 `/plugins` 目录中的 JAR manifest 和 SHA-256；PF4J 宿主只加载同时声明 `Plugin-Config-Schema`、`Plugin-Default-Config`、API 版本和有效能力的可信 JAR，默认配置必须是符合 Schema 的 JSON 或 YAML 对象。默认资源扩展名 `.json`、`.yml`、`.yaml` 分别选择绑定文件 `config.json`、`config.yml`、`config.yaml`。宿主只为验证临时解析配置，保存和运行时传递的正文保持原样。后台制品清单只接受不超过 `64 KiB` 的默认配置资源，绑定根配置也限制为 `64 KiB`。插件页可以选择并上传 `.jar`，通过 `POST /api/plugins/upload` 完成校验和同进程无重启热升级，失败会尝试恢复旧插件；请求必须是已认证管理员并带 CSRF 和 `X-Plugin-Upload-Confirm: trusted-jar`。
+插件后台通过 `GET /api/plugins` 扫描 `/plugins` 目录中的 JAR manifest 和 SHA-256；PF4J 宿主只加载同时声明 `Plugin-Config-Schema`、`Plugin-Default-Config`、API 版本和有效能力的可信 JAR，默认配置必须是符合 Schema 的 JSON 或 YAML 对象。默认资源扩展名 `.json`、`.yml`、`.yaml` 分别选择绑定文件 `config.json`、`config.yml`、`config.yaml`。宿主只为验证临时解析配置，保存和运行时传递的正文保持原样；默认配置资源和绑定根配置均不设额外应用层大小限制。插件页可以选择并上传 `.jar`，通过 `POST /api/plugins/upload` 完成校验和同进程无重启热升级，失败会尝试恢复旧插件；请求必须是已认证管理员并带 CSRF 和 `X-Plugin-Upload-Confirm: trusted-jar`。
 
 “机器人绑定”列表显示机器人信息、Gateway 状态、绑定插件数和更新时间；机器人详情按插件分区，只显示插件名、右侧删除操作和目录文件管理器，并可继续新增插件。文件管理器支持目录浏览、新建、上传、下载和递归删除；点击 `.json`、`.yml` 或 `.yaml` 文件会打开编辑器，并以读取时的 SHA-256 防止静默覆盖并发修改。同名上传默认拒绝覆盖，Web 会要求管理员确认后再显式重试。新建绑定对话框从 `GET /api/plugins` 返回的 `defaultConfigContent`、`configFormat` 和 `configFileName` 预填默认配置，管理员确认后才创建对应根配置文件；兼容字段 `defaultConfigJson` 继续返回给旧 JSON 客户端。一个插件可绑定多个机器人，每个机器人/插件组合的目录完全分开，配置正文不写入主数据库；插件可在自己的目录保存 SQLite、图片、音频、视频及任意其他文件。删除绑定会永久删除该绑定的整个目录，无法从数据库记录恢复。
 

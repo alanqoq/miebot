@@ -396,7 +396,7 @@ class OneBotActionService(
 
     private fun versionInfo(): JsonNode = objectMapper.createObjectNode().apply {
         put("app_name", "mirai-qqbot-onebot11")
-        put("app_version", "1.0.2")
+        put("app_version", "1.0.3")
         put("protocol_version", "v11")
         put("compatibility", "qq-official-c2c-group-subset")
     }

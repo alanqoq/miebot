@@ -695,10 +695,7 @@ class Pf4jPluginHost(
         JarFile(pluginPath.toFile(), false).use { jar ->
             val entry = requirePluginResource(jar, resourcePath, "Plugin default configuration resource is missing")
             jar.getInputStream(entry).use { input ->
-                val bytes = input.readNBytes(MAX_CONFIGURATION_BYTES + 1)
-                check(bytes.size <= MAX_CONFIGURATION_BYTES) {
-                    "Plugin default configuration cannot exceed 64 KiB"
-                }
+                val bytes = input.readAllBytes()
                 val content = try {
                     configurationCodec.decodeUtf8(bytes)
                 } catch (exception: CharacterCodingException) {
@@ -922,7 +919,6 @@ class Pf4jPluginHost(
         )
         const val DEFAULT_QUEUE_CAPACITY = 256
         val DEFAULT_SHUTDOWN_TIMEOUT: Duration = Duration.ofSeconds(20)
-        const val MAX_CONFIGURATION_BYTES = 64 * 1024
         val PLUGIN_ID_PATTERN: Pattern = Pattern.compile("[a-z0-9](?:[a-z0-9._-]{0,126}[a-z0-9])?")
         val WINDOWS_RESERVED_PLUGIN_ID_STEMS = setOf(
             "con",
@@ -951,10 +947,7 @@ class Pf4jPluginHost(
 
         fun readBindingConfigurationUtf8(configuration: Path): String {
             val bytes = Files.newInputStream(configuration).use { input ->
-                input.readNBytes(MAX_CONFIGURATION_BYTES + 1)
-            }
-            check(bytes.size <= MAX_CONFIGURATION_BYTES) {
-                "Plugin binding configuration cannot exceed 64 KiB: $configuration"
+                input.readAllBytes()
             }
             return try {
                 StandardCharsets.UTF_8.newDecoder()

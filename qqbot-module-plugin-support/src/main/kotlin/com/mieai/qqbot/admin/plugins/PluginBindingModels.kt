@@ -10,9 +10,9 @@ import java.util.UUID
 data class CreatePluginBindingRequest(
     @field:NotBlank @field:Size(max = 128) val pluginId: String,
     @field:NotBlank @field:Size(max = 36) val botId: String,
-    @field:Size(max = 65_536) val configJson: String? = null,
+    val configJson: String? = null,
     val enabled: Boolean,
-    @field:Size(max = 65_536) val configContent: String? = null,
+    val configContent: String? = null,
 ) {
     fun suppliedConfiguration(): String? = configContent ?: configJson
 
@@ -79,7 +79,7 @@ data class CreatePluginFileEntryRequest(
 
 data class UpdatePluginFileContentRequest(
     @field:NotBlank @field:Size(max = 1_024) val path: String,
-    @field:Size(max = 2_097_152) val content: String,
+    val content: String,
     @field:Size(max = 64) val expectedSha256: String?,
 )
 

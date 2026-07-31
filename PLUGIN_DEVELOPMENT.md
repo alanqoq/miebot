@@ -37,7 +37,7 @@ dependencies {
 }
 ```
 
-外部插件项目应依赖与宿主完全相同的 Maven 制品版本。当前平台制品版本为 `1.0.2`，Manifest 的插件 API 级别为 `3.2.0`。根项目的 `pluginSdkRepository` 任务会生成可复制的本地 Maven SDK 仓库，`pluginSdkDistribution` 会把仓库、模板和本指南打成 ZIP；不需要把宿主模块或 PF4J 放进插件项目。
+外部插件项目应依赖与宿主完全相同的 Maven 制品版本。当前平台制品版本为 `1.0.3`，Manifest 的插件 API 级别为 `3.2.0`。根项目的 `pluginSdkRepository` 任务会生成可复制的本地 Maven SDK 仓库，`pluginSdkDistribution` 会把仓库、模板和本指南打成 ZIP；不需要把宿主模块或 PF4J 放进插件项目。
 
 平台 API/SPI 必须使用 `compileOnly` 或 Maven 的 `provided` scope。不要把 API/SPI、PF4J、Spring 或宿主模块打入插件 JAR，否则可能出现类型不相等、类加载冲突或越过宿主边界的问题。插件自己的 JSON、SQLite JDBC 或其他实现依赖可以打入 JAR，但应评估体积、原生库加载、ClassLoader 卸载和依赖冲突；需要与宿主同名库并存时应做 shading/relocation。
 
@@ -173,7 +173,7 @@ tasks.jar {
 - 字符串：`minLength`、`maxLength`、`pattern`
 - 数字：`minimum`、`maximum`
 
-不要依赖 `$ref`、`oneOf`、`anyOf`、条件 Schema、格式校验或其他未列出的关键字。默认配置和实际配置都必须解析为对象。宿主加载插件时会按资源扩展名临时解析 `Plugin-Default-Config`，校验对象类型和 Schema；任一条件失败都会拒绝加载整个插件制品。宿主不会把 YAML 转换成 JSON，也不会重排、压缩或格式化配置正文。后台制品清单和绑定配置原文都不能超过 `64 KiB`。
+不要依赖 `$ref`、`oneOf`、`anyOf`、条件 Schema、格式校验或其他未列出的关键字。默认配置和实际配置都必须解析为对象。宿主加载插件时会按资源扩展名临时解析 `Plugin-Default-Config`，校验对象类型和 Schema；任一条件失败都会拒绝加载整个插件制品。宿主不会把 YAML 转换成 JSON，也不会重排、压缩或格式化配置正文。默认配置资源和绑定配置原文不设额外应用层大小限制。
 
 Web 新建绑定时，`GET /api/plugins` 返回 `defaultConfigContent`、`configFormat` 和 `configFileName`，绑定对话框将原始默认配置载入“插件配置”供管理员确认或修改。`POST /api/plugin-bindings` 的 `configContent` 只作为创建文件的初始内容，验证通过后原样写入绑定目录；绑定表和绑定响应都不保存或返回配置正文。为兼容旧 JSON 客户端，响应仍保留 `defaultConfigJson`，请求仍接受 `configJson`。
 
@@ -579,7 +579,7 @@ context.base.logger.error("processing failed", exception)
 
 ```powershell
 .\gradlew.bat :qqbot-plugin-example:jar `
-  "-Dorg.gradle.java.home=E:\JAVA\dragonwell-21.0.21.0.21+10-GA" `
+  "-Dorg.gradle.java.home=E:\JAVA\dragonwell-21.0.31.0.31+10-GA" `
   --no-daemon
 ```
 
@@ -589,7 +589,7 @@ context.base.logger.error("processing failed", exception)
 
 ```powershell
 .\gradlew.bat pluginSdkRepository pluginSdkDistribution `
-  "-Dorg.gradle.java.home=E:\JAVA\dragonwell-21.0.21.0.21+10-GA" `
+  "-Dorg.gradle.java.home=E:\JAVA\dragonwell-21.0.31.0.31+10-GA" `
   --no-daemon
 ```
 
@@ -614,14 +614,14 @@ Docker Compose 默认把宿主 `./plugins` 绑定到容器 `/plugins`，并把�
 | 方法与路径 | 行为 |
 | --- | --- |
 | `GET /api/plugin-bindings/{id}/files?path=` | 列出根目录或指定相对目录 |
-| `GET /api/plugin-bindings/{id}/files/content?path=...` | 读取最多 `2 MiB` 的 UTF-8 文本，返回内容、SHA-256 和修改时间 |
+| `GET /api/plugin-bindings/{id}/files/content?path=...` | 读取 UTF-8 文件并返回内容、SHA-256 和修改时间；普通文本最多 `2 MiB`，根配置文件无额外应用层大小上限 |
 | `PUT /api/plugin-bindings/{id}/files/content` | 保存 `path`/`content`；可传 `expectedSha256` 检测打开后的并发修改 |
 | `POST /api/plugin-bindings/{id}/files/entries` | 以 `path` 和 `directory` 新建文件或目录 |
 | `POST /api/plugin-bindings/{id}/files/upload?directory=...&overwrite=false` | 以 multipart `file` 上传到相对目录；覆盖需显式设为 `true`，可附 `expectedSha256` |
 | `GET /api/plugin-bindings/{id}/files/download?path=...` | 下载普通文件 |
 | `DELETE /api/plugin-bindings/{id}/files?path=...` | 永久删除文件或递归删除子目录 |
 
-所有路径都相对于当前绑定根目录，服务端拒绝绝对路径、`..` 越界和通过符号链接打开目录外内容。普通上传受应用全局 multipart `256 MiB` 上限约束；插件选定的根配置文件限 `64 KiB`，并额外执行对象类型与插件 Schema 校验，其他 `.json`、`.yml` 和 `.yaml` 文件保存时也必须符合各自语法。创建缺失的根配置文件会按插件选择的文件名写入原始默认配置。文件管理器变更会失效化当前绑定实例、更新绑定 revision 并按最新文件重新加载；插件必须在 `stop()` 中关闭 SQLite 连接、文件句柄和后台线程。
+所有路径都相对于当前绑定根目录，服务端拒绝绝对路径、`..` 越界和通过符号链接打开目录外内容。普通上传受应用全局 multipart `256 MiB` 上限约束；插件选定的根配置文件不设额外应用层大小限制，并额外执行对象类型与插件 Schema 校验，其他 `.json`、`.yml` 和 `.yaml` 文件保存时也必须符合各自语法。创建缺失的根配置文件会按插件选择的文件名写入原始默认配置。文件管理器变更会失效化当前绑定实例、更新绑定 revision 并按最新文件重新加载；插件必须在 `stop()` 中关闭 SQLite 连接、文件句柄和后台线程。
 
 删除单个绑定会永久递归删除它的整个 `/data/plugin-data/<botId>/<pluginId>/` 目录，包括配置文件、SQLite、图片、音频、视频和未知自定义文件，没有回收站。只停用绑定不会删除文件。管理员在删除前必须完成插件自有数据备份。
 
