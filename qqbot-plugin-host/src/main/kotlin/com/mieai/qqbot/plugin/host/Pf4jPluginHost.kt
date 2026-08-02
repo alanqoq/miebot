@@ -54,8 +54,14 @@ import java.util.concurrent.CompletionStage
 import java.util.jar.JarEntry
 import java.util.jar.JarFile
 import java.util.regex.Pattern
+import org.pf4j.ClassLoadingStrategy
 import org.pf4j.DefaultPluginManager
+import org.pf4j.JarPluginLoader
+import org.pf4j.PluginClassLoader
+import org.pf4j.PluginDescriptor
 import org.pf4j.PluginFactory
+import org.pf4j.PluginLoader
+import org.pf4j.PluginManager
 import org.pf4j.PluginWrapper
 import org.slf4j.LoggerFactory
 
@@ -917,6 +923,11 @@ class Pf4jPluginHost(
             "scheduler",
             "http",
         )
+        val SHARED_CONTRACT_PACKAGE_PREFIXES = listOf(
+            "com.mieai.qqbot.plugin.api.",
+            "com.mieai.qqbot.plugin.spi.",
+            "com.mieai.qqbot.domain.",
+        )
         const val DEFAULT_QUEUE_CAPACITY = 256
         val DEFAULT_SHUTDOWN_TIMEOUT: Duration = Duration.ofSeconds(20)
         val PLUGIN_ID_PATTERN: Pattern = Pattern.compile("[a-z0-9](?:[a-z0-9._-]{0,126}[a-z0-9])?")
@@ -974,11 +985,40 @@ class Pf4jPluginHost(
         }
 
         private class QqBotPluginManager(root: Path) : DefaultPluginManager(root) {
+            override fun createPluginLoader(): PluginLoader = QqBotJarPluginLoader(this)
+
             override fun createPluginFactory(): PluginFactory = PluginFactory { wrapper ->
                 require(wrapper.descriptor.pluginClass == Pf4jPluginBridge::class.java.name) {
                     "Plugin-Class must be ${Pf4jPluginBridge::class.java.name}"
                 }
                 Pf4jPluginBridge(wrapper.pluginClassLoader)
+            }
+        }
+
+        private class QqBotJarPluginLoader(
+            private val manager: PluginManager,
+        ) : JarPluginLoader(manager) {
+            override fun loadPlugin(pluginPath: Path, pluginDescriptor: PluginDescriptor): ClassLoader =
+                SharedContractPluginClassLoader(manager, pluginDescriptor, javaClass.classLoader).apply {
+                    addFile(pluginPath.toFile())
+                }
+        }
+
+        /** Keeps plugin-private libraries isolated while resolving host contracts parent-first. */
+        private class SharedContractPluginClassLoader(
+            pluginManager: PluginManager,
+            pluginDescriptor: PluginDescriptor,
+            parent: ClassLoader,
+        ) : PluginClassLoader(pluginManager, pluginDescriptor, parent, ClassLoadingStrategy.PDA) {
+            override fun loadClass(className: String): Class<*> {
+                if (SHARED_CONTRACT_PACKAGE_PREFIXES.any { className.startsWith(it) }) {
+                    try {
+                        return parent.loadClass(className)
+                    } catch (_: ClassNotFoundException) {
+                        // Preserve PF4J's normal fallback for contracts absent from this host version.
+                    }
+                }
+                return super.loadClass(className)
             }
         }
 

@@ -6,7 +6,7 @@
 
 - 项目仓库：[GitHub](https://github.com/alanqoq/miebot)
 - 项目论坛：[MieBot 论坛](https://miebot.646325.xyz/)
-- 最新版本：[v1.0.3 Release](https://github.com/alanqoq/miebot/releases/tag/v1.0.3)
+- 最新版本：[v1.0.4 Release](https://github.com/alanqoq/miebot/releases/tag/v1.0.4)
 
 ## 当前实现
 
@@ -20,7 +20,7 @@
 - 仅供外部第三方程序接入的 OneBot 11 C2C/普通群兼容模块，支持正向与反向 Universal WebSocket，并可在每个机器人编辑页独立配置；它不属于机器人插件开发接口
 - SQLite/MySQL/PostgreSQL 持久化、版本化迁移和安全热切换
 - Angular 22 管理后台工程
-- 插件 SDK API 级别 `3.2.0`（Maven 制品 `1.0.3`，API、SPI、testkit）、可复制项目模板和本地分发任务
+- 插件 SDK API 级别 `3.2.0`（Maven 制品 `1.0.4`，API、SPI、testkit）、可复制项目模板和本地分发任务
 - Gateway Dispatch 持久化到 `event_inbox`，并提供管理员 Inbox 查询 API
 - Outbox/DLQ 持久化状态、生产 QQ OpenAPI 发送、按插件绑定隔离的真实 QQ 消息回执查询、管理员 API 与后台实时视图
 - PF4J 可信插件宿主、每机器人绑定、配置 Schema 和默认配置校验、绑定级 `PluginStorage`、暂停/恢复、超时取消与隔离、插件投递重试和插件 DLQ

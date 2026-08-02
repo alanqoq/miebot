@@ -15,7 +15,7 @@ plugins {
 }
 allprojects {
     group = "com.mieai.qqbot"
-    version = "1.0.3"
+    version = "1.0.4"
 }
 
 subprojects {
