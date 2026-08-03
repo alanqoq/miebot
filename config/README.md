@@ -13,8 +13,10 @@ server database is selected. In the Web administration system page, test and
 reload the candidate. The active file is replaced only after connection, schema,
 read, and rollback-based write checks pass.
 
-On Debian, the container runs as UID/GID `10001`. Keep this directory private and
-writable by that identity:
+On Debian, the container runs as UID/GID `10001`. The `qqbot-prepare` Compose
+service creates this directory, applies owner-only permissions, and makes it
+writable by that identity before the application starts. For a manually restored
+or pre-created directory, the equivalent commands are:
 
 ```bash
 sudo chown -R 10001:10001 config

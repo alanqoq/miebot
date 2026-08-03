@@ -2,11 +2,11 @@
   "schemaVersion": 1,
   "id": "platform-admin",
   "name": "Platform Administration",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "minimumFrameworkVersion": "1.0.0",
   "dependencies": [
-    { "moduleId": "database-support", "minimumVersion": "1.0.5", "optional": false },
-    { "moduleId": "qqbot-runtime", "minimumVersion": "1.0.5", "optional": false }
+    { "moduleId": "database-support", "minimumVersion": "1.0.6", "optional": false },
+    { "moduleId": "qqbot-runtime", "minimumVersion": "1.0.6", "optional": false }
   ],
   "capabilities": [
     "admin.authentication",

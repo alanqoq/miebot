@@ -6,7 +6,7 @@
 
 - 项目仓库：[GitHub](https://github.com/alanqoq/miebot)
 - 项目论坛：[MieBot 论坛](https://miebot.646325.xyz/)
-- 最新版本：[v1.0.5 Release](https://github.com/alanqoq/miebot/releases/tag/v1.0.5)
+- 最新版本：[v1.0.6 Release](https://github.com/alanqoq/miebot/releases/tag/v1.0.6)
 
 ## 当前实现
 
@@ -20,7 +20,7 @@
 - 仅供外部第三方程序接入的 OneBot 11 C2C/普通群兼容模块，支持正向与反向 Universal WebSocket，并可在每个机器人编辑页独立配置；它不属于机器人插件开发接口
 - SQLite/MySQL/PostgreSQL 持久化、版本化迁移和安全热切换
 - Angular 22 管理后台工程
-- 插件 SDK API 级别 `3.2.0`（Maven 制品 `1.0.5`，API、SPI、testkit）、可复制项目模板和本地分发任务
+- 插件 SDK API 级别 `3.2.0`（Maven 制品 `1.0.6`，API、SPI、testkit）、可复制项目模板和本地分发任务
 - Gateway Dispatch 持久化到 `event_inbox`，并提供管理员 Inbox 查询 API
 - Outbox/DLQ 持久化状态、生产 QQ OpenAPI 发送、按插件绑定隔离的真实 QQ 消息回执查询、管理员 API 与后台实时视图
 - PF4J 可信插件宿主、每机器人绑定、配置 Schema 和默认配置校验、绑定级 `PluginStorage`、暂停/恢复、超时取消与隔离、插件投递重试和插件 DLQ
@@ -57,11 +57,11 @@ QQ Gateway 默认启用。应用启动后会读取当前数据库中的机器人
 
 插件宿主只允许管理员安装可信 JAR，PF4J 类加载和每绑定目录划分都不是安全沙箱；插件与宿主运行在同一 JVM，恶意插件可以尝试访问进程身份有权访问的其他文件、网络和资源。插件 API 不直接提供 Spring、主数据库连接、AppSecret 或 Access Token。插件配置按 manifest Schema 校验，异常和可取消超时按有限次数重试，无法在取消宽限期停止的执行会隔离整个绑定。
 
-镜像内置 `example` 示例插件制品；源码 Compose 使用绑定目录时，`stageRuntimeExtensions` 会把它复制到 `./plugins/qqbot-plugin-example.jar`。在插件页将它绑定到机器人时，弹窗会载入插件 `config.json` 的 `triggerKeyword` 和 `replyContent` 预设，管理员可为每个机器人分别修改。默认收到 `/example` 后，会通过真实 Inbox -> 插件投递 -> Outbox -> QQ OpenAPI 链路回复 `example reply`。
+镜像内置 `example` 示例插件制品。普通 Compose 启动时，`qqbot-prepare` 会在宿主 `plugins/` 为空时自动初始化默认插件；已有插件不会被启动流程覆盖。在插件页将它绑定到机器人时，弹窗会载入插件 `config.json` 的 `triggerKeyword` 和 `replyContent` 预设，管理员可为每个机器人分别修改。默认收到 `/example` 后，会通过真实 Inbox -> 插件投递 -> Outbox -> QQ OpenAPI 链路回复 `example reply`。
 
 Gateway、Token、OpenAPI、WSS 和恢复会话流程已有自动化测试；其中 Token/OpenAPI 使用模拟 HTTP 端点，WSS 使用 WebSocket transport 与协议测试替身。当前开发环境没有使用真实 QQ AppID/AppSecret 完成线上连接验收。因此文档中的“可运行”和“已实现”不代表真实账号、权限、配额及网络环境已经验证成功；部署后应以运行状态 API、Dashboard 和 QQ 开放平台侧状态为准。
 
-项目已提供 `Dockerfile` 和 `compose.yaml`。镜像构建会从 Dragonwell 官方 GitHub Release 下载固定版本的 Dragonwell 21 压缩包，校验 SHA-256 后在 Linux 阶段解压，运行容器直接使用该 JDK，不依赖宿主机 Java。Compose 把 `./modules` 只读挂载到 `/modules`，把 `./plugins` 挂载到 `/plugins`，并将 SQLite、媒体暂存、插件绑定数据和运行数据放入 `/data` 持久卷；插件绑定数据默认位于 `/data/plugin-data`。首次启动会在持久化配置目录自动生成 AppSecret 加密主密钥，无需预先创建 Docker Secret。第一次访问 Web 后台会依次引导创建管理员、验证并选择数据库、配置首个 QQ 机器人；MySQL/PostgreSQL 模式可在完成前继续添加多个机器人。Debian 部署、外部数据库和候选配置文件的完整说明见 [DEPLOYMENT.md](./DEPLOYMENT.md)。
+项目已提供 `Dockerfile` 和 `compose.yaml`。镜像构建会从 Dragonwell 官方 GitHub Release 下载固定版本的 Dragonwell 21 压缩包，校验 SHA-256 后在 Linux 阶段解压，运行容器直接使用该 JDK，不依赖宿主机 Java。Compose 把 `./modules` 只读挂载到 `/modules`，把 `./plugins` 挂载到 `/plugins`，并将 SQLite、媒体暂存、插件绑定数据和运行数据放入 `/data` 持久卷；`qqbot-prepare` 会自动完成首次目录初始化、权限设置和空目录制品填充。首次启动会在持久化配置目录自动生成 AppSecret 加密主密钥，无需预先创建 Docker Secret。第一次访问 Web 后台会依次引导创建管理员、验证并选择数据库、配置首个 QQ 机器人；MySQL/PostgreSQL 模式可在完成前继续添加多个机器人。Debian 部署、外部数据库和候选配置文件的完整说明见 [DEPLOYMENT.md](./DEPLOYMENT.md)。
 
 ## 本地构建
 

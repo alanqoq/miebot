@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "database-support",
   "name": "Database Support",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "minimumFrameworkVersion": "1.0.0",
   "dependencies": [],
   "capabilities": [

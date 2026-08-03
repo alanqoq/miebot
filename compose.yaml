@@ -1,10 +1,62 @@
 services:
+  # Prepare bind mounts before the non-root application starts.
+  qqbot-prepare:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: miebot:1.0.6
+    platform: linux/amd64
+    pull_policy: never
+    user: "0:0"
+    restart: "no"
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        install -d -m 0700 -o 10001 -g 10001 /host/config
+        install -d -m 0755 /host/modules
+        install -d -m 0755 -o 10001 -g 10001 /host/plugins
+
+        has_module_jar=false
+        for file in /host/modules/*.jar; do
+          if [ -f "$$file" ]; then
+            has_module_jar=true
+            break
+          fi
+        done
+        if [ "$$has_module_jar" = false ]; then
+          cp -a /modules/. /host/modules/
+        fi
+
+        has_plugin_jar=false
+        for file in /host/plugins/*.jar; do
+          if [ -f "$$file" ]; then
+            has_plugin_jar=true
+            break
+          fi
+        done
+        if [ "$$has_plugin_jar" = false ]; then
+          cp -a /plugins/. /host/plugins/
+        fi
+
+        chown -R 10001:10001 /host/config /host/plugins
+        chmod 0700 /host/config
+    volumes:
+      - ./config:/host/config
+      - ./modules:/host/modules
+      - ./plugins:/host/plugins
+
   qqbot:
     build:
       context: .
       dockerfile: Dockerfile
-    image: miebot:1.0.5
+    image: miebot:1.0.6
     platform: linux/amd64
+    depends_on:
+      qqbot-prepare:
+        condition: service_completed_successfully
     restart: unless-stopped
     stop_grace_period: 30s
     ports:

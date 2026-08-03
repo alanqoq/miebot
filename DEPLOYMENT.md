@@ -2,14 +2,14 @@
 
 ## 部署结论
 
-项目可以部署到 Debian 的 Docker Compose 中，当前 Compose 镜像为 `miebot:1.0.5`。Compose 只运行 MieBot 应用，默认使用容器数据卷中的 SQLite；MySQL/PostgreSQL 由外部系统提供，通过 Web 后台或候选配置文件填写连接信息。Spring Boot 直接在 `8080` 端口提供管理 API 和 Angular 页面，不强制依赖 Caddy/Nginx。真实 QQ Gateway 运行时默认启用，应用启动后会自动调和当前数据库内所有已启用机器人。
+项目可以部署到 Debian 的 Docker Compose 中，当前 Compose 镜像为 `miebot:1.0.6`。Compose 运行一个退出即止的目录准备服务和一个 MieBot 应用服务；应用默认使用容器数据卷中的 SQLite，MySQL/PostgreSQL 由外部系统提供，通过 Web 后台或候选配置文件填写连接信息。Spring Boot 直接在 `8080` 端口提供管理 API 和 Angular 页面，不强制依赖 Caddy/Nginx。真实 QQ Gateway 运行时默认启用，应用启动后会自动调和当前数据库内所有已启用机器人。
 
 镜像携带 `database-support`、`qqbot-runtime`、`platform-admin`、`plugin-support`、`operations`、`cluster-support` 和 `onebot11` 七个默认框架模块 JAR。Compose 将宿主机 `./modules` 只读挂载到 `/modules`，Spring Boot 使用 `PropertiesLauncher` 在启动前把其中的 JAR 加入类路径；宿主随后校验描述符、SHA-256、框架版本、必需依赖、版本下限、重复项和依赖环。`GET /api/modules` 可查看制品和运行状态。替换模块后只需重启应用，不需要重新编译核心；模块不能从 Web 上传或热卸载。`/plugins` 只存放由 `plugin-support` 加载并绑定机器人的业务插件，绑定配置和插件自有数据则持久化在 `/data/plugin-data`。
 
 当前实现已通过本地单元、集成、模拟 HTTP 端点以及 WebSocket transport/协议测试，但本开发环境没有使用真实 QQ AppID/AppSecret 完成线上连接验收。能成功构建和启动容器只表示部署结构可用，不表示真实账号的凭据、Intents、Gateway 配额或外网策略已经通过 QQ 侧验证。
 
 镜像构建会从 Dragonwell 官方 GitHub Release 下载固定版本的
-`Alibaba_Dragonwell_Extended_21.0.51.0.51.10_x64_linux.tar.gz`。该文件已确认为 Linux x86_64、GNU libc 版本，SHA-256 为：
+`Alibaba_Dragonwell_Extended_21.0.11.0.11.10_x64_linux.tar.gz`。该文件已确认为 Linux x86_64、GNU libc 版本，SHA-256 为：
 
 ```text
 12c642f8d6c6e0930b9b4e673d47822227ea46e7559c7b7b6b4c0331ace0580f
@@ -20,7 +20,8 @@ Docker 构建阶段会校验该摘要并在 Linux 文件系统中解压到 `/opt
 ## 前置条件
 
 - Debian 12 amd64，或能够构建/运行 `linux/amd64` 镜像的 Docker 主机。
-- Docker Engine 和 Docker Compose v2 插件。
+- Docker Engine 和 Docker Compose v2.20+ 插件（准备服务使用 `pull_policy` 和
+  `service_completed_successfully`）。
 - 首次构建时可访问 GitHub Releases、Debian、Node、Gradle Plugin Portal 和 Maven Central，用于拉取 JDK、基础镜像及构建依赖。
 - 外部 MySQL 使用 8.0+；PostgreSQL 建议 15+。数据库账号需要在目标数据库内创建表、索引、约束和 Flyway 历史表，并具有正常的 CRUD 权限。
 - 容器必须能解析公网 DNS，并通过 TCP 443 访问 QQ Token、OpenAPI 以及 QQ 动态返回的 WSS Gateway 地址；出站代理或 TLS 检查设备必须支持长连接和 WebSocket Upgrade。
@@ -37,28 +38,33 @@ uname -m
 
 ## 首次准备
 
-在项目根目录先创建持久目录：
-
-```bash
-mkdir -p config modules plugins
-sudo chown -R 10001:10001 config plugins
-sudo chmod 0700 config
-```
+正常 Compose 首次启动不需要手动创建目录、提取模块或调整 UID/GID。
+`qqbot-prepare` 一次性服务会创建 `config`、`modules`、`plugins`，把
+`config` 和 `plugins` 调整为容器使用的 `10001:10001`，并在目录中没有 JAR
+时从镜像复制默认模块和示例插件。已有 JAR 不会被覆盖，因此自定义制品和
+已有部署数据不会因启动被删除。
 
 首次启动时，应用会自动生成 32 字节安全随机主密钥并以 Base64 写入 `config/app-secret.key`；Linux 文件系统上会尽力将权限设为 `0600`。该主密钥同时保护机器人 AppSecret 和写入活动数据库配置的 MySQL/PostgreSQL 密码。必须与数据库备份一起离线保存；丢失或替换密钥后，已有密文无法恢复。
 
 如需由外部密钥管理系统提供主密钥，可在 `.env` 中设置 `QQBOT_MASTER_KEY=<32字节密钥的Base64>`。显式值非空时优先使用，应用不会读取或创建 `config/app-secret.key`。
 
-构建镜像后，从镜像提取默认模块和示例插件到 Compose 的绑定目录，再启动：
+构建并启动：
 
 ```bash
-docker compose build
-sh ./scripts/stage-compose-extensions.sh
-sudo chown -R 10001:10001 config plugins
-docker compose up -d
-docker compose ps
-docker compose logs -f qqbot
+docker compose up -d --build
 ```
+
+`compose.cached-runtime.yaml` 只用于已经准备好
+`miebot:runtime-cache-dragonwell21` 的离线/缓存构建，不能用于裸克隆首次
+部署；需要显式合并该文件：
+
+```bash
+docker compose -f compose.yaml -f compose.cached-runtime.yaml up -d --build
+```
+
+缓存构建上下文必须已经包含 `qqbot-app.jar`、`modules/*.jar` 和
+`plugins/qqbot-plugin-example.jar`。`scripts/stage-compose-extensions.sh` 只能
+从现成镜像提取模块和示例插件，不能代替 `qqbot-app.jar` 的准备。
 
 默认访问地址：
 
@@ -184,7 +190,11 @@ Outbox/DLQ 管理接口为：
 
 PF4J 插件与宿主运行在同一 JVM，是运维人员显式信任的进程内代码，不是安全沙箱。绑定目录隔离和 Web 文件接口的路径校验用于防止管理员误操作串目录，不能阻止恶意插件直接访问容器进程身份有权访问的其他文件、网络或资源；不得安装来源不可信的 JAR。
 
-镜像携带 `example` 示例插件，`stage-compose-extensions.sh` 会把它提取到 `./plugins/qqbot-plugin-example.jar`。在 Web 插件页把它绑定到机器人时，可先修改预载的 `config.json`；默认发送 `/example` 可验证回复 `example reply` 的完整闭环。每个机器人绑定保存独立配置。已有插件不会因镜像升级自动替换，只有再次显式执行制品提取或手动替换 JAR 才会更新；从旧版升级时还应删除遗留的 `qqbot-plugin-echo*.jar`，避免同时加载两个示例插件。
+镜像携带 `example` 示例插件。普通 Compose 首次启动时，`qqbot-prepare` 会在
+`plugins/` 为空时自动放入该插件；已有插件不会因启动自动替换。把它绑定到
+机器人后，默认发送 `/example` 可验证 `Inbox -> 插件投递 -> Outbox -> QQ`
+的完整闭环。升级或清理旧制品时仍应删除遗留的 `qqbot-plugin-echo*.jar`，
+避免同时加载两个示例插件。
 
 后台审计过滤器会记录所有管理变更请求的 HTTP 方法、路径、结果状态、操作者、来源地址和 trace ID，不保存请求体；通过 `GET /api/audit-logs` 分页查询。账户安全区支持旧密码校验后改密；机器人删除会二次确认并清理该机器人 Inbox、Outbox、插件绑定和投递记录。运行状态可通过 `GET /api/bots/runtime/stream` 订阅 SSE，客户端断线会回到轮询。
 
@@ -367,16 +377,12 @@ MySQL/PostgreSQL 使用对应数据库的原生备份工具；同时备份完整
 ```bash
 docker compose stop qqbot
 # 完成数据、配置和主密钥备份后更新项目文件
-docker compose build --pull --no-cache
-# 采用新版本默认模块时显式执行；自定义模块仍会保留
-sh ./scripts/stage-compose-extensions.sh
-sudo chown -R 10001:10001 config plugins
-docker compose up -d
+docker compose up -d --build --pull always
 docker compose ps
 docker compose logs --tail=200 qqbot
 ```
 
-核心、Gateway/Inbox、Outbox/DLQ 或后台壳更新时，已有容器只执行 `restart` 不会加载新核心代码，必须重新构建镜像并执行 `up -d`。单独更新框架模块时，把包含后端类和 Web Component 的新 JAR 原子替换到 `./modules`，保留一套完整可回滚副本，然后执行 `docker compose restart qqbot`。启动校验失败会阻止应用进入可用状态，应从日志确认具体模块并恢复旧 JAR。`qqbot-data` 卷中的 `/data/plugin-data`、`./config`、`./modules`、`./plugins` 和外部 MySQL/PostgreSQL 不会因容器重建而删除；这不等于备份，删除绑定仍会永久删除其目录。
+核心、Gateway/Inbox、Outbox/DLQ 或后台壳更新时，已有容器只执行 `restart` 不会加载新核心代码，必须重新构建镜像并执行 `up -d`。`qqbot-prepare` 只在宿主目录没有 JAR 时初始化默认制品；如果需要切换到新的默认模块版本，应先备份并替换 `modules/` 中的对应 JAR，再执行上述命令。单独更新框架模块时，把包含后端类和 Web Component 的新 JAR 原子替换到 `./modules`，保留一套完整可回滚副本，然后执行 `docker compose restart qqbot`。启动校验失败会阻止应用进入可用状态，应从日志确认具体模块并恢复旧 JAR。`qqbot-data` 卷中的 `/data/plugin-data`、`./config`、`./modules`、`./plugins` 和外部 MySQL/PostgreSQL 不会因容器重建而删除；这不等于备份，删除绑定仍会永久删除其目录。
 
 模块开发、依赖声明、模块间服务和 Web Component 接入见 [MODULE_DEVELOPMENT.md](./MODULE_DEVELOPMENT.md)；机器人插件开发和上传见 [PLUGIN_DEVELOPMENT.md](./PLUGIN_DEVELOPMENT.md)。
 

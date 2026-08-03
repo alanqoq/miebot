@@ -1,0 +1,17 @@
+services:
+  qqbot-prepare:
+    build:
+      context: .
+      dockerfile: Dockerfile.cached-runtime
+      network: none
+      pull: false
+      args:
+        BASE_IMAGE: miebot:runtime-cache-dragonwell21
+  qqbot:
+    build:
+      context: .
+      dockerfile: Dockerfile.cached-runtime
+      network: none
+      pull: false
+      args:
+        BASE_IMAGE: miebot:runtime-cache-dragonwell21

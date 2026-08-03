@@ -9,7 +9,7 @@ Spring 或数据库驱动。
 先从仓库根目录发布 SDK 到本地分发仓库：
 
 ```powershell
-& 'E:\JAVA\dragonwell-21.0.51.0.51+10-GA\bin\java.exe' `
+& 'E:\JAVA\dragonwell-21.0.61.0.61+10-GA\bin\java.exe' `
   -classpath '.\.tools\gradle-8.14.3\lib\gradle-launcher-8.14.3.jar' `
   org.gradle.launcher.GradleMain pluginSdkRepository --no-daemon
 ```
@@ -17,7 +17,7 @@ Spring 或数据库驱动。
 然后构建并运行模板测试（可把整个 `plugin-template` 目录复制到其他项目）：
 
 ```powershell
-& 'E:\JAVA\dragonwell-21.0.51.0.51+10-GA\bin\java.exe' `
+& 'E:\JAVA\dragonwell-21.0.61.0.61+10-GA\bin\java.exe' `
   -classpath '.\.tools\gradle-8.14.3\lib\gradle-launcher-8.14.3.jar' `
   org.gradle.launcher.GradleMain -p .\plugin-template clean test jar `
   --no-daemon
@@ -25,7 +25,7 @@ Spring 或数据库驱动。
 
 复制到其他目录后，通过 `-PqqbotSdkRepository=<SDK 仓库路径>` 或环境变量
 `QQBOT_SDK_REPOSITORY` 指定 SDK 仓库。SDK 版本默认是仓库当前的
-`1.0.5`。
+`1.0.6`。
 
 ## 需要改动的文件
 
