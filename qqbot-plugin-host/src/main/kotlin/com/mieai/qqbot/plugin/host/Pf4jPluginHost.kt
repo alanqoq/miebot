@@ -923,10 +923,12 @@ class Pf4jPluginHost(
             "scheduler",
             "http",
         )
-        val SHARED_CONTRACT_PACKAGE_PREFIXES = listOf(
+        val PARENT_FIRST_PACKAGE_PREFIXES = listOf(
             "com.mieai.qqbot.plugin.api.",
             "com.mieai.qqbot.plugin.spi.",
             "com.mieai.qqbot.domain.",
+            // Kotlin types appear in the public API's generated default-argument signatures.
+            "kotlin.",
         )
         const val DEFAULT_QUEUE_CAPACITY = 256
         val DEFAULT_SHUTDOWN_TIMEOUT: Duration = Duration.ofSeconds(20)
@@ -1011,7 +1013,7 @@ class Pf4jPluginHost(
             parent: ClassLoader,
         ) : PluginClassLoader(pluginManager, pluginDescriptor, parent, ClassLoadingStrategy.PDA) {
             override fun loadClass(className: String): Class<*> {
-                if (SHARED_CONTRACT_PACKAGE_PREFIXES.any { className.startsWith(it) }) {
+                if (PARENT_FIRST_PACKAGE_PREFIXES.any { className.startsWith(it) }) {
                     try {
                         return parent.loadClass(className)
                     } catch (_: ClassNotFoundException) {

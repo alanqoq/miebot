@@ -37,7 +37,7 @@ dependencies {
 }
 ```
 
-外部插件项目应依赖与宿主完全相同的 Maven 制品版本。当前平台制品版本为 `1.0.4`，Manifest 的插件 API 级别为 `3.2.0`。根项目的 `pluginSdkRepository` 任务会生成可复制的本地 Maven SDK 仓库，`pluginSdkDistribution` 会把仓库、模板和本指南打成 ZIP；不需要把宿主模块或 PF4J 放进插件项目。
+外部插件项目应依赖与宿主完全相同的 Maven 制品版本。当前平台制品版本为 `1.0.5`，Manifest 的插件 API 级别为 `3.2.0`。根项目的 `pluginSdkRepository` 任务会生成可复制的本地 Maven SDK 仓库，`pluginSdkDistribution` 会把仓库、模板和本指南打成 ZIP；不需要把宿主模块或 PF4J 放进插件项目。
 
 平台 API/SPI 必须使用 `compileOnly` 或 Maven 的 `provided` scope。不要把 API/SPI、PF4J、Spring 或宿主模块打入插件 JAR，否则可能出现类型不相等、类加载冲突或越过宿主边界的问题。插件自己的 JSON、SQLite JDBC 或其他实现依赖可以打入 JAR，但应评估体积、原生库加载、ClassLoader 卸载和依赖冲突；需要与宿主同名库并存时应做 shading/relocation。
 
@@ -252,6 +252,49 @@ interface BotPlugin {
 非消息事件、字段缺失或无法解析的载荷会得到 `null`。因此所有插件都必须先检查 `event.message`，不能假设每个事件都可回复。
 
 `rawPayload` 是兼容逃生口，不是稳定 DTO。直接依赖其中的 QQ 字段时，应容忍字段新增、缺失和未知事件类型。
+
+### @ 机器人触发的兼容性注意事项
+
+QQ 开放平台并不保证所有“@机器人”消息都使用 `GROUP_AT_MESSAGE_CREATE`。普通群消息可能以
+`GROUP_MESSAGE_CREATE` 投递，同时在原始 JSON 的 `mentions` 数组中标记机器人：
+
+```json
+{
+  "event_type": "GROUP_MESSAGE_CREATE",
+  "mentions": [
+    { "id": "机器人 OpenID", "is_you": true }
+  ]
+}
+```
+
+因此，插件需要把 @ 机器人视为强制触发时，应按以下顺序判断：
+
+1. `GROUP_AT_MESSAGE_CREATE` 仍视为直接 @ 事件，以兼容平台发送的该类型事件。
+2. `GROUP_MESSAGE_CREATE` 必须使用 JSON 解析器检查 `rawPayload.mentions`，只有某个元素的
+   `is_you` 是布尔值 `true` 时才视为 @ 当前机器人。
+3. 不要只依赖事件类型、消息文本中的 `<@...>`、发送者名称或“存在任意 mention”；这些信息可能被平台省略、规范化或指向其他用户。
+4. `rawPayload`、`mentions` 或 `is_you` 缺失时按“未 @ 当前机器人”处理，并继续执行普通关键词/概率规则；不要因为原始字段异常使 handler 失败。
+
+这次 MieAI “关键词可以触发、@没有回复”的根因就是只识别了
+`GROUP_AT_MESSAGE_CREATE`，忽略了 `GROUP_MESSAGE_CREATE` 中的 `mentions[].is_you=true`。
+MieBot 已经保留并传递完整 `rawPayload`，插件侧适配即可，不需要修改宿主事件 API。
+
+### 触发链路的分层排查
+
+“插件投递成功”只表示 handler 已完成，不能证明 AI 任务或 QQ 发送已经成功。出现 @ 消息无回复时，按以下顺序检查：
+
+```text
+event_inbox
+  -> plugin_deliveries
+  -> 插件自己的任务/历史数据库
+  -> outbox_jobs
+  -> QQ OpenAPI 回执
+```
+
+- 没有新的插件投递：先检查 Gateway 事件、handler 订阅和 @ 触发判断，尤其是上述 `GROUP_MESSAGE_CREATE` 原始载荷。
+- `plugin_deliveries` 为 `SUCCEEDED` 但插件任务库没有新任务：handler 内部的触发条件或入库逻辑提前返回。
+- 插件任务已创建但没有 `outbox_jobs`：检查 AI 请求、任务状态和插件调用 `MessageSender` 的逻辑。
+- 已有 `outbox_jobs`：继续检查 Outbox 状态、错误和 `MessageDeliveryReceipt`；只有成功回执中的 QQ `platformMessageId` 才能证明消息已发送。
 
 ## 8. 发送文本消息
 
@@ -579,7 +622,7 @@ context.base.logger.error("processing failed", exception)
 
 ```powershell
 .\gradlew.bat :qqbot-plugin-example:jar `
-  "-Dorg.gradle.java.home=E:\JAVA\dragonwell-21.0.41.0.41+10-GA" `
+  "-Dorg.gradle.java.home=E:\JAVA\dragonwell-21.0.51.0.51+10-GA" `
   --no-daemon
 ```
 
@@ -589,7 +632,7 @@ context.base.logger.error("processing failed", exception)
 
 ```powershell
 .\gradlew.bat pluginSdkRepository pluginSdkDistribution `
-  "-Dorg.gradle.java.home=E:\JAVA\dragonwell-21.0.41.0.41+10-GA" `
+  "-Dorg.gradle.java.home=E:\JAVA\dragonwell-21.0.51.0.51+10-GA" `
   --no-daemon
 ```
 
@@ -646,7 +689,9 @@ Docker Compose 默认把宿主 `./plugins` 绑定到容器 `/plugins`，并把�
 | SQLite 或媒体文件消失 | 检查是否删除了绑定、是否持久化 `/data/plugin-data`、多实例是否挂载同一目录 |
 | 配置保存提示文件已变化 | 其他管理员或插件在打开后修改了文件；重新打开并合并，不要绕过 SHA-256 冲突 |
 | 收不到事件 | 机器人 Gateway 状态、Intents、Inbox、绑定启用状态、handler 事件类型和插件投递队列 |
+| @ 机器人不触发 | 不要只判断 `GROUP_AT_MESSAGE_CREATE`；检查 `GROUP_MESSAGE_CREATE` 的 `rawPayload.mentions[].is_you === true`，并确认原始 JSON 解析失败时不会使 handler 退出 |
 | 能收到但不回复 | 是否声明 `message.send`、事件是否有回复目标、Outbox/DLQ 状态 |
+| 插件投递为 `SUCCEEDED` 但没有 AI 回复 | `SUCCEEDED` 只代表 handler 完成；继续检查插件任务/历史数据库是否创建任务，再检查 `outbox_jobs` 和 QQ 发送回执 |
 | `findDelivery` 返回空 | `jobId` 是否正确、是否由当前插件绑定创建、绑定是否已删除；空结果不等于仍在排队 |
 | 群友引用机器人消息但查不到历史 | 是否把 `platformMessageId` 写入 SQLite；不要用 Outbox `jobId` 作为 QQ 消息 ID |
 | 回执长期停在 `RESULT_UNKNOWN` | QQ 请求结果无法确认且该状态为终态；检查后台错误并通过消息回流或平台查询人工对账，不要盲目重发 |

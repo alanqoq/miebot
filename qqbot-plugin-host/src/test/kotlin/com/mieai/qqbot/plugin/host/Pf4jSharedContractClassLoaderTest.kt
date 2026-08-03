@@ -23,6 +23,7 @@ import com.mieai.qqbot.plugin.spi.BotPlugin
 import com.mieai.qqbot.plugin.spi.BotPluginFactory
 import com.mieai.qqbot.plugin.spi.PluginApiVersion
 import com.mieai.qqbot.runtime.outbox.OutboundTextPayload
+import kotlin.Unit
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
@@ -49,8 +50,11 @@ class Pf4jSharedContractClassLoaderTest {
     fun externalPluginWithBundledSharedContractsCreatesTextOutboxJob() {
         val pluginDirectory = temporaryDirectory.resolve("plugins")
         val pluginDataRoot = temporaryDirectory.resolve("plugin-data")
+        val stagingDirectory = temporaryDirectory.resolve("staging")
         Files.createDirectories(pluginDirectory)
-        writePluginJar(pluginDirectory.resolve("shared-contract-shadow.jar"))
+        Files.createDirectories(stagingDirectory)
+        val stagedArtifact = stagingDirectory.resolve("shared-contract-shadow.jar")
+        writePluginJar(stagedArtifact)
 
         val dataSource = SQLiteDataSourceFactory.create(temporaryDirectory.resolve("host.db"))
         SQLiteDatabaseInitializer.migrate(dataSource)
@@ -69,7 +73,10 @@ class Pf4jSharedContractClassLoaderTest {
             clock,
         ).use { host ->
             host.start()
+            assertThat(host.installArtifact(stagedArtifact).operation).isEqualTo("INSTALLED")
             assertThat(host.isLoaded(PLUGIN_ID)).isTrue()
+            assertThat(pluginClassLoader(host, PLUGIN_ID).loadClass("kotlin.jvm.internal.DefaultConstructorMarker"))
+                .isSameAs(Class.forName("kotlin.jvm.internal.DefaultConstructorMarker"))
 
             val binding = BotPluginBinding(
                 UUID.randomUUID(),
@@ -125,6 +132,9 @@ class Pf4jSharedContractClassLoaderTest {
             addPackageClasses(output, entries, TextMessage::class.java, "com/mieai/qqbot/plugin/api/")
             addPackageClasses(output, entries, BotPluginFactory::class.java, "com/mieai/qqbot/plugin/spi/")
             addPackageClasses(output, entries, BotId::class.java, "com/mieai/qqbot/domain/")
+            addClasses(output, entries, Unit::class.java) {
+                it == "kotlin/jvm/internal/DefaultConstructorMarker.class"
+            }
             addTextEntry(
                 output,
                 entries,
@@ -140,11 +150,23 @@ class Pf4jSharedContractClassLoaderTest {
                 TextMessage::class.java,
                 BotPluginFactory::class.java,
                 BotId::class.java,
+                Unit::class.java,
             ).forEach { type ->
                 val entry = type.name.replace('.', '/') + ".class"
-                check(jar.getJarEntry(entry) != null) { "shadow plugin is missing $entry" }
+                if (type == Unit::class.java) {
+                    check(jar.getJarEntry("kotlin/jvm/internal/DefaultConstructorMarker.class") != null) {
+                        "shadow plugin is missing kotlin/jvm/internal/DefaultConstructorMarker.class"
+                    }
+                } else {
+                    check(jar.getJarEntry(entry) != null) { "shadow plugin is missing $entry" }
+                }
             }
         }
+    }
+
+    private fun pluginClassLoader(host: Pf4jPluginHost, pluginId: String): ClassLoader {
+        val manager = Pf4jPluginHost::class.java.getDeclaredField("manager").apply { isAccessible = true }.get(host)
+        return manager.javaClass.getMethod("getPluginClassLoader", String::class.java).invoke(manager, pluginId) as ClassLoader
     }
 
     private fun addClassFamily(output: JarOutputStream, entries: MutableSet<String>, anchor: Class<*>) {

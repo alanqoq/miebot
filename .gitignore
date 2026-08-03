@@ -16,6 +16,8 @@ qqbot-admin-web/.angular/
 
 data/
 media-staging/
+graphify-out/cache/
+qqbot.db.instance.lock
 !plugins/*.jar
 !modules/*.jar
 *.db

@@ -1,6 +1,6 @@
 # MieBot 框架模块开发指南
 
-本文描述平台 `1.0.4` 的外置框架模块契约。框架模块是放在 `/modules` 中、随应用启动加载的可信 JAR；机器人插件是由 `plugin-support` 从 `/plugins` 加载并绑定到机器人的业务实现。二者不是同一个扩展层。
+本文描述平台 `1.0.5` 的外置框架模块契约。框架模块是放在 `/modules` 中、随应用启动加载的可信 JAR；机器人插件是由 `plugin-support` 从 `/plugins` 加载并绑定到机器人的业务实现。二者不是同一个扩展层。
 
 ## 1. 模块与插件边界
 
@@ -21,7 +21,7 @@
 一个模块是普通 Kotlin/JVM JAR，但不是 Spring Boot 可执行 JAR。完整结构如下：
 
 ```text
-reports-1.0.4.jar
+reports-1.0.5.jar
 ├─ META-INF/qqbot/module.json
 ├─ META-INF/spring/
 │  └─ org.springframework.boot.autoconfigure.AutoConfiguration.imports
@@ -54,12 +54,12 @@ reports-1.0.4.jar
   "schemaVersion": 1,
   "id": "reports",
   "name": "报表模块",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "minimumFrameworkVersion": "1.0.0",
   "dependencies": [
     {
       "moduleId": "database-support",
-      "minimumVersion": "1.0.4",
+      "minimumVersion": "1.0.5",
       "optional": false
     }
   ],
@@ -107,8 +107,8 @@ reports-1.0.4.jar
 
 ```kotlin
 dependencies {
-    compileOnly("com.mieai.qqbot:qqbot-module-api:1.0.4")
-    compileOnly("com.mieai.qqbot:qqbot-module-spi:1.0.4")
+    compileOnly("com.mieai.qqbot:qqbot-module-api:1.0.5")
+    compileOnly("com.mieai.qqbot:qqbot-module-spi:1.0.5")
     compileOnly("org.springframework.boot:spring-boot-autoconfigure:3.5.16")
     compileOnly("org.springframework.boot:spring-boot-starter-web:3.5.16")
 
@@ -262,7 +262,7 @@ META-INF/qqbot/modules/<moduleId>/db/<sqlite|mysql|postgresql>/V001__description
 根项目生成模块 SDK：
 
 ```powershell
-& 'E:\JAVA\dragonwell-21.0.41.0.41+10-GA\bin\java.exe' `
+& 'E:\JAVA\dragonwell-21.0.51.0.51+10-GA\bin\java.exe' `
   -classpath '.\gradle\wrapper\gradle-wrapper.jar' `
   org.gradle.wrapper.GradleWrapperMain `
   moduleSdkRepository moduleSdkDistribution `
@@ -282,8 +282,8 @@ cd ..
 输出位置：
 
 - `build/runtime/modules/*.jar`
-- `build/distributions/qqbot-default-modules-1.0.4.zip`
-- `build/distributions/qqbot-module-sdk-1.0.4.zip`
+- `build/distributions/qqbot-default-modules-1.0.5.zip`
+- `build/distributions/qqbot-module-sdk-1.0.5.zip`
 
 源码 Compose 运行前可执行 `stageRuntimeExtensions`，它复制默认模块和示例机器人插件，并保留目录中的其他 JAR：
 

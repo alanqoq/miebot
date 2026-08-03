@@ -1,0 +1,112 @@
+{
+  "generated_at": "2026-08-03T07:37:48.459072+00:00",
+  "nodes": {
+    "qqbot_persistence_src_main_kotlin_com_mieai_qqbot_persistence_outbox_outboxjob_outboxjob": {
+      "code_fingerprint": "69806073e981c5b91f2eb620d4557917e79770c213f90c4f8c5e1e8f1de5cd89",
+      "label": "OutboxJob",
+      "last": "2026-08-02T20:30:14.125487+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-02T20:30:14.125487+00:00",
+          "outcome": "useful",
+          "q": "Trace the MieAI PF4J outbound failure from class loading to Outbox."
+        },
+        {
+          "date": "2026-08-02T16:25:14.635832+00:00",
+          "outcome": "useful",
+          "q": "确认并修复 MieBot PF4J 共享 API classloader 冲突，使外部插件直接构造 TextMessage(MessageTarget(...)) 后生成 Outbox"
+        }
+      ],
+      "score": 1.974810439,
+      "source_file": "qqbot-persistence/src/main/kotlin/com/mieai/qqbot/persistence/outbox/OutboxJob.kt",
+      "status": "preferred",
+      "uses": 2
+    },
+    "qqbot_plugin_api_src_main_kotlin_com_mieai_qqbot_plugin_api_messagetarget_messagetarget": {
+      "code_fingerprint": "02bb4ad51b390a730f956f69fb67827740b3457704a9cb3455d37f0ff01b6123",
+      "label": "MessageTarget",
+      "last": "2026-08-02T16:25:14.635832+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-02T16:25:14.635832+00:00",
+          "outcome": "useful",
+          "q": "确认并修复 MieBot PF4J 共享 API classloader 冲突，使外部插件直接构造 TextMessage(MessageTarget(...)) 后生成 Outbox"
+        }
+      ],
+      "score": 0.985464523,
+      "source_file": "qqbot-plugin-api/src/main/kotlin/com/mieai/qqbot/plugin/api/MessageTarget.kt",
+      "status": "tentative",
+      "uses": 1
+    },
+    "qqbot_plugin_host_src_main_kotlin_com_mieai_qqbot_plugin_host_pf4jpluginhost_pf4jpluginhost": {
+      "code_fingerprint": "0f7d587532a7e71e13449d2f342d53405a92a5d234c20578c2aa0393e3ffdbce",
+      "label": "Pf4jPluginHost",
+      "last": "2026-08-02T20:30:14.125487+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-02T20:30:14.125487+00:00",
+          "outcome": "useful",
+          "q": "Trace the MieAI PF4J outbound failure from class loading to Outbox."
+        },
+        {
+          "date": "2026-08-02T16:25:14.635832+00:00",
+          "outcome": "useful",
+          "q": "确认并修复 MieBot PF4J 共享 API classloader 冲突，使外部插件直接构造 TextMessage(MessageTarget(...)) 后生成 Outbox"
+        }
+      ],
+      "score": 1.974810439,
+      "source_file": "qqbot-plugin-host/src/main/kotlin/com/mieai/qqbot/plugin/host/Pf4jPluginHost.kt",
+      "status": "preferred",
+      "uses": 2
+    },
+    "qqbot_plugin_host_src_main_kotlin_com_mieai_qqbot_plugin_host_pf4jpluginhost_sharedcontractpluginclassloader": {
+      "code_fingerprint": "0f7d587532a7e71e13449d2f342d53405a92a5d234c20578c2aa0393e3ffdbce",
+      "label": "SharedContractPluginClassLoader",
+      "last": "2026-08-02T16:50:44.056978+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-02T16:50:44.056978+00:00",
+          "outcome": "useful",
+          "q": "该更新是否需要涉及到父加载器的插件进行更新适配"
+        }
+      ],
+      "score": 0.985867655,
+      "source_file": "qqbot-plugin-host/src/main/kotlin/com/mieai/qqbot/plugin/host/Pf4jPluginHost.kt",
+      "status": "tentative",
+      "uses": 1
+    },
+    "qqbot_plugin_host_src_main_kotlin_com_mieai_qqbot_plugin_host_pluginapicompatibility_pluginapicompatibility": {
+      "code_fingerprint": "a2ddebf4b014d73e3b52e4a2b49aa0d519e0f0ee6525f67759479eb7172d7eee",
+      "label": "PluginApiCompatibility",
+      "last": "2026-08-02T16:50:44.056978+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-02T16:50:44.056978+00:00",
+          "outcome": "useful",
+          "q": "该更新是否需要涉及到父加载器的插件进行更新适配"
+        }
+      ],
+      "score": 0.985867655,
+      "source_file": "qqbot-plugin-host/src/main/kotlin/com/mieai/qqbot/plugin/host/PluginApiCompatibility.kt",
+      "status": "tentative",
+      "uses": 1
+    },
+    "qqbot_plugin_spi_src_main_kotlin_com_mieai_qqbot_plugin_spi_pluginapiversion_pluginapiversion": {
+      "code_fingerprint": "4375c0ed6cfd340b3297c1e83a4f0854bf7d544abce2ab67b3535384d0f4fec3",
+      "label": "PluginApiVersion",
+      "last": "2026-08-02T16:50:44.056978+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-02T16:50:44.056978+00:00",
+          "outcome": "useful",
+          "q": "该更新是否需要涉及到父加载器的插件进行更新适配"
+        }
+      ],
+      "score": 0.985867655,
+      "source_file": "qqbot-plugin-spi/src/main/kotlin/com/mieai/qqbot/plugin/spi/PluginApiVersion.kt",
+      "status": "tentative",
+      "uses": 1
+    }
+  },
+  "version": 1
+}
