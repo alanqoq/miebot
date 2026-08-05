@@ -79,8 +79,12 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
         curl \
+        fontconfig \
+        fonts-noto-cjk \
+        libfreetype6 \
         libstdc++6 \
         zlib1g \
+    && fc-cache -f \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --system --gid 10001 qqbot \
     && useradd --system --uid 10001 --gid 10001 --home-dir /app qqbot \
@@ -91,6 +95,30 @@ COPY --from=dragonwell /opt/dragonwell /opt/dragonwell
 COPY --from=backend-build --chown=10001:10001 /tmp/qqbot-app.jar /app/qqbot-app.jar
 COPY --from=backend-build --chown=10001:10001 /tmp/qqbot-modules/ /modules/
 COPY --from=backend-build --chown=10001:10001 /tmp/qqbot-plugin-example.jar /plugins/qqbot-plugin-example.jar
+
+# Exercise the same headless font-metrics path used by image-rendering plugins.
+RUN set -eu; \
+    fail() { echo "Dockerfile: runtime AWT validation failed: $*" >&2; exit 1; }; \
+    command -v fc-match >/dev/null 2>&1 || fail "fontconfig is missing (fc-match not found)"; \
+    font_family="$(fc-match -f '%{family}\n' 'Noto Sans CJK SC' | sed -n '1p')"; \
+    printf '%s\n' "$font_family" | grep -qi 'Noto Sans CJK' || fail "Noto CJK font is not selected (fc-match returned '$font_family')"; \
+    printf '%s\n' \
+        'import java.awt.image.BufferedImage;' \
+        'final class AwtRuntimeCheck {' \
+        '    public static void main(String[] args) {' \
+        '        var image = new BufferedImage(8, 8, BufferedImage.TYPE_INT_ARGB);' \
+        '        var graphics = image.createGraphics();' \
+        '        try {' \
+        '            graphics.getFontMetrics().stringWidth("MieBot font metrics");' \
+        '        } finally {' \
+        '            graphics.dispose();' \
+        '        }' \
+        '    }' \
+        '}' > /tmp/AwtRuntimeCheck.java; \
+    if ! /opt/dragonwell/bin/java -Djava.awt.headless=true /tmp/AwtRuntimeCheck.java; then \
+        fail "headless font-metrics smoke test failed"; \
+    fi; \
+    rm -f /tmp/AwtRuntimeCheck.java
 
 RUN mkdir -p /tmp/qqbot-jar /opt/sqlite \
     && cd /tmp/qqbot-jar \
@@ -108,7 +136,7 @@ USER 10001:10001
 WORKDIR /app
 
 ENV JAVA_HOME=/opt/dragonwell \
-    JAVA_TOOL_OPTIONS="-Dfile.encoding=UTF-8 -Djava.io.tmpdir=/tmp/qqbot -Dorg.sqlite.lib.path=/opt/sqlite -XX:MaxRAMPercentage=75.0" \
+    JAVA_TOOL_OPTIONS="-Dfile.encoding=UTF-8 -Djava.io.tmpdir=/tmp/qqbot -Dorg.sqlite.lib.path=/opt/sqlite -Djava.awt.headless=true -XX:MaxRAMPercentage=75.0" \
     QQBOT_HTTP_ADDRESS=0.0.0.0 \
     QQBOT_HTTP_PORT=8080 \
     QQBOT_MODULES_DIR=/modules \

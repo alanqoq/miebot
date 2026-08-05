@@ -3,6 +3,35 @@ FROM ${BASE_IMAGE}
 
 USER root
 
+# The cached runtime must come from the updated main Dockerfile. Exercise the
+# inherited AWT/font stack before copying artifacts so stale cache images fail.
+RUN set -eu; \
+    fail() { echo "Dockerfile.cached-runtime: cached base image validation failed: $*" >&2; exit 1; }; \
+    case "${JAVA_TOOL_OPTIONS-}" in \
+        *"-Djava.awt.headless=true"*) ;; \
+        *) fail "JAVA_TOOL_OPTIONS lacks -Djava.awt.headless=true; rebuild the cache base from Dockerfile" ;; \
+    esac; \
+    command -v fc-match >/dev/null 2>&1 || fail "fontconfig is missing (fc-match not found)"; \
+    font_family="$(fc-match -f '%{family}\n' 'Noto Sans CJK SC' | sed -n '1p')"; \
+    printf '%s\n' "$font_family" | grep -qi 'Noto Sans CJK' || fail "Noto CJK font is not selected (fc-match returned '$font_family')"; \
+    printf '%s\n' \
+        'import java.awt.image.BufferedImage;' \
+        'final class AwtRuntimeCheck {' \
+        '    public static void main(String[] args) {' \
+        '        var image = new BufferedImage(8, 8, BufferedImage.TYPE_INT_ARGB);' \
+        '        var graphics = image.createGraphics();' \
+        '        try {' \
+        '            graphics.getFontMetrics().stringWidth("MieBot font metrics");' \
+        '        } finally {' \
+        '            graphics.dispose();' \
+        '        }' \
+        '    }' \
+        '}' > /tmp/AwtRuntimeCheck.java; \
+    if ! /opt/dragonwell/bin/java /tmp/AwtRuntimeCheck.java; then \
+        fail "headless font-metrics smoke test failed"; \
+    fi; \
+    rm -f /tmp/AwtRuntimeCheck.java
+
 COPY --chown=10001:10001 qqbot-app.jar /app/qqbot-app.jar
 COPY --chown=10001:10001 modules/ /modules/
 COPY --chown=10001:10001 plugins/qqbot-plugin-example.jar /plugins/qqbot-plugin-example.jar
