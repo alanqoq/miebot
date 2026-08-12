@@ -4,7 +4,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: miebot:1.0.6
+    image: miebot:1.0.7
     platform: linux/amd64
     pull_policy: never
     user: "0:0"
@@ -52,7 +52,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: miebot:1.0.6
+    image: miebot:1.0.7
     platform: linux/amd64
     depends_on:
       qqbot-prepare:

@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "id": "qqbot-runtime",
   "name": "QQ Bot Runtime",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "minimumFrameworkVersion": "1.0.0",
   "dependencies": [
-    { "moduleId": "database-support", "minimumVersion": "1.0.6", "optional": false }
+    { "moduleId": "database-support", "minimumVersion": "1.0.7", "optional": false }
   ],
   "capabilities": [
     "qq.gateway",
