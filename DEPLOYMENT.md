@@ -215,6 +215,7 @@ Web 文件管理、删除插件绑定和删除机器人只会同步停止处理�
 | `QQBOT_INSTANCE_ID` | 自动随机 UUID | 多实例租约 owner 标识；同一实例重启可使用新值 |
 | `QQBOT_GATEWAY_SHUTDOWN_TIMEOUT` | `10s` | 停止全部机器人运行时的最长等待时间 |
 | `QQBOT_GATEWAY_CONNECT_TIMEOUT` | `10s` | 建立 WSS 连接的超时 |
+| `QQBOT_QQ_REQUEST_TIMEOUT` | `60s` | QQ HTTP 客户端等待一次请求的时间；Compose 可通过同名环境变量覆盖 |
 | `QQBOT_GATEWAY_MAX_TEXT_CHARACTERS` | `2097152` | 单个 Gateway 文本帧允许的最大字符数 |
 | `QQBOT_ONEBOT11_CACHE_DIRECTORY` | `onebot-cache`；Compose 为 `/data/onebot-cache` | `get_image/get_record` 的受控下载缓存；必须位于可写目录 |
 | `QQBOT_PLUGINS_DIR` | `/plugins` | 可信插件扫描、上传和版本制品目录；启用网页上传时必须可写 |
@@ -230,7 +231,7 @@ Web 文件管理、删除插件绑定和删除机器人只会同步停止处理�
 | `QQBOT_OUTBOX_REQUEST_TIMEOUT` | `20s` | worker 等待一次 QQ 请求的时间 |
 | `QQBOT_MEDIA_STAGING_DIRECTORY` | `media-staging`；Compose 为 `/data/media-staging` | 网页/插件本地媒体暂存目录；多实例时必须共享 |
 
-QQ HTTP 客户端还支持 `QQBOT_QQ_REQUEST_TIMEOUT`（默认 `10s`）、`QQBOT_QQ_TOKEN_REFRESH_SKEW`（默认 `60s`）、`QQBOT_QQ_TOKEN_ENDPOINT`、`QQBOT_QQ_OPEN_API_BASE_URI` 和 `QQBOT_QQ_SANDBOX_OPEN_API_BASE_URI`。后三项默认就是上表官方地址，除受控测试或明确的企业代理场景外不建议覆盖。
+QQ HTTP 客户端还支持 `QQBOT_QQ_TOKEN_REFRESH_SKEW`（默认 `60s`）、`QQBOT_QQ_TOKEN_ENDPOINT`、`QQBOT_QQ_OPEN_API_BASE_URI` 和 `QQBOT_QQ_SANDBOX_OPEN_API_BASE_URI`。后三项默认就是上表官方地址，除受控测试或明确的企业代理场景外不建议覆盖。
 
 ## 持久化目录
 

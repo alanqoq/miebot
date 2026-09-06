@@ -16,6 +16,11 @@ import java.util.concurrent.atomic.AtomicReference
 
 class QqOpenApiClientTest {
     @Test
+    fun usesSixtySecondRequestTimeoutByDefault() {
+        assertThat(QqClientOptions().requestTimeout).isEqualTo(Duration.ofSeconds(60))
+    }
+
+    @Test
     fun selectsTheOfficialOpenApiBaseForEachBotEnvironment() {
         assertThat(QqClientOptions.forEnvironment(BotEnvironment.PRODUCTION).openApiBaseUri)
             .isEqualTo(QqClientOptions.DEFAULT_OPEN_API_BASE_URI)

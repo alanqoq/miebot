@@ -54,7 +54,7 @@ class QqClientOptions(
         val DEFAULT_TOKEN_ENDPOINT: URI = URI.create("https://bots.qq.com/app/getAppAccessToken")
         val DEFAULT_OPEN_API_BASE_URI: URI = URI.create("https://api.sgroup.qq.com/")
         val DEFAULT_SANDBOX_OPEN_API_BASE_URI: URI = URI.create("https://sandbox.api.sgroup.qq.com/")
-        val DEFAULT_REQUEST_TIMEOUT: Duration = Duration.ofSeconds(10)
+        val DEFAULT_REQUEST_TIMEOUT: Duration = Duration.ofSeconds(60)
         val DEFAULT_TOKEN_REFRESH_SKEW: Duration = Duration.ofSeconds(60)
         val DEFAULT_MAX_MEDIA_BYTES: Long = 16L * 1024L * 1024L
         val DEFAULT_MEDIA_DOWNLOAD_TIMEOUT: Duration = Duration.ofSeconds(15)
