@@ -6,7 +6,7 @@ plugins {
 }
 
 group = "com.example.qqbot"
-version = providers.gradleProperty("pluginVersion").orElse("1.0.7").get()
+version = providers.gradleProperty("pluginVersion").orElse("1.0.8").get()
 
 java {
     toolchain {
@@ -26,9 +26,9 @@ repositories {
 
 dependencies {
     // These are compile-only on purpose. The host supplies the SDK classes.
-    compileOnly("com.mieai.qqbot:qqbot-plugin-api:1.0.7")
-    compileOnly("com.mieai.qqbot:qqbot-plugin-spi:1.0.7")
-    testImplementation("com.mieai.qqbot:qqbot-plugin-testkit:1.0.7")
+    compileOnly("com.mieai.qqbot:qqbot-plugin-api:1.0.8")
+    compileOnly("com.mieai.qqbot:qqbot-plugin-spi:1.0.8")
+    testImplementation("com.mieai.qqbot:qqbot-plugin-testkit:1.0.8")
     testImplementation("org.junit.jupiter:junit-jupiter:5.12.2")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher:1.12.2")
 }

@@ -25,7 +25,7 @@ Spring 或数据库驱动。
 
 复制到其他目录后，通过 `-PqqbotSdkRepository=<SDK 仓库路径>` 或环境变量
 `QQBOT_SDK_REPOSITORY` 指定 SDK 仓库。SDK 版本默认是仓库当前的
-`1.0.7`。
+`1.0.8`。
 
 ## 需要改动的文件
 

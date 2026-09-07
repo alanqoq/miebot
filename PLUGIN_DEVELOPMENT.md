@@ -37,7 +37,7 @@ dependencies {
 }
 ```
 
-外部插件项目应依赖与宿主完全相同的 Maven 制品版本。当前平台制品版本为 `1.0.7`，Manifest 的插件 API 级别为 `3.2.0`。根项目的 `pluginSdkRepository` 任务会生成可复制的本地 Maven SDK 仓库，`pluginSdkDistribution` 会把仓库、模板和本指南打成 ZIP；不需要把宿主模块或 PF4J 放进插件项目。
+外部插件项目应依赖与宿主完全相同的 Maven 制品版本。当前平台制品版本为 `1.0.8`，Manifest 的插件 API 级别为 `3.2.0`。根项目的 `pluginSdkRepository` 任务会生成可复制的本地 Maven SDK 仓库，`pluginSdkDistribution` 会把仓库、模板和本指南打成 ZIP；不需要把宿主模块或 PF4J 放进插件项目。
 
 平台 API/SPI 必须使用 `compileOnly` 或 Maven 的 `provided` scope。不要把 API/SPI、PF4J、Spring 或宿主模块打入插件 JAR，否则可能出现类型不相等、类加载冲突或越过宿主边界的问题。插件自己的 JSON、SQLite JDBC 或其他实现依赖可以打入 JAR，但应评估体积、原生库加载、ClassLoader 卸载和依赖冲突；需要与宿主同名库并存时应做 shading/relocation。
 

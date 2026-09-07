@@ -2,9 +2,9 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 文档状态 | 1.0.7 实现基线 |
-| 版本 | 1.0.7 |
-| 最后更新 | 2026-07-24 |
+| 文档状态 | 1.0.8 实现基线 |
+| 版本 | 1.0.8 |
+| 最后更新 | 2026-09-07 |
 | 目标平台 | Debian + Docker Compose |
 
 ## 1. 项目背景
@@ -502,7 +502,7 @@ Compose 不创建 MySQL/PostgreSQL 服务。数据库由外部系统部署和备
 - 应用上下文中七个默认外置框架功能模块全部为 `ACTIVE` 的集成测试。
 - SQLite 默认模式和外部 MySQL/PostgreSQL 连接模式的 Compose 冒烟验证按 [DEPLOYMENT.md](./DEPLOYMENT.md) 人工执行，当前未配置自动化 Compose 测试。
 
-当前仓库未集成 Testcontainers、Angular E2E、OpenAPI/TypeScript Client 生成或 CI 二进制兼容检查；这些能力不能视为 `1.0.7` 的已交付保证。
+当前仓库未集成 Testcontainers、Angular E2E、OpenAPI/TypeScript Client 生成或 CI 二进制兼容检查；这些能力不能视为 `1.0.8` 的已交付保证。
 
 ### 13.2 第一版验收标准
 
