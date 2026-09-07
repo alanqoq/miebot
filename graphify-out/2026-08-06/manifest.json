@@ -1,7 +1,7 @@
 {
   "build.gradle.kts": {
-    "mtime": 1785758571.987895,
-    "ast_hash": "9a1426338a72bacc421df7ba5d502971",
+    "mtime": 1785749876.064474,
+    "ast_hash": "8e469d9eb4ec07889da8aa8c6c882eb0",
     "semantic_hash": ""
   },
   "config/database.mysql.example.json": {
@@ -25,8 +25,8 @@
     "semantic_hash": "794669d78aef1dd5c7d889ef618b311a"
   },
   "plugin-template/build.gradle.kts": {
-    "mtime": 1785758587.7264376,
-    "ast_hash": "21617c4c8f276a5652aa2a63c31e3c89",
+    "mtime": 1785749894.1421547,
+    "ast_hash": "cc10061d371c48a71eb3686afde84eb4",
     "semantic_hash": ""
   },
   "plugin-template/settings.gradle.kts": {
@@ -425,8 +425,8 @@
     "semantic_hash": "2e032d075f2f5b1ffb70721597d05eb8"
   },
   "qqbot-app/src/test/kotlin/com/mieai/qqbot/app/QqBotApplicationTest.kt": {
-    "mtime": 1785758587.7274387,
-    "ast_hash": "ac857225a78d1091f37a387bf72f36dc",
+    "mtime": 1785749894.1431553,
+    "ast_hash": "912995cc2fa9a6d51709935e4b5b2eaf",
     "semantic_hash": ""
   },
   "qqbot-client/build.gradle.kts": {
@@ -470,9 +470,9 @@
     "semantic_hash": "136e60ef9abd2923466ff59ebf4a0abe"
   },
   "qqbot-client/src/main/kotlin/com/mieai/qqbot/client/JdkQqHttpTransport.kt": {
-    "mtime": 1788733521.178949,
-    "ast_hash": "0e18b65bc7bc670c97e25a78229a3e0a",
-    "semantic_hash": ""
+    "mtime": 1785007584.8915856,
+    "ast_hash": "147401141bff52093837800d12bcf7ea",
+    "semantic_hash": "147401141bff52093837800d12bcf7ea"
   },
   "qqbot-client/src/main/kotlin/com/mieai/qqbot/client/MediaAsset.kt": {
     "mtime": 1785007584.8855865,
@@ -505,9 +505,9 @@
     "semantic_hash": "853e400888d8d0f599282ea060eb2395"
   },
   "qqbot-client/src/main/kotlin/com/mieai/qqbot/client/QqClientOptions.kt": {
-    "mtime": 1788726573.5947983,
-    "ast_hash": "5c5dc3466d4ae6a621945a58bc34f935",
-    "semantic_hash": ""
+    "mtime": 1785007535.274054,
+    "ast_hash": "f1907718cd44a1f03487cc19e3945bba",
+    "semantic_hash": "f1907718cd44a1f03487cc19e3945bba"
   },
   "qqbot-client/src/main/kotlin/com/mieai/qqbot/client/QqEmbedMessageRequest.kt": {
     "mtime": 1785007535.2844424,
@@ -560,9 +560,9 @@
     "semantic_hash": "24cb679edc21bef468529e46bacafbf0"
   },
   "qqbot-client/src/main/kotlin/com/mieai/qqbot/client/QqOpenApiClient.kt": {
-    "mtime": 1788734226.1010847,
-    "ast_hash": "9844fcce5692946e968a64380c405022",
-    "semantic_hash": ""
+    "mtime": 1785008072.4542773,
+    "ast_hash": "a7a9257e112092a6220ca90f72b4ff4e",
+    "semantic_hash": "a7a9257e112092a6220ca90f72b4ff4e"
   },
   "qqbot-client/src/main/kotlin/com/mieai/qqbot/client/QqRichMessageKind.kt": {
     "mtime": 1784978613.627848,
@@ -620,9 +620,9 @@
     "semantic_hash": "e151736b6121dfa55286172a230d830a"
   },
   "qqbot-client/src/test/kotlin/com/mieai/qqbot/client/QqOpenApiClientTest.kt": {
-    "mtime": 1788726573.5957985,
-    "ast_hash": "db496bcf40c846ca8f186aa83f953755",
-    "semantic_hash": ""
+    "mtime": 1785010022.9565516,
+    "ast_hash": "769cac7bab27ed7b292e7725ee91cbec",
+    "semantic_hash": "769cac7bab27ed7b292e7725ee91cbec"
   },
   "qqbot-client/src/test/kotlin/com/mieai/qqbot/client/QqOpenApiCoverageTest.kt": {
     "mtime": 1785007847.8706732,
@@ -915,18 +915,18 @@
     "semantic_hash": "b684b774b5d11a782d3e7604ebbffc5e"
   },
   "qqbot-module-cluster-support/build.gradle.kts": {
-    "mtime": 1787425469.0834668,
-    "ast_hash": "ad69097ed014872877207aa066219230",
-    "semantic_hash": ""
+    "mtime": 1784985676.3222108,
+    "ast_hash": "3a1d51164d8a53929cee7d6766b366ed",
+    "semantic_hash": "3a1d51164d8a53929cee7d6766b366ed"
   },
   "qqbot-module-cluster-support/src/main/kotlin/com/mieai/qqbot/modules/cluster/ClusterSupportModuleConfiguration.kt": {
-    "mtime": 1787425469.0854683,
-    "ast_hash": "b4dca0e27ff659f947dec833a6b9f423",
-    "semantic_hash": ""
+    "mtime": 1784985676.3383186,
+    "ast_hash": "af521cd16be2395e6bbc89f9c1b997d4",
+    "semantic_hash": "af521cd16be2395e6bbc89f9c1b997d4"
   },
   "qqbot-module-cluster-support/src/main/resources/META-INF/qqbot/module.json": {
-    "mtime": 1785758587.7299466,
-    "ast_hash": "cee7c752404abd891f00765059907763",
+    "mtime": 1785749894.1464908,
+    "ast_hash": "69aaf0a4904d13d823bdcb86360d3084",
     "semantic_hash": ""
   },
   "qqbot-module-database-support/build.gradle.kts": {
@@ -1060,8 +1060,8 @@
     "semantic_hash": "60b9c264df386b661ff7465bf20914d2"
   },
   "qqbot-module-database-support/src/main/resources/META-INF/qqbot/module.json": {
-    "mtime": 1785758587.7329466,
-    "ast_hash": "520ade0c3ef032782a97ccf22eac97f2",
+    "mtime": 1785749894.1499932,
+    "ast_hash": "a48803630cf9ce76046e1c98f3e1daad",
     "semantic_hash": ""
   },
   "qqbot-module-database-support/src/test/kotlin/com/mieai/qqbot/admin/database/DatabaseConfigurationControllerMockMvcTest.kt": {
@@ -1180,9 +1180,9 @@
     "semantic_hash": "79bb6f26e3e62f67ed9528e26f99354f"
   },
   "qqbot-module-onebot11/build.gradle.kts": {
-    "mtime": 1787425469.0874689,
-    "ast_hash": "727e3719ee9d8164657bbd2983ca81f1",
-    "semantic_hash": ""
+    "mtime": 1785181475.9249673,
+    "ast_hash": "9b0f91199e66894486fc69a0fa619143",
+    "semantic_hash": "9b0f91199e66894486fc69a0fa619143"
   },
   "qqbot-module-onebot11/src/main/kotlin/com/mieai/qqbot/onebot11/OneBot11ExceptionHandler.kt": {
     "mtime": 1784986023.2408683,
@@ -1265,8 +1265,8 @@
     "semantic_hash": "0e761add96978a5d7f670ac79b9ccce5"
   },
   "qqbot-module-onebot11/src/main/kotlin/com/mieai/qqbot/onebot11/protocol/OneBotActionService.kt": {
-    "mtime": 1785758587.7339454,
-    "ast_hash": "86a38a22bcddcdaa927f58807ed84e3a",
+    "mtime": 1785749894.1519983,
+    "ast_hash": "db52e9dba04aae0ef5fd8f4a308f8f68",
     "semantic_hash": ""
   },
   "qqbot-module-onebot11/src/main/kotlin/com/mieai/qqbot/onebot11/protocol/OneBotEventMapper.kt": {
@@ -1325,8 +1325,8 @@
     "semantic_hash": "9f362a755b81a0ca13ec6182dccbf256"
   },
   "qqbot-module-onebot11/src/main/resources/META-INF/qqbot/module.json": {
-    "mtime": 1785758587.7363133,
-    "ast_hash": "a319fb00265bfdd6cdace9ca28643903",
+    "mtime": 1785749894.154998,
+    "ast_hash": "c45260efea6a8fcdc298aac6758d60eb",
     "semantic_hash": ""
   },
   "qqbot-module-onebot11/src/main/resources/META-INF/qqbot/modules/onebot11/db/mysql/V001__create_onebot11.sql": {
@@ -1355,9 +1355,9 @@
     "semantic_hash": "99c8686170f2a8141cab48411427c56d"
   },
   "qqbot-module-onebot11/src/test/kotlin/com/mieai/qqbot/onebot11/protocol/OneBotActionServiceTest.kt": {
-    "mtime": 1788730152.9751477,
-    "ast_hash": "0b618a9b5abe5f122132fbfeb3ab1390",
-    "semantic_hash": ""
+    "mtime": 1785008228.7015579,
+    "ast_hash": "3d90855e3b6b644c611ff89bf6b754fc",
+    "semantic_hash": "3d90855e3b6b644c611ff89bf6b754fc"
   },
   "qqbot-module-onebot11/src/test/kotlin/com/mieai/qqbot/onebot11/protocol/OneBotEventMapperTest.kt": {
     "mtime": 1785181475.9239702,
@@ -1525,8 +1525,8 @@
     "semantic_hash": "89eb5fcd3c5579376c0398c36048d05a"
   },
   "qqbot-module-operations/src/main/resources/META-INF/qqbot/module.json": {
-    "mtime": 1785758587.7383115,
-    "ast_hash": "032f0851cf942d017eb50194fffd92ab",
+    "mtime": 1785749894.157009,
+    "ast_hash": "04ead451b454e90c45daad8c6a610114",
     "semantic_hash": ""
   },
   "qqbot-module-operations/src/test/kotlin/com/mieai/qqbot/admin/events/InboxAdministrationServiceTest.kt": {
@@ -1685,8 +1685,8 @@
     "semantic_hash": "16bf0b4c1d525dc7458b10940984cf39"
   },
   "qqbot-module-platform-admin/src/main/resources/META-INF/qqbot/module.json": {
-    "mtime": 1785758587.7403123,
-    "ast_hash": "1ca77a627f04c8a121d158985062079a",
+    "mtime": 1785749894.1599984,
+    "ast_hash": "49f8e56a4b84eee550a8b4c122cd0bfb",
     "semantic_hash": ""
   },
   "qqbot-module-platform-admin/src/test/kotlin/com/mieai/qqbot/admin/onboarding/OnboardingControllerMockMvcTest.kt": {
@@ -1790,8 +1790,8 @@
     "semantic_hash": "976a0ce6ddeba8eb1221f315502cbb2f"
   },
   "qqbot-module-plugin-support/src/main/resources/META-INF/qqbot/module.json": {
-    "mtime": 1785758587.742313,
-    "ast_hash": "653345594842dccc05d936ac8b629120",
+    "mtime": 1785749894.1621401,
+    "ast_hash": "3447b69efbfe04cebb572a90af42e251",
     "semantic_hash": ""
   },
   "qqbot-module-plugin-support/src/test/kotlin/com/mieai/qqbot/admin/plugins/MockitoMatchers.kt": {
@@ -1960,7 +1960,7 @@
     "semantic_hash": "c28dd8ba3e46cb46fa6aa04a83647d81"
   },
   "qqbot-module-qqbot-runtime/src/main/kotlin/com/mieai/qqbot/app/outbox/OutboxRuntimeConfiguration.kt": {
-    "mtime": 1788731016.25278,
+    "mtime": 1785009186.6374886,
     "ast_hash": "1ef052678200a739cae954aa764137b0",
     "semantic_hash": "1ef052678200a739cae954aa764137b0"
   },
@@ -1970,9 +1970,9 @@
     "semantic_hash": "8aa92ecf479988262c5f058a53fa464e"
   },
   "qqbot-module-qqbot-runtime/src/main/kotlin/com/mieai/qqbot/app/outbox/OutboxRuntimeProperties.kt": {
-    "mtime": 1788729859.5245967,
-    "ast_hash": "6d36255484be304f7d70fec8943b7c36",
-    "semantic_hash": ""
+    "mtime": 1784997541.7176366,
+    "ast_hash": "1d427a981aff0d334cfce5b18be783b2",
+    "semantic_hash": "1d427a981aff0d334cfce5b18be783b2"
   },
   "qqbot-module-qqbot-runtime/src/main/kotlin/com/mieai/qqbot/modules/runtime/QqBotRuntimeModuleConfiguration.kt": {
     "mtime": 1784987916.0416172,
@@ -1985,8 +1985,8 @@
     "semantic_hash": "b7ebb94c021ddb0c22ccf0c2e58fe044"
   },
   "qqbot-module-qqbot-runtime/src/main/resources/META-INF/qqbot/module.json": {
-    "mtime": 1785758587.7448156,
-    "ast_hash": "bb89875ef5c03cdf011a7a3c0f3a16e1",
+    "mtime": 1785749894.165251,
+    "ast_hash": "f62c946c585d51169eb62481e23f59f8",
     "semantic_hash": ""
   },
   "qqbot-module-qqbot-runtime/src/test/kotlin/com/mieai/qqbot/admin/bot/BotControllerMockMvcTest.kt": {
@@ -2010,9 +2010,9 @@
     "semantic_hash": "10889a50fbffa58541be4aad14312da0"
   },
   "qqbot-module-qqbot-runtime/src/test/kotlin/com/mieai/qqbot/app/config/BotRuntimeConfigurationTest.kt": {
-    "mtime": 1788729875.4120786,
-    "ast_hash": "e5b48a5a6f3024521a05ac4c2e727a71",
-    "semantic_hash": ""
+    "mtime": 1785009294.5060291,
+    "ast_hash": "8cb15b140af406203ed93b02a4efd857",
+    "semantic_hash": "8cb15b140af406203ed93b02a4efd857"
   },
   "qqbot-module-qqbot-runtime/src/test/kotlin/com/mieai/qqbot/app/gateway/BotSupervisorLifecycleTest.kt": {
     "mtime": 1784997517.3209562,
@@ -2045,9 +2045,9 @@
     "semantic_hash": "766816b2e02107a074d9e30729aa2f37"
   },
   "qqbot-persistence/build.gradle.kts": {
-    "mtime": 1787425469.0884657,
-    "ast_hash": "624e612ad997e2dc345a04ab5117ded4",
-    "semantic_hash": ""
+    "mtime": 1784901855.4269736,
+    "ast_hash": "91ea5a07d9b72efc4ff5d5a155d95628",
+    "semantic_hash": "91ea5a07d9b72efc4ff5d5a155d95628"
   },
   "qqbot-persistence/src/main/kotlin/com/mieai/qqbot/persistence/admin/AdminUser.kt": {
     "mtime": 1785007452.784785,
@@ -2195,9 +2195,9 @@
     "semantic_hash": "ab951a24790e4b1c3495805459d3c8e5"
   },
   "qqbot-persistence/src/main/kotlin/com/mieai/qqbot/persistence/outbox/JdbcOutboxRepository.kt": {
-    "mtime": 1788729181.4487412,
-    "ast_hash": "524619c9258027433e0bcad162fa3aea",
-    "semantic_hash": ""
+    "mtime": 1785010975.945301,
+    "ast_hash": "4db9bf4074b24c9c1c87a9a4ef83804b",
+    "semantic_hash": "4db9bf4074b24c9c1c87a9a4ef83804b"
   },
   "qqbot-persistence/src/main/kotlin/com/mieai/qqbot/persistence/outbox/NewOutboxJob.kt": {
     "mtime": 1785007420.4049492,
@@ -2230,9 +2230,9 @@
     "semantic_hash": "b8679cd18c3698232264639d3641f4e1"
   },
   "qqbot-persistence/src/main/kotlin/com/mieai/qqbot/persistence/outbox/OutboxRepository.kt": {
-    "mtime": 1788729181.4477415,
-    "ast_hash": "fbc319f619c5a827cd6217d6810f2a9f",
-    "semantic_hash": ""
+    "mtime": 1785011574.5331879,
+    "ast_hash": "f1b7e78992b08d5fe0d3a83b63d47e29",
+    "semantic_hash": "f1b7e78992b08d5fe0d3a83b63d47e29"
   },
   "qqbot-persistence/src/main/kotlin/com/mieai/qqbot/persistence/outbox/OutboxSendReceipt.kt": {
     "mtime": 1784997541.9503858,
@@ -2620,9 +2620,9 @@
     "semantic_hash": "2f68f3138f18b492d6f28def6ece0dfe"
   },
   "qqbot-persistence/src/test/kotlin/com/mieai/qqbot/persistence/outbox/JdbcOutboxRepositoryTest.kt": {
-    "mtime": 1788729192.6472154,
-    "ast_hash": "5e10ed26648d5860587a02116ce9e01f",
-    "semantic_hash": ""
+    "mtime": 1785008075.9840286,
+    "ast_hash": "115b03af451f39f5c26cdf31f34a34bf",
+    "semantic_hash": "115b03af451f39f5c26cdf31f34a34bf"
   },
   "qqbot-persistence/src/test/kotlin/com/mieai/qqbot/persistence/plugin/JdbcPluginRepositoryTest.kt": {
     "mtime": 1785007981.1128957,
@@ -2994,6 +2994,11 @@
     "ast_hash": "11436d36d6fdf747fa950b18d3c8c19b",
     "semantic_hash": "11436d36d6fdf747fa950b18d3c8c19b"
   },
+  "qqbot-plugin-host/src/test/kotlin/com/mieai/qqbot/plugin/host/PluginSqliteIsolationDiagnosticTest.kt": {
+    "mtime": 1785525314.143796,
+    "ast_hash": "42a495cc977a398f8c35f6a33f8c037f",
+    "semantic_hash": "42a495cc977a398f8c35f6a33f8c037f"
+  },
   "qqbot-plugin-host/src/test/resources/parent-only-plugin-resource.json": {
     "mtime": 1784819493.7143874,
     "ast_hash": "8a80554c91d9fca8acb82f023de02f11",
@@ -3355,9 +3360,9 @@
     "semantic_hash": "dbb0844eb48dd30c40ae2205ae1024b7"
   },
   "qqbot-runtime/src/main/kotlin/com/mieai/qqbot/runtime/outbox/ProductionOutboxWorker.kt": {
-    "mtime": 1788731031.623771,
-    "ast_hash": "c8f976d3c8535f624771abf797bfda4c",
-    "semantic_hash": ""
+    "mtime": 1785216568.846975,
+    "ast_hash": "52ad46c3b14339694822fc751b730f61",
+    "semantic_hash": "52ad46c3b14339694822fc751b730f61"
   },
   "qqbot-runtime/src/main/kotlin/com/mieai/qqbot/runtime/security/AesGcmAppSecretCipher.kt": {
     "mtime": 1785008527.4993148,
@@ -3510,9 +3515,9 @@
     "semantic_hash": "24fcf1090aea4ce906191964f705069c"
   },
   "qqbot-runtime/src/test/kotlin/com/mieai/qqbot/runtime/outbox/ProductionOutboxWorkerTest.kt": {
-    "mtime": 1788730791.0264027,
-    "ast_hash": "b731d52c8ee2e48d3374e9d3f927c1b1",
-    "semantic_hash": ""
+    "mtime": 1785217192.9067142,
+    "ast_hash": "f5cd804f19346ab10231adad61092d00",
+    "semantic_hash": "f5cd804f19346ab10231adad61092d00"
   },
   "qqbot-runtime/src/test/kotlin/com/mieai/qqbot/runtime/security/AesGcmAppSecretCipherTest.kt": {
     "mtime": 1784999713.092155,
@@ -3540,8 +3545,8 @@
     "semantic_hash": "7ff0e269ebff8c0d181d341b4ba4e11d"
   },
   "scripts/stage-compose-extensions.sh": {
-    "mtime": 1785758571.990896,
-    "ast_hash": "93708c71da2e98f402a3e57a9747f0c1",
+    "mtime": 1785749876.0674703,
+    "ast_hash": "9449dd2ce0a7a701576594f6bd929d12",
     "semantic_hash": ""
   },
   "settings.gradle.kts": {
@@ -3550,18 +3555,18 @@
     "semantic_hash": "92cc859575f0f5097189287ba77f1601"
   },
   "CHANGELOG.md": {
-    "mtime": 1785758571.9918954,
-    "ast_hash": "c679971eaa00d0fd8c2a8e842ebe2d42",
+    "mtime": 1785749876.0684726,
+    "ast_hash": "3437014528dad09c95fd03cb7ebfcf7e",
     "semantic_hash": ""
   },
   "DEPLOYMENT.md": {
-    "mtime": 1785758587.702916,
-    "ast_hash": "2643e58afa6d5966f69eea6c2f7ac5f4",
+    "mtime": 1785758090.4955337,
+    "ast_hash": "3004de7113ef8dfd9ea17e8da1a1b331",
     "semantic_hash": ""
   },
   "MODULE_DEVELOPMENT.md": {
-    "mtime": 1785758587.7180307,
-    "ast_hash": "56d31030b7c49c307eb7e3e0f7236a9a",
+    "mtime": 1785757967.5503619,
+    "ast_hash": "9228c393bb18b079e89ef93de26d3ecc",
     "semantic_hash": ""
   },
   "ONEBOT11.md": {
@@ -3570,23 +3575,23 @@
     "semantic_hash": "591a9f849fce621eead04cb393160ad9"
   },
   "PLUGIN_DEVELOPMENT.md": {
-    "mtime": 1785758587.7209291,
-    "ast_hash": "383ee4662c2095bba2ed0285e4af2dbe",
+    "mtime": 1785749894.1356406,
+    "ast_hash": "4e3d15e4cd0906dc8458222d33118ec6",
     "semantic_hash": ""
   },
   "README.md": {
-    "mtime": 1785758571.9928973,
-    "ast_hash": "28f89d2585f9eda8934ca4b07dc95187",
+    "mtime": 1785757506.7999642,
+    "ast_hash": "279570a5b9461a97f6bed204a053de1d",
     "semantic_hash": ""
   },
   "REQUIREMENTS.md": {
-    "mtime": 1785758587.7229323,
-    "ast_hash": "118aed9ffc3b6b7ba4ace9e760816d89",
+    "mtime": 1785749894.1386416,
+    "ast_hash": "2e9c237d8c7e37fdc54d2f55c8965de2",
     "semantic_hash": ""
   },
   "compose.yaml": {
-    "mtime": 1785758571.988896,
-    "ast_hash": "a79275f8387e2b89076a82d06a4f1895",
+    "mtime": 1785758260.1717749,
+    "ast_hash": "0c52d7b6888852e95a482607aeeb4068",
     "semantic_hash": ""
   },
   "AGENTS.md": {
@@ -3600,8 +3605,8 @@
     "semantic_hash": ""
   },
   "plugin-template/README.md": {
-    "mtime": 1785758587.7254357,
-    "ast_hash": "f4bf3811809b9d55ab346d2d5d0db75c",
+    "mtime": 1785749894.1411545,
+    "ast_hash": "c5532f7f9d0d0d93979781dcab5c6c76",
     "semantic_hash": ""
   },
   "qqbot-admin-web/README.md": {
@@ -3645,9 +3650,9 @@
     "semantic_hash": "fbe3b1129df3e003d8120c0c7c924c6a"
   },
   "qqbot-app/src/main/resources/application.yml": {
-    "mtime": 1788729859.5255983,
-    "ast_hash": "f02ae3f4a1029cd45b798f07158a8eef",
-    "semantic_hash": ""
+    "mtime": 1784808989.3189013,
+    "ast_hash": "f5b3b4fdd89aa2a3d5624f47555f381f",
+    "semantic_hash": "f5b3b4fdd89aa2a3d5624f47555f381f"
   },
   "qqbot-admin-web/src/app/pages/onebot11/onebot11-settings-panel.html": {
     "mtime": 1784714307.8123388,
@@ -3692,11 +3697,6 @@
   "compose.cached-runtime.yaml": {
     "mtime": 1785758260.1737733,
     "ast_hash": "c249191b0e82b3b7739ab701f2375241",
-    "semantic_hash": ""
-  },
-  "graphify-out/memory/query_20260805_185154_miebot_dockerfile_\u662f\u5426\u5e94\u8865\u5145_awt_\u5b57\u4f53\u4f9d\u8d56\u4ee5\u4fee\u590d_miers_png_\u6e32\u67d3.md": {
-    "mtime": 1785955914.3890655,
-    "ast_hash": "72be60676d9c92f8bac0bf1279d8ed0b",
     "semantic_hash": ""
   }
 }
