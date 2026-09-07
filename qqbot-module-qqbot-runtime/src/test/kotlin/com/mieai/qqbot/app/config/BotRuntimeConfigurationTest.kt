@@ -7,6 +7,7 @@ import com.mieai.qqbot.domain.bot.BotRevision
 import com.mieai.qqbot.domain.bot.GatewayIntents
 import com.mieai.qqbot.domain.bot.QqAppId
 import com.mieai.qqbot.domain.bot.ShardSpec
+import com.mieai.qqbot.app.outbox.OutboxRuntimeProperties
 import com.mieai.qqbot.persistence.bot.BotRepository
 import com.mieai.qqbot.persistence.bot.SecretCiphertext
 import com.mieai.qqbot.persistence.bot.StoredBot
@@ -47,11 +48,18 @@ import java.util.concurrent.Executors
 import java.util.concurrent.Future
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
+import java.time.Duration
 
 class BotRuntimeConfigurationTest {
     private val configuration = BotRuntimeConfiguration()
 
     @TempDir lateinit var temporaryDirectory: Path
+
+    @Test fun `outbox defaults cover the sixty second QQ request budget`() {
+        val properties = OutboxRuntimeProperties()
+        assertThat(properties.requestTimeout).isEqualTo(Duration.ofSeconds(60))
+        assertThat(properties.leaseDuration).isEqualTo(Duration.ofSeconds(90))
+    }
 
     @Test fun `keeps application available when master key is not configured`() {
         val provider = configuration.appSecretKeyProvider(AppSecretEncryptionProperties())

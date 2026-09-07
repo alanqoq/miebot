@@ -194,6 +194,32 @@ class JdbcOutboxRepository(dataSource: DataSource) : OutboxRepository {
         }
     }
 
+    override fun renewLease(
+        id: UUID,
+        leaseOwner: String,
+        fencingToken: Long,
+        now: Instant,
+        leaseDuration: Duration,
+    ): Boolean {
+        requireTransitionArguments(id, fencingToken)
+        PersistenceValidation.requireToken(leaseOwner, "leaseOwner")
+        require(!leaseDuration.isZero && !leaseDuration.isNegative) { "leaseDuration must be positive" }
+        return jdbc.update(
+            """
+            UPDATE outbox_jobs
+            SET lease_until = ?, updated_at = ?
+            WHERE id = ? AND status = 'IN_PROGRESS' AND lease_owner = ?
+              AND fencing_token = ? AND lease_until > ?
+            """.trimIndent(),
+            UtcTimestampCodec.format(now.plus(leaseDuration)),
+            UtcTimestampCodec.format(now),
+            id.toString(),
+            leaseOwner,
+            fencingToken,
+            UtcTimestampCodec.format(now),
+        ) == 1
+    }
+
     private fun claimSQLiteOwned(
         leaseOwner: String,
         botLeaseOwner: String,

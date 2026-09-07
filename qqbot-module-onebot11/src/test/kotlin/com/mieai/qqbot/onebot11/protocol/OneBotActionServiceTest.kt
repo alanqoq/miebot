@@ -1,6 +1,8 @@
 package com.mieai.qqbot.onebot11.protocol
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import com.mieai.qqbot.client.QqMediaKind
+import com.mieai.qqbot.client.QqMediaMessageRequest
 import com.mieai.qqbot.client.QqMessageSendResult
 import com.mieai.qqbot.client.QqOpenApiClient
 import com.mieai.qqbot.client.QqTextMessageRequest
@@ -23,6 +25,7 @@ import org.mockito.Mockito.mock
 import org.mockito.Mockito.verify
 import org.mockito.Mockito.`when`
 import java.nio.file.Path
+import java.util.Base64
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
@@ -129,6 +132,73 @@ class OneBotActionServiceTest {
                 assertThat(json.path("retcode").asInt()).describedAs(action).isEqualTo(1404)
                 assertThat(json.path("echo").asText()).describedAs(action).isEqualTo("same")
             }
+        }
+    }
+
+    @Test
+    fun `routes inline group media through the client byte upload entry`() {
+        val botId = BotId.of(UUID.randomUUID())
+        val dataSource = OneBotTestDatabase.create(directory.resolve("media-actions.db"))
+        OneBotTestDatabase.insertBot(dataSource, botId.toString())
+        val entityIds = OneBotEntityIdRepository(dataSource)
+        val messages = OneBotMessageRepository(dataSource)
+        val groupId = entityIds.aliasFor(botId, OneBotEntityType.GROUP, "", "group-openid")
+        val mapper = ObjectMapper()
+        val client = mock(QqOpenApiClient::class.java)
+        val requestFallback = QqMediaMessageRequest(
+            com.mieai.qqbot.client.QqMessageTargetType.GROUP,
+            "fallback",
+            QqMediaKind.IMAGE,
+            java.net.URI.create("https://onebot.invalid/media"),
+            null,
+            null,
+            null,
+            1,
+        )
+        val bytesFallback = byteArrayOf()
+        `when`(
+            client.sendMedia(
+                anyValue(QqMediaMessageRequest::class.java, requestFallback),
+                anyValue(ByteArray::class.java, bytesFallback),
+            ),
+        ).thenReturn(CompletableFuture.completedFuture(QqMessageSendResult("media-message", 1, null)))
+        val clients = mock(BotOpenApiClientProvider::class.java)
+        `when`(clients.clientFor(botId)).thenReturn(client)
+        val bots = mock(BotRepository::class.java)
+        val storedBot = mock(StoredBot::class.java)
+        val definition = mock(BotDefinition::class.java)
+        `when`(definition.displayName).thenReturn("Test Bot")
+        `when`(storedBot.definition).thenReturn(definition)
+        `when`(bots.findById(botId)).thenReturn(storedBot)
+        val events = mock(OneBotEventMapper::class.java)
+        `when`(events.selfId(botId)).thenReturn(10L)
+        val media = byteArrayOf(1, 2, 3)
+
+        OneBotActionService(
+            mapper,
+            clients,
+            bots,
+            mock(BotSupervisor::class.java),
+            entityIds,
+            messages,
+            OneBotMessageCodec(mapper),
+            OneBotMediaCache(directory.resolve("media-cache")),
+            events,
+        ).use { service ->
+            val response = service.handle(
+                botId,
+                """{"action":"send_group_msg","params":{"group_id":$groupId,"message":[{"type":"image","data":{"file":"base64://${Base64.getEncoder().encodeToString(media)}"}}]}}""",
+            ).toCompletableFuture().get(5, TimeUnit.SECONDS)
+            assertThat(mapper.readTree(response).path("status").asText()).isEqualTo("ok")
+
+            val request = ArgumentCaptor.forClass(QqMediaMessageRequest::class.java)
+            val sentBytes = ArgumentCaptor.forClass(ByteArray::class.java)
+            verify(client).sendMedia(
+                request.capture() ?: requestFallback,
+                sentBytes.capture() ?: bytesFallback,
+            )
+            assertThat(request.value.targetId).isEqualTo("group-openid")
+            assertThat(sentBytes.value).containsExactly(1, 2, 3)
         }
     }
 

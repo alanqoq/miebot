@@ -1,6 +1,8 @@
 package com.mieai.qqbot.runtime.outbox
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import com.mieai.qqbot.client.FileMediaAssetStore
+import com.mieai.qqbot.client.MediaAssetStore
 import com.mieai.qqbot.client.QqClientOptions
 import com.mieai.qqbot.client.QqMediaKind
 import com.mieai.qqbot.client.QqMessageTargetType
@@ -19,6 +21,7 @@ import com.mieai.qqbot.runtime.security.AppSecretBinding
 import com.mieai.qqbot.runtime.security.AppSecretCipher
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
+import java.io.ByteArrayInputStream
 import java.net.InetSocketAddress
 import java.net.URI
 import java.nio.charset.StandardCharsets
@@ -28,7 +31,9 @@ import java.time.Duration
 import java.time.Instant
 import java.time.ZoneOffset
 import java.util.UUID
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 import javax.sql.DataSource
 import org.assertj.core.api.Assertions.assertThat
@@ -233,6 +238,82 @@ class ProductionOutboxWorkerTest {
     }
 
     @Test
+    fun `renews lease while uploading staged media and deletes it after success`() {
+        HttpFixture(blockPartUpload = true).use { http ->
+            val dataSource = SQLiteDataSourceFactory.create(temporaryDirectory.resolve("staged-media-worker.db"))
+            SQLiteDatabaseInitializer.migrate(dataSource)
+            insertBot(dataSource, BOT, "10005", BotEnvironment.SANDBOX)
+            val repository = JdbcOutboxRepository(dataSource)
+            val mapper = ObjectMapper()
+            val store = FileMediaAssetStore(temporaryDirectory.resolve("media"))
+            val asset = store.stage(
+                BotId.parse(BOT),
+                QqMediaKind.IMAGE,
+                "photo.png",
+                "image/png",
+                ByteArrayInputStream("abc".toByteArray()),
+                1024,
+            )
+            val jobId = UUID.randomUUID()
+            repository.create(
+                NewOutboxJob(
+                    jobId,
+                    BotEnvironment.SANDBOX,
+                    BotId.parse(BOT),
+                    null,
+                    OutboundMediaPayload.JOB_TYPE,
+                    "staged-media-job",
+                    mapper.writeValueAsString(
+                        OutboundMediaPayload(
+                            QqMessageTargetType.GROUP,
+                            "group-1",
+                            QqMediaKind.IMAGE,
+                            "https://cdn.example/image.png",
+                            null,
+                            null,
+                            null,
+                            1,
+                            asset.id,
+                        ),
+                    ),
+                    BASE_TIME,
+                    BASE_TIME,
+                    null,
+                ),
+            )
+            val clock = MutableClock(BASE_TIME.plusSeconds(1))
+            val scheduler = Executors.newScheduledThreadPool(2)
+            val worker = worker(
+                repository,
+                dataSource,
+                mapper,
+                scheduler,
+                http,
+                clock,
+                Duration.ofMillis(600),
+                Duration.ofMillis(100),
+                store,
+            )
+            try {
+                worker.start()
+                assertThat(http.partStarted.await(3, TimeUnit.SECONDS)).isTrue()
+                val firstLease = requireNotNull(repository.findById(jobId)).leaseUntil
+                clock.advance(Duration.ofMillis(300))
+                Thread.sleep(300)
+                assertThat(requireNotNull(repository.findById(jobId)).leaseUntil).isAfter(firstLease)
+                http.releasePart.countDown()
+                awaitTerminal(repository, jobId)
+                assertThat(requireNotNull(repository.findById(jobId)).status).isEqualTo(OutboxStatus.SUCCEEDED)
+                assertThat(store.find(BotId.parse(BOT), asset.id)).isNull()
+            } finally {
+                http.releasePart.countDown()
+                worker.close()
+                scheduler.shutdownNow()
+            }
+        }
+    }
+
+    @Test
     fun `sends explicit references with rich messages`() {
         HttpFixture().use { http ->
             val dataSource = SQLiteDataSourceFactory.create(temporaryDirectory.resolve("rich-reference-worker.db"))
@@ -304,6 +385,10 @@ class ProductionOutboxWorkerTest {
         mapper: ObjectMapper,
         scheduler: java.util.concurrent.ScheduledExecutorService,
         http: HttpFixture,
+        clock: Clock = Clock.fixed(BASE_TIME.plusSeconds(1), ZoneOffset.UTC),
+        leaseDuration: Duration = Duration.ofSeconds(5),
+        requestWait: Duration = Duration.ofSeconds(1),
+        mediaStore: MediaAssetStore? = null,
     ): ProductionOutboxWorker {
         val cipher = object : AppSecretCipher {
             override fun encrypt(secret: AppSecret, binding: AppSecretBinding) = SecretCiphertext.of("cipher", "key")
@@ -323,13 +408,22 @@ class ProductionOutboxWorkerTest {
             { options },
             mapper,
             scheduler,
-            Clock.fixed(BASE_TIME.plusSeconds(1), ZoneOffset.UTC),
+            clock,
             Duration.ofMillis(10),
-            Duration.ofSeconds(5),
-            Duration.ofSeconds(1),
+            leaseDuration,
+            requestWait,
             3,
             2,
+            mediaStore = mediaStore,
         )
+    }
+
+    private fun awaitTerminal(repository: JdbcOutboxRepository, jobId: UUID) {
+        val deadline = Instant.now().plusSeconds(5)
+        while (Instant.now().isBefore(deadline)) {
+            if (requireNotNull(repository.findById(jobId)).status.isTerminal()) return
+            Thread.sleep(20)
+        }
     }
 
     private fun insertBot(dataSource: DataSource, id: String, appId: String, environment: BotEnvironment) {
@@ -353,12 +447,15 @@ class ProductionOutboxWorkerTest {
 
     private class HttpFixture(
         private val messageResponse: String = "{\"id\":\"sent-1\",\"msg_seq\":1}",
+        private val blockPartUpload: Boolean = false,
     ) : AutoCloseable {
         private val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
         val authorization = AtomicReference<String?>()
         val path = AtomicReference<String?>()
         val body = AtomicReference<String?>()
         val uploadBody = AtomicReference<String?>()
+        val partStarted = CountDownLatch(1)
+        val releasePart = CountDownLatch(1)
 
         init {
             server.createContext("/token") { exchange ->
@@ -373,6 +470,26 @@ class ProductionOutboxWorkerTest {
             server.createContext("/v2/groups/group-1/files") { exchange ->
                 uploadBody.set(String(exchange.requestBody.readAllBytes(), StandardCharsets.UTF_8))
                 respond(exchange, 200, "{\"file_info\":\"signed-file-info\",\"ttl\":60}")
+            }
+            server.createContext("/v2/groups/group-1/upload_prepare") { exchange ->
+                uploadBody.set(String(exchange.requestBody.readAllBytes(), StandardCharsets.UTF_8))
+                respond(
+                    exchange,
+                    200,
+                    "{\"upload_id\":\"staged-upload\",\"block_size\":\"3\",\"parts\":[" +
+                        "{\"index\":0,\"presigned_url\":\"${uri("/part")}\",\"block_size\":\"3\"}]," +
+                        "\"upload_config\":{\"concurrency\":1,\"retry_timeout\":1,\"retry_delay\":0}}",
+                )
+            }
+            server.createContext("/part") { exchange ->
+                partStarted.countDown()
+                if (blockPartUpload) releasePart.await(3, TimeUnit.SECONDS)
+                exchange.requestBody.readAllBytes()
+                respond(exchange, 200, "")
+            }
+            server.createContext("/v2/groups/group-1/upload_part_finish") { exchange ->
+                exchange.requestBody.readAllBytes()
+                respond(exchange, 200, "")
             }
             server.start()
         }
@@ -392,6 +509,14 @@ class ProductionOutboxWorkerTest {
                 exchange.close()
             }
         }
+    }
+
+    private class MutableClock(initial: Instant) : Clock() {
+        private val now = AtomicReference(initial)
+        override fun getZone() = ZoneOffset.UTC
+        override fun withZone(zone: java.time.ZoneId): Clock = this
+        override fun instant(): Instant = now.get()
+        fun advance(duration: Duration) { now.updateAndGet { it.plus(duration) } }
     }
 
     private companion object {

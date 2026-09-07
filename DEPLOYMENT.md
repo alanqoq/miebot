@@ -227,8 +227,8 @@ Web 文件管理、删除插件绑定和删除机器人只会同步停止处理�
 | `QQBOT_PLUGINS_CANCELLATION_GRACE` | `5s` | 超时发出取消后等待插件合作停止的宽限期 |
 | `QQBOT_PLUGINS_BINDING_QUEUE_CAPACITY` | `256` | 每个插件绑定的独立执行队列容量 |
 | `QQBOT_PLUGINS_SHUTDOWN_TIMEOUT` | `20s` | 热升级或停用时等待绑定在途任务的最长时间 |
-| `QQBOT_OUTBOX_LEASE_DURATION` | `45s` | Outbox 任务领取租约 |
-| `QQBOT_OUTBOX_REQUEST_TIMEOUT` | `20s` | worker 等待一次 QQ 请求的时间 |
+| `QQBOT_OUTBOX_LEASE_DURATION` | `90s` | Outbox 任务领取租约；长媒体上传会在持有期间续租 |
+| `QQBOT_OUTBOX_REQUEST_TIMEOUT` | `60s` | worker 等待普通 QQ 请求的时间；媒体上传按各阶段请求超时与服务端重试预算执行 |
 | `QQBOT_MEDIA_STAGING_DIRECTORY` | `media-staging`；Compose 为 `/data/media-staging` | 网页/插件本地媒体暂存目录；多实例时必须共享 |
 
 QQ HTTP 客户端还支持 `QQBOT_QQ_TOKEN_REFRESH_SKEW`（默认 `60s`）、`QQBOT_QQ_TOKEN_ENDPOINT`、`QQBOT_QQ_OPEN_API_BASE_URI` 和 `QQBOT_QQ_SANDBOX_OPEN_API_BASE_URI`。后三项默认就是上表官方地址，除受控测试或明确的企业代理场景外不建议覆盖。
@@ -243,7 +243,7 @@ Compose 使用以下持久化位置：
 | 活动/候选数据库配置 | `/data/config` | `./config` 绑定目录 |
 | 首次设置进度 | `/data/config/onboarding.json` | `./config/onboarding.json`，应用自动维护 |
 | Gateway Resume 状态 | `/data/config/gateway-sessions` | `./config/gateway-sessions`，应用自动维护 |
-| 媒体暂存 | `/data/media-staging` | `qqbot-data` 命名卷；终态任务自动删除对应文件 |
+| 媒体暂存 | `/data/media-staging` | `qqbot-data` 命名卷；成功或死信后自动删除，结果未知时保留供人工核查和后续处置 |
 | OneBot 媒体缓存 | `/data/onebot-cache` | `qqbot-data` 命名卷；由 `clean_cache` 按机器人清理 |
 | 插件绑定配置与数据 | `/data/plugin-data/<botId>/<pluginId>/` | `qqbot-data` 命名卷；每个绑定包含插件选定的 `config.json`/`config.yml`/`config.yaml` 和自有文件 |
 | 框架模块 | `/modules` | 宿主机 `./modules` 只读绑定目录 |

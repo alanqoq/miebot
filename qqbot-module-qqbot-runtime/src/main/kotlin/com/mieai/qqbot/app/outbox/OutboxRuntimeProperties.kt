@@ -7,8 +7,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties
 class OutboxRuntimeProperties {
     var enabled: Boolean = true
     var pollInterval: Duration = Duration.ofSeconds(1)
-    var leaseDuration: Duration = Duration.ofSeconds(45)
-    var requestTimeout: Duration = Duration.ofSeconds(20)
+    var leaseDuration: Duration = Duration.ofSeconds(90)
+    var requestTimeout: Duration = Duration.ofSeconds(60)
     var maxAttempts: Int = 8
     var batchSize: Int = 16
 }

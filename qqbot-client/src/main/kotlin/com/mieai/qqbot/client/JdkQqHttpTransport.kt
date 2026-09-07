@@ -261,6 +261,26 @@ class JdkQqHttpTransport(
         return send(builder.build(), responseType)
     }
 
+    /** Uploads one bounded part to a QQ pre-signed URL without bot headers. */
+    fun putPresigned(endpoint: URI, bytes: ByteArray, contentType: String = "application/octet-stream"): CompletionStage<Void> {
+        val request = HttpRequest.newBuilder(endpoint)
+            .timeout(requestTimeout)
+            .header("Content-Type", contentType)
+            .PUT(HttpRequest.BodyPublishers.ofByteArray(bytes))
+            .build()
+        val source = httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8))
+        val result = CompletableFuture<Void>()
+        source.whenComplete { response, error ->
+            when {
+                error != null -> result.completeExceptionally(classify(endpoint, unwrap(error)))
+                response.statusCode() !in 200..299 -> result.completeExceptionally(QqClientException.httpStatus(endpoint, response.statusCode(), decodeError(response.body())))
+                else -> result.complete(null)
+            }
+        }
+        result.whenComplete { _, _ -> if (result.isCancelled) source.cancel(true) }
+        return result
+    }
+
     private fun <T> authorizedJson(
         method: String,
         endpoint: URI,
@@ -301,35 +321,48 @@ class JdkQqHttpTransport(
 
     private fun <T> send(request: HttpRequest, responseType: Class<T>): CompletionStage<T> {
         val endpoint = request.uri()
-        return httpClient
-            .sendAsync(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8))
-            .handle<T> { response, throwable ->
-                if (throwable != null) {
-                    throw classify(endpoint, unwrap(throwable))
-                }
-                if (response.statusCode() !in 200..299) {
-                    throw QqClientException.httpStatus(
+        val source = httpClient.sendAsync(
+            request,
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8),
+        )
+        val result = CompletableFuture<T>()
+        source.whenComplete { response, throwable ->
+            if (throwable != null) {
+                result.completeExceptionally(classify(endpoint, unwrap(throwable)))
+                return@whenComplete
+            }
+            if (response.statusCode() !in 200..299) {
+                result.completeExceptionally(
+                    QqClientException.httpStatus(
                         endpoint,
                         response.statusCode(),
                         decodeError(response.body()),
-                    )
-                }
-                if (responseType == Void::class.java) {
-                    return@handle nullValue()
-                }
-                val body = response.body()
-                if (body == null || body.isBlank()) {
-                    throw QqClientException.protocol(
+                    ),
+                )
+                return@whenComplete
+            }
+            if (responseType == Void::class.java) {
+                result.complete(nullValue())
+                return@whenComplete
+            }
+            val body = response.body()
+            if (body == null || body.isBlank()) {
+                result.completeExceptionally(
+                    QqClientException.protocol(
                         endpoint,
                         IllegalStateException("QQ returned an empty success response"),
-                    )
-                }
-                try {
-                    jsonCodec.decode(body, responseType)
-                } catch (exception: JsonCodecException) {
-                    throw QqClientException.protocol(endpoint, exception)
-                }
+                    ),
+                )
+                return@whenComplete
             }
+            try {
+                result.complete(jsonCodec.decode(body, responseType))
+            } catch (exception: JsonCodecException) {
+                result.completeExceptionally(QqClientException.protocol(endpoint, exception))
+            }
+        }
+        result.whenComplete { _, _ -> if (result.isCancelled) source.cancel(true) }
+        return result
     }
 
     private fun multipartBody(

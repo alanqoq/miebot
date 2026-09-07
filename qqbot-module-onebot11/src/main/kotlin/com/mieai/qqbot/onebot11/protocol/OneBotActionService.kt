@@ -30,7 +30,6 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 
@@ -307,7 +306,7 @@ class OneBotActionService(
             } catch (exception: IllegalArgumentException) {
                 throw IllegalArgumentException("media base64 is invalid", exception)
             }
-            require(bytes.isNotEmpty() && bytes.size <= MAX_INLINE_MEDIA_BYTES) {
+            require(bytes.isNotEmpty() && bytes.size <= MAX_QQ_CHUNKED_MEDIA_BYTES) {
                 "media base64 size is invalid"
             }
             return OutboundMedia(kind, URI.create("https://onebot.invalid/media"), bytes)
@@ -478,7 +477,7 @@ class OneBotActionService(
 
     companion object {
         private const val MAX_REQUEST_CHARACTERS = 1_048_576
-        private const val MAX_INLINE_MEDIA_BYTES = 256 * 1024 * 1024
+        private const val MAX_QQ_CHUNKED_MEDIA_BYTES = 200 * 1024 * 1024
         private const val RATE_LIMIT_INTERVAL_MS = 500L
         private val SUPPORTED_ACTIONS = setOf(
             "send_private_msg",
@@ -506,13 +505,12 @@ class OneBotActionService(
         }
 
         private fun <T> await(stage: CompletionStage<T>): T = try {
-            stage.toCompletableFuture().get(30, TimeUnit.SECONDS)
+            stage.toCompletableFuture().get()
         } catch (exception: InterruptedException) {
+            stage.toCompletableFuture().cancel(true)
             Thread.currentThread().interrupt()
             throw IllegalStateException("QQ operation was interrupted", exception)
         } catch (exception: ExecutionException) {
-            throw IllegalStateException("QQ operation failed", exception)
-        } catch (exception: TimeoutException) {
             throw IllegalStateException("QQ operation failed", exception)
         }
 

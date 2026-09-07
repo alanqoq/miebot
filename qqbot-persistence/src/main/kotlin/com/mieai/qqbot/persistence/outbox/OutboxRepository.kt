@@ -29,6 +29,15 @@ interface OutboxRepository {
         leaseDuration: Duration,
     ): OutboxJob?
 
+    /** Extends a still-owned in-progress lease without changing its fencing token. */
+    fun renewLease(
+        id: UUID,
+        leaseOwner: String,
+        fencingToken: Long,
+        now: Instant,
+        leaseDuration: Duration,
+    ): Boolean
+
     fun markSucceeded(id: UUID, fencingToken: Long, now: Instant, receipt: OutboxSendReceipt)
 
     fun markRetry(id: UUID, fencingToken: Long, now: Instant, availableAt: Instant, error: String)

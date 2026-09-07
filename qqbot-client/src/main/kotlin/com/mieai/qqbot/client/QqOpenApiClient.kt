@@ -11,17 +11,29 @@ import com.mieai.qqbot.protocol.openapi.QqGuildModels
 import com.mieai.qqbot.protocol.openapi.QqMessageModels
 import com.mieai.qqbot.protocol.openapi.QqPermissionModels
 import com.mieai.qqbot.protocol.user.CurrentBotUser
+import java.io.ByteArrayInputStream
+import java.io.InputStream
 import java.net.URI
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
+import java.nio.ByteBuffer
+import java.nio.file.Files
+import java.nio.file.StandardOpenOption
+import java.security.MessageDigest
 import java.time.Duration
 import java.util.Base64
+import java.util.HashSet
 import java.util.HashMap
 import java.util.LinkedHashMap
 import java.util.Locale
 import java.util.StringJoiner
+import java.util.concurrent.CancellationException
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CompletionStage
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 /** Asynchronous client for current, bot-scoped QQ OpenAPI operations. */
 class QqOpenApiClient(
@@ -632,7 +644,7 @@ class QqOpenApiClient(
             .thenCompose { bytes -> sendMedia(request, bytes, sendOptions) }
     }
 
-    /** Sends caller-owned media bytes using QQ's file_data upload form. */
+    /** Sends caller-owned media bytes using QQ's chunked C2C/GROUP upload or channel multipart upload. */
     fun sendMedia(
         request: QqMediaMessageRequest,
         mediaBytes: ByteArray,
@@ -644,16 +656,52 @@ class QqOpenApiClient(
         mediaBytes: ByteArray,
         sendOptions: QqMessageSendOptions,
     ): CompletionStage<QqMessageSendResult> {
+        return sendMedia(request, ByteArrayInputStream(mediaBytes), mediaBytes.size.toLong(), "qqbot-media.bin", sendOptions)
+    }
+
+    fun sendMedia(
+        request: QqMediaMessageRequest,
+        media: InputStream,
+        mediaSize: Long,
+        fileName: String = "qqbot-media.bin",
+    ): CompletionStage<QqMessageSendResult> = sendMedia(request, media, mediaSize, fileName, QqMessageSendOptions())
+
+    fun sendMedia(
+        request: QqMediaMessageRequest,
+        media: () -> InputStream,
+        mediaSize: Long,
+        fileName: String = "qqbot-media.bin",
+        sendOptions: QqMessageSendOptions = QqMessageSendOptions(),
+    ): CompletionStage<QqMessageSendResult> = try {
+        sendMedia(request, media(), mediaSize, fileName, sendOptions)
+    } catch (exception: RuntimeException) {
+        CompletableFuture.failedFuture(exception)
+    }
+
+    fun sendMedia(
+        request: QqMediaMessageRequest,
+        media: InputStream,
+        mediaSize: Long,
+        fileName: String,
+        sendOptions: QqMessageSendOptions,
+    ): CompletionStage<QqMessageSendResult> {
         validateMessageOptions(
             request.targetType,
             request.replyMessageId,
             request.replyEventId,
             sendOptions,
         )
-        if (mediaBytes.isEmpty()) {
+        if (mediaSize <= 0L) {
             return CompletableFuture.failedFuture(IllegalArgumentException("media bytes must not be empty"))
         }
-        if (mediaBytes.size > options.maxMediaBytes) {
+        val chunkedTarget = request.targetType == QqMessageTargetType.C2C ||
+            request.targetType == QqMessageTargetType.GROUP
+        val maxAllowed = if (chunkedTarget) {
+            minOf(options.maxMediaBytes, MAX_CHUNKED_MEDIA_BYTES)
+        } else {
+            options.maxMediaBytes
+        }
+        if (mediaSize > maxAllowed) {
             return CompletableFuture.failedFuture(
                 IllegalArgumentException("media bytes exceed configured limit"),
             )
@@ -684,7 +732,7 @@ class QqOpenApiClient(
                     "file_image",
                     "qqbot-image.bin",
                     "application/octet-stream",
-                    mediaBytes,
+                    readExactly(media, mediaSize),
                     QqMessageSendResult::class.java,
                 )
             }
@@ -695,24 +743,482 @@ class QqOpenApiClient(
             return CompletableFuture.failedFuture(IllegalArgumentException("Unsupported media target"))
         }
         val uploadEndpoint = mediaUploadEndpoint(request.targetType, request.targetId)
-        val upload = MediaUploadPayload(
-            request.mediaKind.fileType(),
-            null,
-            Base64.getEncoder().encodeToString(mediaBytes),
-            false,
-        )
-        return tokenProvider.getAccessToken().thenCompose { token ->
-            transport.postAuthorizedJson(
+        val chunkBase = chunkUploadBaseEndpoint(request.targetType, request.targetId)
+        val cancellation = CancellationGroup()
+        val token = tokenProvider.getAccessToken().toCompletableFuture()
+        cancellation.track(token)
+        val pipeline = token.thenCompose { accessToken ->
+            val prepared = prepareChunkedUpload(
+                request,
+                media,
+                mediaSize,
+                fileName,
+                accessToken,
+                chunkBase,
                 uploadEndpoint,
+                cancellation,
+            ).toCompletableFuture()
+            cancellation.track(prepared)
+            prepared.thenCompose { result ->
+                val message = sendUploadedMedia(request, sendOptions, accessToken, uploadEndpoint, result)
+                    .toCompletableFuture()
+                cancellation.track(message)
+                message
+            }
+        }
+        cancellation.track(pipeline)
+        val cancellable = CompletableFuture<QqMessageSendResult>()
+        pipeline.whenComplete { value, error ->
+            if (error != null) cancellable.completeExceptionally(unwrapCompletion(error)) else cancellable.complete(value)
+        }
+        cancellable.whenComplete { _, _ ->
+            if (cancellable.isCancelled) {
+                cancellation.cancelAll()
+            }
+        }
+        return cancellable
+    }
+
+    private fun prepareChunkedUpload(
+        request: QqMediaMessageRequest, media: InputStream, mediaSize: Long, fileName: String,
+        token: AccessToken, chunkBase: URI, endpoint: URI,
+        cancellation: CancellationGroup,
+    ): CompletionStage<QqMediaUploadResult> {
+        val preparation = CompletableFuture.supplyAsync {
+            cancellation.check()
+            val temp = Files.createTempFile("qqbot-media-", ".bin")
+            try {
+                media.use { copyMedia(it, mediaSize, temp) }
+                PreparedMedia(temp, hashMedia(temp))
+            } catch (exception: Throwable) {
+                deleteQuietly(temp)
+                throw exception
+            }
+        }
+        cancellation.track(preparation)
+        preparation.whenComplete { prepared, error ->
+            if (error == null && prepared != null && cancellation.cancelled.get()) {
+                deleteQuietly(prepared.path)
+            }
+        }
+        val stage = preparation.thenCompose { prepared ->
+            val preparePayload = ChunkPreparePayload(
+                request.mediaKind.fileType(),
+                mediaSize.toString(),
+                fileName,
+                prepared.hashes.md5,
+                prepared.hashes.sha1,
+                prepared.hashes.md510m,
+            )
+            val prepareCall = transport.postAuthorizedJson(
+                URI.create("$chunkBase/upload_prepare"),
                 token,
-                upload,
+                preparePayload,
+                applicationHeaders,
+                ChunkPrepareResponse::class.java,
+            )
+            cancellation.track(prepareCall)
+            val upload = prepareCall.thenCompose { response ->
+                val plan = validateChunkPrepare(response, mediaSize, endpoint)
+                uploadChunks(
+                    plan,
+                    prepared.path,
+                    token,
+                    chunkBase,
+                    endpoint,
+                    request.mediaKind.fileType(),
+                    fileName,
+                    cancellation,
+                )
+            }
+            cancellation.track(upload)
+            upload.whenComplete { _, _ -> deleteQuietly(prepared.path) }
+            upload
+        }
+        cancellation.track(stage)
+        return stage
+    }
+
+    private fun validateChunkPrepare(
+        response: ChunkPrepareResponse,
+        mediaSize: Long,
+        endpoint: URI,
+    ): ChunkUploadPlan {
+        try {
+            val uploadId = requireNotNull(response.uploadId?.takeIf { it.isNotBlank() }) {
+                "upload_id is missing"
+            }
+            val blockSize = parseSize(response.blockSize, "block_size")
+            val config = requireNotNull(response.uploadConfig) { "upload_config is missing" }
+            require(config.concurrency in 1..MAX_UPLOAD_CONCURRENCY) {
+                "upload_config.concurrency is invalid"
+            }
+            require(config.retryTimeout >= 0L) { "retry_timeout must not be negative" }
+            require(config.retryDelay >= 0L) { "retry_delay must not be negative" }
+            val rawParts = requireNotNull(response.parts).takeIf { it.isNotEmpty() }
+                ?: throw IllegalArgumentException("parts is empty")
+            val indexes = HashSet<Int>()
+            val parts = rawParts.map { raw ->
+                val index = requireNotNull(raw.index) { "part index is missing" }
+                require(index >= 0 && indexes.add(index)) { "part indexes must be unique and non-negative" }
+                val size = parseSize(raw.blockSize, "parts.block_size")
+                require(size <= blockSize) { "part size exceeds block_size" }
+                val url = URI.create(requireNotNull(raw.presignedUrl?.takeIf { it.isNotBlank() }) {
+                    "parts.presigned_url is missing"
+                })
+                require(
+                    url.userInfo == null && url.fragment == null &&
+                        (url.scheme.equals("https", true) ||
+                            (url.scheme.equals("http", true) && isLoopback(url.host))),
+                ) { "presigned URL must use HTTPS" }
+                ChunkPartPlan(index, size, url, 0L)
+            }.sortedBy { it.index }
+            val partsWithOffsets = parts.mapIndexed { expectedIndex, part ->
+                require(part.index == expectedIndex) { "part indexes must be contiguous from zero" }
+                val offset = Math.multiplyExact(part.index.toLong(), blockSize.toLong())
+                val remaining = mediaSize - offset
+                require(remaining > 0L) { "parts do not cover the declared media size" }
+                val expectedSize = minOf(blockSize.toLong(), remaining).toInt()
+                require(part.size == expectedSize) { "parts do not cover the declared media size" }
+                part.copy(offset = offset)
+            }
+            require(partsWithOffsets.last().offset + partsWithOffsets.last().size == mediaSize) {
+                "parts do not cover the declared media size"
+            }
+            return ChunkUploadPlan(
+                uploadId,
+                partsWithOffsets,
+                config.concurrency,
+                config.retryTimeout,
+                config.retryDelay,
+            )
+        } catch (exception: RuntimeException) {
+            throw QqClientException.protocol(endpoint, exception)
+        }
+    }
+
+    private fun uploadChunks(
+        plan: ChunkUploadPlan,
+        file: java.nio.file.Path,
+        token: AccessToken,
+        chunkBase: URI,
+        endpoint: URI,
+        fileType: Int,
+        fileName: String,
+        cancellation: CancellationGroup,
+    ): CompletionStage<QqMediaUploadResult> {
+        val executor = Executors.newFixedThreadPool(
+            minOf(plan.concurrency, plan.parts.size),
+            { runnable -> Thread(runnable, "qqbot-media-upload").apply { isDaemon = true } },
+        )
+        val uploads = plan.parts.map { part ->
+            CompletableFuture.runAsync({
+                cancellation.check()
+                val bytes = readPart(file, part)
+                awaitTracked(
+                    retryPresigned(part.url, bytes, plan.retryTimeout, plan.retryDelay, cancellation),
+                    cancellation,
+                )
+            }, executor).also { future ->
+                cancellation.track(future)
+            }
+        }
+        val allUploaded = CompletableFuture.allOf(*uploads.toTypedArray())
+        cancellation.track(allUploaded)
+        allUploaded.whenComplete { _, error -> if (error != null) cancellation.cancelAll() }
+        val finished = allUploaded.thenCompose {
+            var stage: CompletionStage<Void> = CompletableFuture.completedFuture(null)
+            plan.parts.forEach { part ->
+                stage = stage.thenCompose {
+                    cancellation.check()
+                    val bytes = readPart(file, part)
+                    val md5 = MessageDigest.getInstance("MD5").digest(bytes).toHex()
+                    val finish = retryPartFinish(
+                        URI.create("$chunkBase/upload_part_finish"), token,
+                        PartFinishPayload(plan.uploadId, part.index, part.size.toString(), md5),
+                        plan.retryTimeout, plan.retryDelay, cancellation,
+                    )
+                    cancellation.track(finish)
+                    finish.whenComplete { _, _ -> cancellation.untrack(finish) }
+                }
+            }
+            stage
+        }
+        cancellation.track(finished)
+        val merged = finished.thenCompose {
+            cancellation.check()
+            transport.postAuthorizedJson(
+                endpoint,
+                token,
+                MergePayload(fileType, false, fileName, plan.uploadId),
                 applicationHeaders,
                 QqMediaUploadResult::class.java,
-            ).thenCompose { result ->
-                sendUploadedMedia(request, sendOptions, token, uploadEndpoint, result)
+            )
+        }
+        cancellation.track(merged)
+        val result = merged.toCompletableFuture()
+        result.whenComplete { _, _ ->
+            executor.shutdownNow()
+            if (result.isCancelled) cancellation.cancelAll()
+        }
+        return result
+    }
+
+    private fun retryPartFinish(
+        endpoint: URI, token: AccessToken, payload: PartFinishPayload,
+        timeoutSeconds: Long, delaySeconds: Long, cancellation: CancellationGroup,
+    ): CompletionStage<Void> {
+        val result = CompletableFuture<Void>()
+        val timeoutNanos = secondsToNanos(timeoutSeconds)
+        val startedAt = System.nanoTime()
+        fun attempt() {
+            if (result.isDone) return
+            try {
+                cancellation.check()
+                val call = transport.postAuthorizedJson(endpoint, token, payload, applicationHeaders, Void::class.java)
+                cancellation.track(call)
+                call.whenComplete { _, error ->
+                    cancellation.untrack(call)
+                    if (error == null) {
+                        result.complete(null)
+                    } else if (cancellation.cancelled.get()) {
+                        result.cancel(false)
+                    } else {
+                        val cause = unwrapCompletion(error)
+                        val retryable = (cause as? QqClientException)?.qqCode == 40093001
+                        val elapsed = System.nanoTime() - startedAt
+                        val remaining = timeoutNanos - elapsed
+                        if (!retryable || timeoutSeconds <= 0L || remaining <= 0L) {
+                            result.completeExceptionally(cause)
+                        } else {
+                            val delayNanos = minOf(secondsToNanos(delaySeconds), remaining).coerceAtLeast(0L)
+                            if (delayNanos >= remaining && delayNanos > 0L) {
+                                result.completeExceptionally(cause)
+                            } else {
+                                CompletableFuture.delayedExecutor(delayNanos, TimeUnit.NANOSECONDS).execute {
+                                    if (System.nanoTime() - startedAt >= timeoutNanos) {
+                                        result.completeExceptionally(cause)
+                                    } else {
+                                        attempt()
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (exception: CancellationException) {
+                result.cancel(false)
+            }
+        }
+        result.whenComplete { _, _ -> if (result.isCancelled) cancellation.cancelAll() }
+        attempt()
+        return result
+    }
+
+    private fun retryPresigned(
+        uri: URI,
+        bytes: ByteArray,
+        timeoutSeconds: Long,
+        delaySeconds: Long,
+        cancellation: CancellationGroup,
+    ): CompletionStage<Void> {
+        val result = CompletableFuture<Void>()
+        val timeoutNanos = secondsToNanos(timeoutSeconds)
+        val startedAt = System.nanoTime()
+        fun attempt() {
+            if (result.isDone) return
+            try {
+                cancellation.check()
+                val put = transport.putPresigned(uri, bytes)
+                cancellation.track(put)
+                put.whenComplete { _, error ->
+                    cancellation.untrack(put)
+                    if (error == null) {
+                        result.complete(null)
+                    } else if (cancellation.cancelled.get()) {
+                        result.cancel(false)
+                    } else if (timeoutSeconds <= 0L || System.nanoTime() - startedAt >= timeoutNanos) {
+                        result.completeExceptionally(unwrapCompletion(error))
+                    } else {
+                        val remaining = timeoutNanos - (System.nanoTime() - startedAt)
+                        val delayNanos = minOf(secondsToNanos(delaySeconds), remaining).coerceAtLeast(0L)
+                        if (delayNanos >= remaining && delayNanos > 0L) {
+                            result.completeExceptionally(unwrapCompletion(error))
+                        } else {
+                            CompletableFuture.delayedExecutor(delayNanos, TimeUnit.NANOSECONDS).execute {
+                                if (System.nanoTime() - startedAt >= timeoutNanos) {
+                                    result.completeExceptionally(unwrapCompletion(error))
+                                } else {
+                                    attempt()
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (exception: CancellationException) {
+                result.cancel(false)
+            }
+        }
+        result.whenComplete { _, _ -> if (result.isCancelled) cancellation.cancelAll() }
+        attempt()
+        return result
+    }
+
+    private fun ByteArray.toHex(): String = buildString(size * 2) {
+        for (value in this@toHex) {
+            val unsigned = value.toInt() and 0xff
+            append(HEX_DIGITS[unsigned ushr 4])
+            append(HEX_DIGITS[unsigned and 0x0f])
+        }
+    }
+
+    private fun copyMedia(media: InputStream, expectedSize: Long, target: java.nio.file.Path) {
+        Files.newOutputStream(target, StandardOpenOption.WRITE).use { output ->
+            val buffer = ByteArray(8192)
+            var total = 0L
+            while (true) {
+                val read = media.read(buffer)
+                if (read == -1) break
+                total = Math.addExact(total, read.toLong())
+                require(total <= expectedSize) { "media stream is larger than declared size" }
+                output.write(buffer, 0, read)
+            }
+            require(total == expectedSize) { "declared media size does not match stream" }
+        }
+    }
+
+    private fun hashMedia(path: java.nio.file.Path): MediaHashes {
+        val md5 = MessageDigest.getInstance("MD5")
+        val sha1 = MessageDigest.getInstance("SHA-1")
+        val first = MessageDigest.getInstance("MD5")
+        Files.newInputStream(path, StandardOpenOption.READ).use { input ->
+            val buffer = ByteArray(8192)
+            var total = 0L
+            while (true) {
+                val read = input.read(buffer)
+                if (read == -1) break
+                md5.update(buffer, 0, read)
+                sha1.update(buffer, 0, read)
+                if (total < MD5_10M_BYTES) {
+                    val count = minOf(read.toLong(), MD5_10M_BYTES - total).toInt()
+                    first.update(buffer, 0, count)
+                }
+                total += read
+            }
+        }
+        return MediaHashes(md5.digest().toHex(), sha1.digest().toHex(), first.digest().toHex())
+    }
+
+    private fun readPart(path: java.nio.file.Path, part: ChunkPartPlan): ByteArray {
+        val buffer = ByteBuffer.allocate(part.size)
+        Files.newByteChannel(path, StandardOpenOption.READ).use { channel ->
+            channel.position(part.offset)
+            while (buffer.hasRemaining()) {
+                val read = channel.read(buffer)
+                require(read >= 0) { "media stream ended before declared part size" }
+            }
+        }
+        return buffer.array()
+    }
+
+    private fun readExactly(media: InputStream, expectedSize: Long): ByteArray {
+        require(expectedSize <= Int.MAX_VALUE) { "media bytes are too large for multipart upload" }
+        val bytes = media.readNBytes(expectedSize.toInt())
+        require(bytes.size.toLong() == expectedSize) { "declared media size does not match stream" }
+        require(media.read() == -1) { "media stream is larger than declared size" }
+        return bytes
+    }
+
+    private fun parseSize(value: String?, name: String): Int {
+        val parsed = requireNonNegative(value, name)
+        require(parsed in 1..Int.MAX_VALUE.toLong()) { "$name is invalid" }
+        return parsed.toInt()
+    }
+
+    private fun requireNonNegative(value: String?, name: String): Long = try {
+        requireNotNull(value?.trim()?.takeIf { it.isNotEmpty() }) { "$name is missing" }
+            .toLong()
+            .also { require(it >= 0L) { "$name must not be negative" } }
+    } catch (exception: NumberFormatException) {
+        throw IllegalArgumentException("$name is invalid", exception)
+    }
+
+    private fun secondsToNanos(seconds: Long): Long {
+        if (seconds <= 0L) return 0L
+        return try {
+            Math.multiplyExact(seconds, 1_000_000_000L)
+        } catch (_: ArithmeticException) {
+            Long.MAX_VALUE
+        }
+    }
+
+    private fun unwrapCompletion(error: Throwable): Throwable {
+        var current = error
+        while ((current is java.util.concurrent.CompletionException ||
+                current is java.util.concurrent.ExecutionException) && current.cause != null
+        ) {
+            current = current.cause!!
+        }
+        return current
+    }
+
+    private fun deleteQuietly(path: java.nio.file.Path) {
+        try {
+            Files.deleteIfExists(path)
+        } catch (_: java.io.IOException) {
+            // Best-effort cleanup; the upload result remains authoritative.
+        }
+    }
+
+    private fun isLoopback(host: String?) = host == "127.0.0.1" || host == "localhost" || host == "::1"
+
+    private fun <T> awaitTracked(stage: CompletionStage<T>, cancellation: CancellationGroup): T {
+        val future = stage.toCompletableFuture()
+        cancellation.track(future)
+        return try {
+            future.join()
+        } finally {
+            cancellation.untrack(future)
+        }
+    }
+
+    private class CancellationGroup {
+        val cancelled = AtomicBoolean()
+        private val stages = ConcurrentHashMap.newKeySet<CompletableFuture<*>>()
+
+        fun track(stage: CompletionStage<*>) {
+            stages += stage.toCompletableFuture()
+            if (cancelled.get()) stage.toCompletableFuture().cancel(true)
+        }
+
+        fun untrack(stage: CompletionStage<*>) {
+            stages -= stage.toCompletableFuture()
+        }
+
+        fun check() {
+            if (cancelled.get()) throw CancellationException("media upload was cancelled")
+        }
+
+        fun cancelAll() {
+            if (cancelled.compareAndSet(false, true)) {
+                stages.forEach { it.cancel(true) }
             }
         }
     }
+
+    private data class MediaHashes(val md5: String, val sha1: String, val md510m: String)
+
+    private data class PreparedMedia(val path: java.nio.file.Path, val hashes: MediaHashes)
+
+    private data class ChunkUploadPlan(
+        val uploadId: String,
+        val parts: List<ChunkPartPlan>,
+        val concurrency: Int,
+        val retryTimeout: Long,
+        val retryDelay: Long,
+    )
+
+    private data class ChunkPartPlan(val index: Int, val size: Int, val url: URI, val offset: Long)
 
     fun sendMarkdown(request: QqMarkdownMessageRequest): CompletionStage<QqMessageSendResult> {
         val markdown = HashMap<String, Any>()
@@ -1006,6 +1512,15 @@ class QqOpenApiClient(
         }
     }
 
+    private fun chunkUploadBaseEndpoint(type: QqMessageTargetType, id: String): URI {
+        val encoded = pathSegment(id, "targetId")
+        return when (type) {
+            QqMessageTargetType.C2C -> endpoint("v2/users/$encoded")
+            QqMessageTargetType.GROUP -> endpoint("v2/groups/$encoded")
+            else -> throw IllegalArgumentException("This target does not use chunked upload")
+        }
+    }
+
     private fun guildMemberEndpoint(guildId: String, userId: String): URI =
         endpoint(
             "guilds/" + pathSegment(guildId, "guildId") + "/members/" +
@@ -1194,6 +1709,42 @@ class QqOpenApiClient(
         @JsonProperty("srv_send_msg") val serverSendMessage: Boolean,
     )
 
+    private data class ChunkPreparePayload(
+        @JsonProperty("file_type") val fileType: Int,
+        @JsonProperty("file_size") val fileSize: String,
+        @JsonProperty("file_name") val fileName: String,
+        val md5: String,
+        val sha1: String,
+        @JsonProperty("md5_10m") val md510m: String,
+    )
+
+    private data class ChunkPrepareResponse(
+        @JsonProperty("upload_id") val uploadId: String?,
+        @JsonProperty("block_size") val blockSize: String?,
+        val parts: List<ChunkPart>?,
+        @JsonProperty("upload_config") val uploadConfig: UploadConfig?,
+    )
+
+    private data class UploadConfig(
+        val concurrency: Int,
+        @JsonProperty("retry_timeout") val retryTimeout: Long,
+        @JsonProperty("retry_delay") val retryDelay: Long,
+    )
+
+    private data class ChunkPart(
+        val index: Int?,
+        @JsonProperty("presigned_url") val presignedUrl: String?,
+        @JsonProperty("block_size") val blockSize: String?,
+    )
+
+    private data class PartFinishPayload(
+        @JsonProperty("upload_id") val uploadId: String,
+        @JsonProperty("part_index") val partIndex: Int,
+        @JsonProperty("block_size") val blockSize: String,
+        val md5: String,
+    )
+    private data class MergePayload(@JsonProperty("file_type") val fileType: Int, @JsonProperty("srv_send_msg") val serverSendMessage: Boolean, @JsonProperty("file_name") val fileName: String = "qqbot-media.bin", @JsonProperty("upload_id") val uploadId: String)
+
     private data class MediaReference(
         @JsonProperty("file_info") val fileInfo: String,
     )
@@ -1221,5 +1772,9 @@ class QqOpenApiClient(
         private const val GATEWAY_PATH = "/gateway"
         private const val GATEWAY_BOT_PATH = "/gateway/bot"
         private const val CURRENT_BOT_PATH = "/users/@me"
+        private const val MAX_CHUNKED_MEDIA_BYTES = 200L * 1024L * 1024L
+        private const val MAX_UPLOAD_CONCURRENCY = 64
+        private const val MD5_10M_BYTES = 10_002_432L
+        private const val HEX_DIGITS = "0123456789abcdef"
     }
 }

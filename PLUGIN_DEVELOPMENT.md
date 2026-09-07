@@ -466,7 +466,7 @@ return context.base.messageSender.enqueue(message).thenApply<Void> { null }
 
 - 只接受公开的 HTTPS URL，最长 2048 字符；每次跳转都会重新校验 DNS 和目标地址。
 - 禁止 URL 凭据、fragment、localhost、回环、私网、链路本地和组播目标。
-- `C2C` 和 `GROUP` 支持 `IMAGE`、`VIDEO`、`AUDIO`、`FILE`，发送前走 QQ 官方文件预上传。
+- `C2C` 和 `GROUP` 支持 `IMAGE`、`VIDEO`、`AUDIO`、`FILE`，本地媒体发送前走 QQ 官方分片预上传（硬上限 200 MiB）。
 - `CHANNEL` 和 `DIRECT` 当前只支持 `IMAGE`，通过 multipart `file_image` 发送。
 - 宿主会受控下载远程内容并执行机器人级大小上限、重定向和超时检查，不会把 URL 直接交给 QQ 绕过限制。
 
@@ -484,7 +484,7 @@ return context.mediaService.enqueue(
 ).thenApply<Void> { null }
 ```
 
-暂存句柄只包含 UUID、类型、文件名和大小，不暴露宿主路径。上传最大值来自当前机器人配置（默认 `16 MiB`，范围 `1-256 MiB`）；MIME 必须与媒体类型匹配，入队和实际发送时会再次核对元数据。Outbox 到达成功、结果未知或死信终态后删除对应暂存文件。
+暂存句柄只包含 UUID、类型、文件名和大小，不暴露宿主路径。上传最大值来自当前机器人配置（默认 `16 MiB`，范围 `1-256 MiB`）；MIME 必须与媒体类型匹配，入队和实际发送时会再次核对元数据。Outbox 到达成功或死信终态后删除对应暂存文件；结果未知时保留供人工核查和后续处置。
 
 ## 10. PluginStorage
 

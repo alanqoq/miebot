@@ -23,6 +23,7 @@ import com.mieai.qqbot.persistence.lease.BotLeaseRepository
 import com.mieai.qqbot.persistence.outbox.OutboxJob
 import com.mieai.qqbot.persistence.outbox.OutboxRepository
 import com.mieai.qqbot.persistence.outbox.OutboxSendReceipt
+import com.mieai.qqbot.persistence.outbox.OutboxStatus
 import com.mieai.qqbot.protocol.openapi.QqMessageModels
 import com.mieai.qqbot.runtime.security.AppSecretCipher
 import com.mieai.qqbot.runtime.security.BotCredentialDecryptor
@@ -33,8 +34,10 @@ import java.time.Duration
 import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.CompletionException
+import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CompletionStage
 import java.util.concurrent.ExecutionException
+import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
@@ -68,6 +71,10 @@ class ProductionOutboxWorker(
     private val running = AtomicBoolean()
     private val transitionMonitor = Any()
     private val clients = HashMap<BotId, ClientHandle>()
+    private val activeMedia = java.util.concurrent.ConcurrentHashMap.newKeySet<CompletableFuture<*>>()
+    private val renewalScheduler = Executors.newSingleThreadScheduledExecutor { runnable ->
+        Thread(runnable, "qqbot-outbox-lease-renewal").apply { isDaemon = true }
+    }
 
     @Volatile
     private var databaseTransitionActive = false
@@ -93,8 +100,9 @@ class ProductionOutboxWorker(
     fun isRunning(): Boolean = running.get()
 
     fun beforeActiveDatabaseChange() {
+        databaseTransitionActive = true
+        cancelActiveMedia()
         synchronized(transitionMonitor) {
-            databaseTransitionActive = true
             clearClients()
         }
     }
@@ -189,7 +197,10 @@ class ProductionOutboxWorker(
             stagedAsset?.let { asset ->
                 try {
                     val status = outbox.findById(job.id)?.status
-                    if (status != null && status.isTerminal()) mediaStore?.delete(asset)
+                    if (status == OutboxStatus.SUCCEEDED || status == OutboxStatus.DEAD_LETTER
+                    ) {
+                        mediaStore?.delete(asset)
+                    }
                 } catch (cleanupFailure: RuntimeException) {
                     LOGGER.warn(
                         "Could not clean staged media asset for job {} ({})",
@@ -242,7 +253,7 @@ class ProductionOutboxWorker(
             } else {
                 client(bot).sendMediaBounded(request, sendOptions)
             }
-            return sending.toCompletableFuture().get(requestWait.toMillis(), TimeUnit.MILLISECONDS)
+            return awaitMedia(job, sending)
         }
 
         val store = mediaStore ?: throw PermanentFailure("Local media staging is not configured")
@@ -255,14 +266,55 @@ class ProductionOutboxWorker(
         if (asset.sizeBytes > bot.definition.maxMediaUploadBytes) {
             throw PermanentFailure("Staged media exceeds the bot upload limit")
         }
-        val bytes = store.open(asset).use { input ->
-            input.readNBytes(Math.toIntExact(bot.definition.maxMediaUploadBytes + 1L))
+        return awaitMedia(
+            job,
+            client(bot).sendMedia(
+                request,
+                { store.open(asset) },
+                asset.sizeBytes,
+                asset.fileName,
+                sendOptions,
+            ),
+        )
+    }
+
+    @Throws(InterruptedException::class, ExecutionException::class)
+    private fun awaitMedia(
+        job: OutboxJob,
+        sending: CompletionStage<QqMessageSendResult>,
+    ): QqMessageSendResult {
+        val future = sending.toCompletableFuture()
+        activeMedia += future
+        val leaseLost = AtomicBoolean()
+        val renewal = renewalScheduler.scheduleAtFixedRate(
+            {
+                try {
+                    if (!outbox.renewLease(job.id, workerId, job.fencingToken, clock.instant(), leaseDuration)) {
+                        leaseLost.set(true)
+                        future.cancel(true)
+                    }
+                } catch (exception: RuntimeException) {
+                    LOGGER.warn("Could not renew Outbox lease for {} ({})", job.id, exception.javaClass.simpleName)
+                    leaseLost.set(true)
+                    future.cancel(true)
+                }
+            },
+            leaseRenewalIntervalMillis(),
+            leaseRenewalIntervalMillis(),
+            TimeUnit.MILLISECONDS,
+        )
+        return try {
+            future.get()
+        } catch (exception: InterruptedException) {
+            future.cancel(true)
+            throw exception
+        } catch (exception: java.util.concurrent.CancellationException) {
+            if (leaseLost.get()) throw RetryableFailure("Outbox lease was lost during media upload")
+            throw exception
+        } finally {
+            renewal.cancel(false)
+            activeMedia -= future
         }
-        if (bytes.size > bot.definition.maxMediaUploadBytes) {
-            throw PermanentFailure("Staged media exceeds the bot upload limit")
-        }
-        return client(bot).sendMedia(request, bytes, sendOptions).toCompletableFuture()
-            .get(requestWait.toMillis(), TimeUnit.MILLISECONDS)
     }
 
     @Throws(InterruptedException::class, ExecutionException::class, TimeoutException::class)
@@ -429,9 +481,18 @@ class ProductionOutboxWorker(
         clients.clear()
     }
 
+    private fun cancelActiveMedia() {
+        activeMedia.forEach { it.cancel(true) }
+        activeMedia.clear()
+    }
+
+    private fun leaseRenewalIntervalMillis(): Long =
+        maxOf(1L, leaseDuration.toMillis() / 3L)
+
     override fun close() {
-        if (!running.compareAndSet(true, false)) return
-        polling?.cancel(false)
+        if (running.compareAndSet(true, false)) polling?.cancel(false)
+        cancelActiveMedia()
+        renewalScheduler.shutdownNow()
         synchronized(transitionMonitor) { clearClients() }
     }
 

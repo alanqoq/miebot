@@ -45,7 +45,7 @@ QQ Gateway 默认启用。应用启动后会读取当前数据库中的机器人
 
 `onebot11` 模块只供外部第三方程序通过 WebSocket 接入，只转换 QQ 官方 C2C 与普通群的可等价能力，不转换 QQ 频道，也不参与本项目的 PF4J 机器人插件开发。它支持正向 `/api`、`/event`、`/` WebSocket 和反向 Universal WebSocket；access token 为必填密文配置。OneBot 数字用户/群/消息 ID 是基于 QQ OpenID 和官方消息 ID 的数据库持久化别名，不是真实 QQ 号。支持的 action、事件、消息段、明确返回 `1404` 的范围及 Docker 端口要求见 [ONEBOT11.md](./ONEBOT11.md)。
 
-机器人编辑页可设置每个机器人的最大媒体上传大小，默认 `16 MiB`、可选 `1-256 MiB`；前端选择文件、上传 API、插件 SDK、入队和发送 worker 都会再次校验。机器人页的发送入口支持文本、四类富消息、本地媒体、远程 HTTPS 媒体和可选的显式引用消息 ID。本地媒体暂存在 `QQBOT_MEDIA_STAGING_DIRECTORY`，成功、结果未知或死信后删除；远程媒体会先在服务端按 HTTPS、DNS/私网地址、重定向、超时和机器人大小上限受控下载，再交给 QQ。C2C/群聊使用 QQ `file_data` 预上传，频道/私信只支持图片并使用 multipart `file_image`。
+机器人编辑页可设置每个机器人的最大媒体上传大小，默认 `16 MiB`、可选 `1-256 MiB`；前端选择文件、上传 API、插件 SDK、入队和发送 worker 都会再次校验。机器人页的发送入口支持文本、四类富消息、本地媒体、远程 HTTPS 媒体和可选的显式引用消息 ID。本地媒体暂存在 `QQBOT_MEDIA_STAGING_DIRECTORY`，成功或死信后删除；结果未知时保留供人工核查和后续处置。远程媒体会先在服务端按 HTTPS、DNS/私网地址、重定向、超时和机器人大小上限受控下载，再交给 QQ。C2C/群聊的本地媒体使用 QQ 官方 `upload_prepare`、预签名 PUT、`upload_part_finish` 和 `/files` 分片合并流程（硬上限 200 MiB）；频道/私信只支持图片并使用 multipart `file_image`。
 
 后台“插件”页属于 `plugin-support` 框架模块，通过 `GET /api/plugins` 扫描挂载的 `/plugins` JAR，读取 manifest、大小、修改时间和 SHA-256，并显示宿主加载状态。可信 JAR 通过 PF4J 加载，使用 `ServiceLoader` 发现 Kotlin `BotPluginFactory` 实现；每个 JAR 必须通过 `Plugin-Default-Config` 声明一个符合 Schema 的 JSON 或 YAML 默认对象，资源扩展名决定绑定使用 `config.json`、`config.yml` 或 `config.yaml`。宿主校验时会解析配置，但不会转换或规范化正文，运行时由插件自行加载原始内容。页面可选择 `.jar` 并通过 `POST /api/plugins/upload` 上传，服务端完成校验后在当前进程内热升级，不需要应用重启，失败会尝试恢复旧插件。
 
