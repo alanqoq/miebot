@@ -33,11 +33,13 @@ class PluginAdministrationService(
     host: ObjectProvider<Pf4jPluginHost>? = null,
     bindings: ObjectProvider<BotPluginBindingRepository>? = null,
     runtime: ObjectProvider<PluginRuntimeService>? = null,
+    files: ObjectProvider<PluginBindingFileService>? = null,
 ) {
     private val pluginDirectory: Path = normalizePluginDirectory(pluginDirectory)
     private val host = host?.ifAvailable
     private val bindings = bindings?.ifAvailable
     private val runtime = runtime?.ifAvailable
+    private val files = files?.ifAvailable
     private val configurationCodec = PluginConfigurationCodec()
 
     fun scan(query: String?): PluginInventoryResponse {
@@ -106,6 +108,7 @@ class PluginAdministrationService(
     fun reload() {
         val activeRuntime = runtime ?: error("Plugin runtime is not available")
         activeRuntime.reloadPlugins()
+        files?.initializeMissingBindings()
     }
 
     fun upload(file: MultipartFile?): PluginUploadResponse {
@@ -159,6 +162,7 @@ class PluginAdministrationService(
                 }
             }
             val result = activeRuntime.installArtifact(staged)
+            files?.initializeMissingBindings()
             val artifact = scan(null).items.firstOrNull {
                 it.id == result.artifact.id && it.sha256 == result.artifact.sha256
             } ?: error("Installed plugin is missing from inventory")

@@ -47712,35 +47712,11 @@
       "_origin": "ast"
     },
     {
-      "id": "changelog_1_0_9_2026_09_08",
-      "label": "1.0.9 - 2026-09-08",
-      "file_type": "document",
-      "source_file": "CHANGELOG.md",
-      "source_location": "L5",
-      "_origin": "ast"
-    },
-    {
-      "id": "changelog_fixed",
-      "label": "Fixed",
-      "file_type": "document",
-      "source_file": "CHANGELOG.md",
-      "source_location": "L7",
-      "_origin": "ast"
-    },
-    {
-      "id": "changelog_distribution",
-      "label": "Distribution",
-      "file_type": "document",
-      "source_file": "CHANGELOG.md",
-      "source_location": "L12",
-      "_origin": "ast"
-    },
-    {
       "id": "changelog_1_0_8_2026_09_07",
       "label": "1.0.8 - 2026-09-07",
       "file_type": "document",
       "source_file": "CHANGELOG.md",
-      "source_location": "L16",
+      "source_location": "L5",
       "_origin": "ast"
     },
     {
@@ -47748,20 +47724,44 @@
       "label": "Added",
       "file_type": "document",
       "source_file": "CHANGELOG.md",
-      "source_location": "L18",
+      "source_location": "L7",
       "_origin": "ast"
     },
     {
-      "id": "changelog_fixed_22",
+      "id": "changelog_fixed",
       "label": "Fixed",
       "file_type": "document",
       "source_file": "CHANGELOG.md",
-      "source_location": "L22",
+      "source_location": "L11",
       "_origin": "ast"
     },
     {
       "id": "changelog_1_0_7_2026_08_13",
       "label": "1.0.7 - 2026-08-13",
+      "file_type": "document",
+      "source_file": "CHANGELOG.md",
+      "source_location": "L16",
+      "_origin": "ast"
+    },
+    {
+      "id": "changelog_fixed_18",
+      "label": "Fixed",
+      "file_type": "document",
+      "source_file": "CHANGELOG.md",
+      "source_location": "L18",
+      "_origin": "ast"
+    },
+    {
+      "id": "changelog_distribution",
+      "label": "Distribution",
+      "file_type": "document",
+      "source_file": "CHANGELOG.md",
+      "source_location": "L23",
+      "_origin": "ast"
+    },
+    {
+      "id": "changelog_1_0_6_2026_08_03",
+      "label": "1.0.6 - 2026-08-03",
       "file_type": "document",
       "source_file": "CHANGELOG.md",
       "source_location": "L27",
@@ -47776,35 +47776,11 @@
       "_origin": "ast"
     },
     {
-      "id": "changelog_distribution_34",
-      "label": "Distribution",
-      "file_type": "document",
-      "source_file": "CHANGELOG.md",
-      "source_location": "L34",
-      "_origin": "ast"
-    },
-    {
-      "id": "changelog_1_0_6_2026_08_03",
-      "label": "1.0.6 - 2026-08-03",
-      "file_type": "document",
-      "source_file": "CHANGELOG.md",
-      "source_location": "L38",
-      "_origin": "ast"
-    },
-    {
-      "id": "changelog_fixed_40",
-      "label": "Fixed",
-      "file_type": "document",
-      "source_file": "CHANGELOG.md",
-      "source_location": "L40",
-      "_origin": "ast"
-    },
-    {
       "id": "changelog_1_0_3_2026_07_31",
       "label": "1.0.3 - 2026-07-31",
       "file_type": "document",
       "source_file": "CHANGELOG.md",
-      "source_location": "L44",
+      "source_location": "L33",
       "_origin": "ast"
     },
     {
@@ -47812,12 +47788,36 @@
       "label": "Changed",
       "file_type": "document",
       "source_file": "CHANGELOG.md",
-      "source_location": "L46",
+      "source_location": "L35",
       "_origin": "ast"
     },
     {
       "id": "changelog_1_0_2_2026_07_30",
       "label": "1.0.2 - 2026-07-30",
+      "file_type": "document",
+      "source_file": "CHANGELOG.md",
+      "source_location": "L39",
+      "_origin": "ast"
+    },
+    {
+      "id": "changelog_added_41",
+      "label": "Added",
+      "file_type": "document",
+      "source_file": "CHANGELOG.md",
+      "source_location": "L41",
+      "_origin": "ast"
+    },
+    {
+      "id": "changelog_compatibility",
+      "label": "Compatibility",
+      "file_type": "document",
+      "source_file": "CHANGELOG.md",
+      "source_location": "L46",
+      "_origin": "ast"
+    },
+    {
+      "id": "changelog_1_0_1_2026_07_28",
+      "label": "1.0.1 - 2026-07-28",
       "file_type": "document",
       "source_file": "CHANGELOG.md",
       "source_location": "L50",
@@ -47832,43 +47832,19 @@
       "_origin": "ast"
     },
     {
-      "id": "changelog_compatibility",
-      "label": "Compatibility",
+      "id": "changelog_changed_57",
+      "label": "Changed",
       "file_type": "document",
       "source_file": "CHANGELOG.md",
       "source_location": "L57",
       "_origin": "ast"
     },
     {
-      "id": "changelog_1_0_1_2026_07_28",
-      "label": "1.0.1 - 2026-07-28",
-      "file_type": "document",
-      "source_file": "CHANGELOG.md",
-      "source_location": "L61",
-      "_origin": "ast"
-    },
-    {
-      "id": "changelog_added_63",
-      "label": "Added",
-      "file_type": "document",
-      "source_file": "CHANGELOG.md",
-      "source_location": "L63",
-      "_origin": "ast"
-    },
-    {
-      "id": "changelog_changed_68",
-      "label": "Changed",
-      "file_type": "document",
-      "source_file": "CHANGELOG.md",
-      "source_location": "L68",
-      "_origin": "ast"
-    },
-    {
-      "id": "changelog_fixed_72",
+      "id": "changelog_fixed_61",
       "label": "Fixed",
       "file_type": "document",
       "source_file": "CHANGELOG.md",
-      "source_location": "L72",
+      "source_location": "L61",
       "_origin": "ast"
     },
     {
@@ -47876,15 +47852,15 @@
       "label": "1.0.0 - 2026-07-26",
       "file_type": "document",
       "source_file": "CHANGELOG.md",
-      "source_location": "L78",
+      "source_location": "L67",
       "_origin": "ast"
     },
     {
-      "id": "changelog_changed_80",
+      "id": "changelog_changed_69",
       "label": "Changed",
       "file_type": "document",
       "source_file": "CHANGELOG.md",
-      "source_location": "L80",
+      "source_location": "L69",
       "_origin": "ast"
     },
     {
@@ -47892,15 +47868,15 @@
       "label": "0.4.1 - 2026-07-24",
       "file_type": "document",
       "source_file": "CHANGELOG.md",
-      "source_location": "L85",
+      "source_location": "L74",
       "_origin": "ast"
     },
     {
-      "id": "changelog_changed_87",
+      "id": "changelog_changed_76",
       "label": "Changed",
       "file_type": "document",
       "source_file": "CHANGELOG.md",
-      "source_location": "L87",
+      "source_location": "L76",
       "_origin": "ast"
     },
     {
@@ -47908,7 +47884,7 @@
       "label": "Documentation",
       "file_type": "document",
       "source_file": "CHANGELOG.md",
-      "source_location": "L99",
+      "source_location": "L88",
       "_origin": "ast"
     },
     {
@@ -47916,15 +47892,15 @@
       "label": "0.4.0 - 2026-07-23",
       "file_type": "document",
       "source_file": "CHANGELOG.md",
-      "source_location": "L103",
+      "source_location": "L92",
       "_origin": "ast"
     },
     {
-      "id": "changelog_changed_105",
+      "id": "changelog_changed_94",
       "label": "Changed",
       "file_type": "document",
       "source_file": "CHANGELOG.md",
-      "source_location": "L105",
+      "source_location": "L94",
       "_origin": "ast"
     },
     {
@@ -47932,7 +47908,7 @@
       "label": "Upgrade note",
       "file_type": "document",
       "source_file": "CHANGELOG.md",
-      "source_location": "L110",
+      "source_location": "L99",
       "_origin": "ast"
     },
     {
@@ -168008,41 +167984,11 @@
     },
     {
       "source": "changelog_changelog",
-      "target": "changelog_1_0_9_2026_09_08",
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "CHANGELOG.md",
-      "source_location": "L5",
-      "weight": 1.0,
-      "_origin": "ast"
-    },
-    {
-      "source": "changelog_1_0_9_2026_09_08",
-      "target": "changelog_fixed",
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "CHANGELOG.md",
-      "source_location": "L7",
-      "weight": 1.0,
-      "_origin": "ast"
-    },
-    {
-      "source": "changelog_1_0_9_2026_09_08",
-      "target": "changelog_distribution",
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "CHANGELOG.md",
-      "source_location": "L12",
-      "weight": 1.0,
-      "_origin": "ast"
-    },
-    {
-      "source": "changelog_changelog",
       "target": "changelog_1_0_8_2026_09_07",
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "CHANGELOG.md",
-      "source_location": "L16",
+      "source_location": "L5",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -168052,17 +167998,17 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "CHANGELOG.md",
-      "source_location": "L18",
+      "source_location": "L7",
       "weight": 1.0,
       "_origin": "ast"
     },
     {
       "source": "changelog_1_0_8_2026_09_07",
-      "target": "changelog_fixed_22",
+      "target": "changelog_fixed",
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "CHANGELOG.md",
-      "source_location": "L22",
+      "source_location": "L11",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -168072,27 +168018,27 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "CHANGELOG.md",
-      "source_location": "L27",
+      "source_location": "L16",
       "weight": 1.0,
       "_origin": "ast"
     },
     {
       "source": "changelog_1_0_7_2026_08_13",
-      "target": "changelog_fixed_29",
+      "target": "changelog_fixed_18",
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "CHANGELOG.md",
-      "source_location": "L29",
+      "source_location": "L18",
       "weight": 1.0,
       "_origin": "ast"
     },
     {
       "source": "changelog_1_0_7_2026_08_13",
-      "target": "changelog_distribution_34",
+      "target": "changelog_distribution",
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "CHANGELOG.md",
-      "source_location": "L34",
+      "source_location": "L23",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -168102,17 +168048,17 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "CHANGELOG.md",
-      "source_location": "L38",
+      "source_location": "L27",
       "weight": 1.0,
       "_origin": "ast"
     },
     {
       "source": "changelog_1_0_6_2026_08_03",
-      "target": "changelog_fixed_40",
+      "target": "changelog_fixed_29",
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "CHANGELOG.md",
-      "source_location": "L40",
+      "source_location": "L29",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -168122,7 +168068,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "CHANGELOG.md",
-      "source_location": "L44",
+      "source_location": "L33",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -168132,7 +168078,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "CHANGELOG.md",
-      "source_location": "L46",
+      "source_location": "L35",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -168142,17 +168088,17 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "CHANGELOG.md",
-      "source_location": "L50",
+      "source_location": "L39",
       "weight": 1.0,
       "_origin": "ast"
     },
     {
       "source": "changelog_1_0_2_2026_07_30",
-      "target": "changelog_added_52",
+      "target": "changelog_added_41",
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "CHANGELOG.md",
-      "source_location": "L52",
+      "source_location": "L41",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -168162,7 +168108,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "CHANGELOG.md",
-      "source_location": "L57",
+      "source_location": "L46",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -168172,37 +168118,37 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "CHANGELOG.md",
+      "source_location": "L50",
+      "weight": 1.0,
+      "_origin": "ast"
+    },
+    {
+      "source": "changelog_1_0_1_2026_07_28",
+      "target": "changelog_added_52",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "CHANGELOG.md",
+      "source_location": "L52",
+      "weight": 1.0,
+      "_origin": "ast"
+    },
+    {
+      "source": "changelog_1_0_1_2026_07_28",
+      "target": "changelog_changed_57",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "CHANGELOG.md",
+      "source_location": "L57",
+      "weight": 1.0,
+      "_origin": "ast"
+    },
+    {
+      "source": "changelog_1_0_1_2026_07_28",
+      "target": "changelog_fixed_61",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "CHANGELOG.md",
       "source_location": "L61",
-      "weight": 1.0,
-      "_origin": "ast"
-    },
-    {
-      "source": "changelog_1_0_1_2026_07_28",
-      "target": "changelog_added_63",
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "CHANGELOG.md",
-      "source_location": "L63",
-      "weight": 1.0,
-      "_origin": "ast"
-    },
-    {
-      "source": "changelog_1_0_1_2026_07_28",
-      "target": "changelog_changed_68",
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "CHANGELOG.md",
-      "source_location": "L68",
-      "weight": 1.0,
-      "_origin": "ast"
-    },
-    {
-      "source": "changelog_1_0_1_2026_07_28",
-      "target": "changelog_fixed_72",
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "CHANGELOG.md",
-      "source_location": "L72",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -168212,17 +168158,17 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "CHANGELOG.md",
-      "source_location": "L78",
+      "source_location": "L67",
       "weight": 1.0,
       "_origin": "ast"
     },
     {
       "source": "changelog_1_0_0_2026_07_26",
-      "target": "changelog_changed_80",
+      "target": "changelog_changed_69",
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "CHANGELOG.md",
-      "source_location": "L80",
+      "source_location": "L69",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -168232,17 +168178,17 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "CHANGELOG.md",
-      "source_location": "L85",
+      "source_location": "L74",
       "weight": 1.0,
       "_origin": "ast"
     },
     {
       "source": "changelog_0_4_1_2026_07_24",
-      "target": "changelog_changed_87",
+      "target": "changelog_changed_76",
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "CHANGELOG.md",
-      "source_location": "L87",
+      "source_location": "L76",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -168252,7 +168198,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "CHANGELOG.md",
-      "source_location": "L99",
+      "source_location": "L88",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -168262,17 +168208,17 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "CHANGELOG.md",
-      "source_location": "L103",
+      "source_location": "L92",
       "weight": 1.0,
       "_origin": "ast"
     },
     {
       "source": "changelog_0_4_0_2026_07_23",
-      "target": "changelog_changed_105",
+      "target": "changelog_changed_94",
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "CHANGELOG.md",
-      "source_location": "L105",
+      "source_location": "L94",
       "weight": 1.0,
       "_origin": "ast"
     },
@@ -168282,7 +168228,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "CHANGELOG.md",
-      "source_location": "L110",
+      "source_location": "L99",
       "weight": 1.0,
       "_origin": "ast"
     },

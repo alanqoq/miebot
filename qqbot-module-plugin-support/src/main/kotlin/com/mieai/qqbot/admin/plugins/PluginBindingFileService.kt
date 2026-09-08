@@ -82,6 +82,11 @@ class PluginBindingFileService(
                         )
                     }
                     requireValidConfigurationUnlocked(binding)
+                    if (binding.enabled && binding.runtimeState == PluginBindingRuntimeState.QUARANTINED &&
+                        binding.runtimeError.orEmpty().startsWith(CONFIGURATION_ERROR)
+                    ) {
+                        runtime.resetQuarantinedBinding(binding.id)
+                    }
                 }
             } catch (exception: Exception) {
                 val message = "$CONFIGURATION_ERROR: ${exception.javaClass.simpleName}"

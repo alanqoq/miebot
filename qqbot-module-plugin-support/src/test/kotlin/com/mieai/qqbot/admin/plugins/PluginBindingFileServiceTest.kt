@@ -179,6 +179,26 @@ class PluginBindingFileServiceTest {
     }
 
     @Test
+    fun `recovers configuration quarantine after the plugin becomes available`() {
+        val quarantined = binding.copy(
+            runtimeState = PluginBindingRuntimeState.QUARANTINED,
+            runtimeError = "Plugin configuration file is missing or invalid: IllegalStateException",
+        )
+        val timedOut = binding.copy(
+            id = UUID.fromString("770e8400-e29b-41d4-a716-446655440002"),
+            runtimeState = PluginBindingRuntimeState.QUARANTINED,
+            runtimeError = "Plugin execution timed out and did not stop within 5000 ms: TimeoutException",
+        )
+        `when`(bindings.findAll()).thenReturn(listOf(quarantined, timedOut))
+        `when`(bindings.findById(binding.id)).thenReturn(quarantined)
+
+        service.initializeMissingBindings()
+
+        verify(runtime).resetQuarantinedBinding(binding.id)
+        verify(runtime, never()).resetQuarantinedBinding(timedOut.id)
+    }
+
+    @Test
     fun `rejects a symbolic link used as the bot directory`() {
         val outside = temporaryDirectory.resolve("outside")
         Files.createDirectories(dataRoot)
